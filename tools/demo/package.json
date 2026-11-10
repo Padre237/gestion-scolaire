@@ -1,0 +1,15 @@
+{
+  "name": "@gs/demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vide": "tsx src/vide.ts",
+    "fictif": "tsx src/fictif.ts",
+    "import-csv": "tsx src/import-csv.ts",
+    "sauvegarde": "tsx src/sauvegarde.ts",
+    "restaurer": "tsx src/restaurer.ts",
+    "lancer": "tsx src/lancer.ts"
+  },
+  "dependencies": { "@gs/db": "workspace:*", "@gs/shared": "workspace:*", "@gs/api": "workspace:*", "pg": "^8" },
+  "devDependencies": { "@types/node": "^22", "@types/pg": "^8", "tsx": "^4", "typescript": "^5" }
+}

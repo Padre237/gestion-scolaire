@@ -1,0 +1,6 @@
+packages:
+  - apps/api
+  - packages/*
+  - tools/demo
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,9 @@
+{
+  "name": "@gs/db",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "migrer": "tsx src/migrer-cli.ts" },
+  "dependencies": { "@gs/shared": "workspace:*", "drizzle-orm": "^0.44", "pg": "^8" },
+  "devDependencies": { "@types/pg": "^8", "@types/node": "^22", "tsx": "^4", "typescript": "^5" }
+}

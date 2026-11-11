@@ -1,7 +1,7 @@
 {
   "name": "gestion-scolaire",
   "private": true,
-  "description": "Application de gestion scolaire : serveur Fastify, client Flutter, PostgreSQL.",
+  "description": "Gestion scolaire : serveur Node.js (Fastify), application web installable (React, PWA), PostgreSQL.",
   "type": "module",
   "scripts": {
     "migrer": "pnpm --filter @gs/db migrer",
@@ -12,7 +12,11 @@
     "demo:restaurer": "pnpm --filter @gs/demo restaurer",
     "demo:lancer": "pnpm --filter @gs/demo lancer",
     "test": "pnpm -r --workspace-concurrency=1 test",
-    "verifier": "pnpm -r exec tsc --noEmit"
+    "verifier": "pnpm -r exec tsc --noEmit",
+    "web:build": "pnpm --filter @gs/web build",
+    "web:dev": "pnpm --filter @gs/web dev"
   },
-  "engines": { "node": ">=22" }
+  "engines": {
+    "node": ">=22"
+  }
 }

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ErreurApi, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
-import { useMoi } from '../core/session.tsx';
+import { useMoi, useSession } from '../core/session.tsx';
 import { choisirFichier } from '../core/documents.ts';
 import { jjmmaaaa, pluriel, versEntier, versIso } from '../core/format.ts';
 import {
@@ -192,7 +192,8 @@ function FenetreAnnee({ fermer, derniere }: { fermer: (ok?: boolean) => void; de
   };
   return (
     <>
-      <p>L’année est créée en préparation, avec trois trimestres modifiables. Elle s’ouvre à la clôture de l’année en cours.</p>
+      <p>{derniere ? 'L’année est créée en préparation, avec trois trimestres modifiables. Elle s’ouvre à la clôture de l’année en cours.'
+        : 'L’année est créée avec trois trimestres modifiables. Ouvrez-la ensuite : inscriptions, caisse et notes s’y rattachent.'}</p>
       <Grille min={140} ecart={12}>
         <Champ libelle="Année scolaire" value={libelle} onChange={setLibelle} autoFocus />
         <Champ libelle="Du" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} />
@@ -361,6 +362,7 @@ function FenetreModifierClasse({ fermer, classe }: { fermer: (ok?: boolean) => v
 
 export function EcranEtablissement() {
   const moi = useMoi();
+  const { charger } = useSession();
   const naviguer = useNavigate();
   const st = useDonnees(() => api.get<Structure>('/structure/etablissement'));
   const recharger = () => { void st.recharger(); };
@@ -374,10 +376,11 @@ export function EcranEtablissement() {
     const ouverte = s.annees.find((a) => a.statut === 'ouverte');
     const ouvrir = async (a: Annee) => {
       if (!(await confirmer(`Ouvrir ${a.libelle}`, `L’année ${a.libelle} devient l’année en cours : inscriptions, caisse et notes s’y rattachent.`, 'Ouvrir l’année'))) return;
-      if (await agir(() => api.post(`/structure/annees/${a.id}/ouverture`), `Année ${a.libelle} ouverte`)) recharger();
+      if (await agir(() => api.post(`/structure/annees/${a.id}/ouverture`), `Année ${a.libelle} ouverte`)) { recharger(); void charger(); }
     };
     const preparer = async () => {
-      if (await ouvrirFormulaire<boolean>('Préparer l’année suivante', ({ fermer }) => <FenetreAnnee fermer={fermer} derniere={s.annees[s.annees.length - 1]} />, 520)) recharger();
+      const titre = s.annees.length ? 'Préparer l’année suivante' : 'Créer l’année scolaire';
+      if (await ouvrirFormulaire<boolean>(titre, ({ fermer }) => <FenetreAnnee fermer={fermer} derniere={s.annees[s.annees.length - 1]} />, 520)) recharger();
     };
     const modifierPeriodes = async () => {
       if (await ouvrirFormulaire<boolean>(`Périodes d'évaluation · ${anneePeriodes?.libelle ?? ''}`, ({ fermer }) => <FenetrePeriodes fermer={fermer} periodes={s.periodes} />, 640)) {
@@ -413,7 +416,7 @@ export function EcranEtablissement() {
               ))}
               {s.annees.length === 0 && <Doux>Aucune année scolaire pour l’instant.</Doux>}
             </div>
-            {gererAnnees && !s.annees.some((a) => a.statut === 'preparation') && <div><Bouton icone="ajouter" onClick={preparer}>Préparer l’année suivante</Bouton></div>}
+            {gererAnnees && !s.annees.some((a) => a.statut === 'preparation') && <div><Bouton icone="ajouter" onClick={preparer}>{s.annees.length ? 'Préparer l’année suivante' : 'Créer l’année scolaire'}</Bouton></div>}
           </Panneau>
           <Panneau>
             <TitrePanneau titre={`Périodes d'évaluation${anneePeriodes ? ` · ${anneePeriodes.libelle}` : ''}`}

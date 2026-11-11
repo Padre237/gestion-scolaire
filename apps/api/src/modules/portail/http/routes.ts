@@ -90,7 +90,7 @@ export async function routesPortail(app: FastifyInstance) {
     }
     const nouvelles = await app.bd.lire<{ date: string; type: string; texte: string }>(sql`
       SELECT * FROM (
-        SELECT v.encaisse_le AS date, 'Paiement' AS type, 'Reçu ' || v.numero_recu || ' · ' || to_char(v.montant, 'FM999G999G999') || ' FCFA pour ' || e.prenoms AS texte
+        SELECT v.encaisse_le AS date, 'Paiement' AS type, 'Reçu ' || v.numero_recu || ' · ' || replace(to_char(v.montant, 'FM999,999,999'), ',', U&'\\202F') || ' FCFA pour ' || e.prenoms AS texte
           FROM finances.versement v JOIN scolarite.inscription i ON i.id = v.inscription_id JOIN scolarite.eleve e ON e.id = i.eleve_id
          WHERE e.famille_id = ${f} AND v.statut <> 'annule'
         UNION ALL

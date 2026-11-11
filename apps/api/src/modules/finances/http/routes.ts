@@ -535,7 +535,7 @@ export async function routesFinances(app: FastifyInstance) {
     const pdf = await app.bd.transaction(ctx.compteId, async (tx) => {
       const annee = await anneeOuverteTx(tx, ctx.etablissementId);
       const e = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; banque: string | null; numero_compte: string | null }>(tx, sql`
-        SELECT nom_fr, nom_en, ville_bp, telephone, banque, numero_compte FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+        SELECT nom_fr, nom_en, ville_bp, telephone, banque, numero_compte, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
       const avis = [];
       for (const id of req.body.inscriptionIds) {
         const i = await exigerInscription(tx, ctx, id);
@@ -614,11 +614,54 @@ export async function routesFinances(app: FastifyInstance) {
   r.get('/finances/comptes', { config: { permission: 'finances.comptes.consulter' }, schema: { tags: ['finances'], querystring: FiltreComptes } },
     async (req) => etatComptes(exiger(req).etablissementId, req.query));
 
+  /** Export comptable : chaque mouvement de caisse en écriture équilibrée (plan SYSCOHADA), à réimputer par le comptable si besoin. */
+  const COMPTES_CHARGES: [RegExp, string, string][] = [
+    [/fourniture|papeterie|craie|cahier/i, '605', 'Autres achats'], [/entretien|réparation|nettoyage/i, '624', 'Entretien et réparations'],
+    [/eau|électricité|electricite|énergie/i, '605', 'Autres achats'], [/vacataire|personnel/i, '637', 'Personnel extérieur'],
+    [/transport|déplacement/i, '618', 'Transports'], [/téléphone|internet|communication/i, '628', 'Télécommunications'],
+  ];
+  async function ecritures(ctx: { etablissementId: string; compteId: string }, du: string, au: string, caisse: string | null) {
+    const mouvements = await app.bd.lire<{ jour: string; caisse: string; sens: string; nature: string; mode: string; libelle: string; montant: number; categorie: string | null }>(sql`
+      SELECT to_char(m.horodatage AT TIME ZONE 'Africa/Douala', 'DD/MM/YYYY') AS jour, m.caisse, m.sens, m.nature, m.mode, m.libelle, m.montant, c.libelle AS categorie
+        FROM reporting.v_journal_caisse m
+        LEFT JOIN caisse.mouvement x ON x.id = m.id LEFT JOIN caisse.sortie s ON s.id = x.sortie_id LEFT JOIN caisse.categorie c ON c.id = s.categorie_id
+       WHERE m.etablissement_id = ${ctx.etablissementId} AND (m.horodatage AT TIME ZONE 'Africa/Douala')::date BETWEEN ${du}::date AND ${au}::date
+         AND (${caisse}::text IS NULL OR m.caisse = ${caisse}) ORDER BY m.horodatage`);
+    const lignes: Record<string, string | number>[] = [];
+    const ecrire = (jour: string, journal: string, piece: string, libelle: string, debit: [string, string], credit: [string, string], montant: number) => {
+      lignes.push({ Date: jour, Journal: journal, Compte: debit[0], 'Intitulé du compte': debit[1], Libellé: libelle, Pièce: piece, Débit: montant, Crédit: '' });
+      lignes.push({ Date: jour, Journal: journal, Compte: credit[0], 'Intitulé du compte': credit[1], Libellé: libelle, Pièce: piece, Débit: '', Crédit: montant });
+    };
+    const CAISSE: [string, string] = ['571', 'Caisse'];
+    const BANQUE: [string, string] = ['521', 'Banque'];
+    const CHEQUES: [string, string] = ['513', 'Chèques à encaisser'];
+    const SCOLARITE: [string, string] = ['706', 'Services vendus (frais de scolarité)'];
+    for (const m of mouvements) {
+      const piece = m.libelle.match(/\b[RSAE]\d{4}-\d+\b/)?.[0] ?? m.libelle.match(/bordereau\s+(\S+)/)?.[1] ?? '';
+      const libelle = m.libelle.replace(/^Annulation\s+/, 'Annulation · ');
+      if (m.nature === 'versement') {
+        const debit = m.mode === 'especes' ? CAISSE : m.mode === 'cheque' ? CHEQUES : BANQUE;
+        ecrire(m.jour, m.mode === 'especes' ? 'CA' : 'BQ', piece, libelle, debit, SCOLARITE, m.montant);
+      } else if (m.nature === 'entree_diverse') ecrire(m.jour, 'CA', piece, libelle, CAISSE, ['758', 'Produits divers'], m.montant);
+      else if (m.nature === 'annulation') ecrire(m.jour, 'CA', piece, libelle, SCOLARITE, CAISSE, m.montant);
+      else if (m.nature === 'versement_banque') ecrire(m.jour, 'CA', piece, libelle, BANQUE, CAISSE, m.montant);
+      else {
+        const charge = COMPTES_CHARGES.find(([re]) => re.test(`${m.categorie ?? ''} ${m.libelle}`));
+        ecrire(m.jour, 'CA', piece, m.categorie ? `${libelle} · ${m.categorie}` : libelle, charge ? [charge[1], charge[2]] : ['638', 'Autres charges externes'], CAISSE, m.montant);
+      }
+    }
+    await app.bd.transaction(ctx.compteId, (tx) => journaliser(tx, ctx as never, { action: 'Export', objetType: 'Comptes',
+      objetLibelle: `Écritures comptables du ${dateFr(du)} au ${dateFr(au)}`, avant: '–', apres: `${mouvements.length} opérations` }));
+    return versCsv(lignes.length ? lignes : [{ Date: '', Journal: '', Compte: '', 'Intitulé du compte': '', Libellé: 'Aucune opération sur la période', Pièce: '', Débit: '', Crédit: '' }]);
+  }
+
   r.get('/finances/comptes/document', {
-    config: { permission: 'finances.comptes.consulter' }, schema: { tags: ['finances'], querystring: FiltreComptes.extend({ format: z.enum(['csv', 'pdf']) }) },
+    config: { permission: 'finances.comptes.consulter' }, schema: { tags: ['finances'], querystring: FiltreComptes.extend({ format: z.enum(['csv', 'pdf', 'ecritures']) }) },
   }, async (req, rep) => {
     const ctx = exiger(req);
     const e = await etatComptes(ctx.etablissementId, req.query);
+    if (req.query.format === 'ecritures') return rep.header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="ecritures-${e.du}-${e.au}.csv"`).send(await ecritures(ctx, e.du, e.au, req.query.caisse ?? null));
     const lignesC = e.parCaisse.map((c) => [c.caisse === 'principale' ? 'Caisse principale' : 'Caisse APE', ...[c.initial, c.recettes, c.depenses, c.banque, c.solde].map((n) => n.toLocaleString('fr-FR'))]);
     await app.bd.transaction(ctx.compteId, (tx) => journaliser(tx, ctx, { action: 'Export', objetType: 'Comptes', objetLibelle: `État des comptes du ${dateFr(e.du)} au ${dateFr(e.au)}`, avant: '–', apres: req.query.format.toUpperCase() }));
     if (req.query.format === 'csv') {

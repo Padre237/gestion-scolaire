@@ -142,3 +142,16 @@ describe('RG-18 · écart de clôture', () => {
     expect(ecartDeCloture(77_000, 20_000, 66_000, 8_500, 'Erreur de rendu de monnaie')).toBe(-500);
   });
 });
+
+describe('Messages montrés à l\'écran', () => {
+  it('ne citent ni les règles ni les écarts des cahiers', async () => {
+    const { sansReferences, interdit } = await import('../src/core/erreurs.ts');
+    expect(sansReferences('Ce bordereau est déjà enregistré pour cette banque (RG-13).')).toBe('Ce bordereau est déjà enregistré pour cette banque.');
+    expect(sansReferences('Cet élève a déjà une inscription active cette année (RG-05) : changez-le de classe.'))
+      .toBe('Cet élève a déjà une inscription active cette année : changez-le de classe.');
+    expect(sansReferences('Aucune grille des frais pour le niveau CE2 (CU-07).')).toBe('Aucune grille des frais pour le niveau CE2.');
+    const e = interdit('finances.versement.encaisser');
+    expect(e.message).toBe('Cette action est hors de vos droits.');
+    expect(e.permission).toBe('finances.versement.encaisser');
+  });
+});

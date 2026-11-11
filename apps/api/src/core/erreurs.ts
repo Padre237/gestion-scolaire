@@ -8,14 +8,19 @@ export class ErreurMetier extends Error {
     readonly statut: number = 422,
     message?: string,
     readonly champ?: string,
+    readonly permission?: string,
   ) {
     super(message ?? code);
   }
 }
 
+/** Les références aux cahiers (RG-13, CU-07, E-23…) servent au code et aux tests, pas à l'écran. */
+export const sansReferences = (m: string) =>
+  m.replace(/\s*\((?:ECARTS\s+)?(?:RG|CU|E|D|ADR|SOC|FIN|ENF|IA)-\d+[^)]*\)/g, '').replace(/\s+([.,;:])/g, (_x, p: string) => (p === ':' ? ' :' : p)).trim();
+
 export const nonAutorise = () => new ErreurMetier('CORE_NON_AUTHENTIFIE', 401, 'Connexion requise.');
 export const interdit = (permission?: string) =>
-  new ErreurMetier('CORE_INTERDIT', 403, permission ? `Permission requise : ${permission}.` : 'Action hors de vos droits.');
+  new ErreurMetier('CORE_INTERDIT', 403, 'Cette action est hors de vos droits.', undefined, permission);
 export const introuvable = (quoi: string) => new ErreurMetier('CORE_INTROUVABLE', 404, `${quoi} introuvable.`);
 export const conflit = () => new ErreurMetier('CORE_CONFLIT_VERSION', 409, 'La ressource a été modifiée entre-temps.');
 
@@ -26,7 +31,7 @@ export function gestionnaireErreurs(err: FastifyError | ErreurMetier | Error, re
     });
 
   if (err instanceof ErreurMetier) {
-    return envoyer(err.statut, err.code, err.message, err.champ ? { champ: err.champ } : {});
+    return envoyer(err.statut, err.code, sansReferences(err.message), { ...(err.champ ? { champ: err.champ } : {}), ...(err.permission ? { permission: err.permission } : {}) });
   }
   if (hasZodFastifySchemaValidationErrors(err)) {
     const champs = err.validation.map((v) => ({ champ: v.instancePath.replace(/^\//, '').replaceAll('/', '.'), message: v.message }));

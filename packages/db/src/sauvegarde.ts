@@ -42,9 +42,13 @@ export function listerSauvegardes(c: Config): Sauvegarde[] {
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 
-/** Garde la plus récente de chacun des 7 derniers jours, des 4 dernières semaines et des 12 derniers mois. */
+/** Sauvegardes faites par l'application elle-même ; les sauvegardes demandées (manuelle, nommée) ne sont jamais effacées. */
+const AUTOMATIQUES = ['quotidienne', 'avant-restauration', 'avant-cloture'];
+export const estAutomatique = (nom: string) => AUTOMATIQUES.some((m) => nom.endsWith(`-${m}.sauvegarde`));
+
+/** Sauvegardes automatiques : garde la plus récente de chacun des 7 derniers jours, des 4 dernières semaines et des 12 derniers mois. */
 export function rotation(c: Config) {
-  const liste = listerSauvegardes(c);
+  const liste = listerSauvegardes(c).filter((s) => estAutomatique(s.nom));
   const garder = new Set<string>(liste.slice(0, 1).map((s) => s.nom));
   const parCle = (f: (d: Date) => string, n: number) => {
     const vus: string[] = [];
@@ -62,7 +66,11 @@ export function rotation(c: Config) {
   for (const s of liste) if (!garder.has(s.nom)) unlinkSync(resolve(c.sauvegarde.dossier, s.nom));
 }
 
+/** Motif lisible dans le nom du fichier : lettres minuscules, chiffres et tirets (« depart », « repetition »). */
+export const motifValide = (m: string) => /^[a-z0-9][a-z0-9-]{0,39}$/.test(m);
+
 export async function sauvegarder(c: Config, motif = 'manuelle'): Promise<Sauvegarde> {
+  if (!motifValide(motif)) throw new Error('Nom de sauvegarde : lettres minuscules, chiffres et tirets.');
   const vidage = await outil(c, 'pg_dump', ['-Fc', '--no-owner', c.pg.base]);
   const iv = randomBytes(12);
   const chiffre = createCipheriv('aes-256-gcm', cle(c), iv);

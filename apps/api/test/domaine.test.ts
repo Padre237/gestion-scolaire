@@ -155,3 +155,15 @@ describe('Messages montrés à l\'écran', () => {
     expect(e.permission).toBe('finances.versement.encaisser');
   });
 });
+
+describe('Sauvegardes : rotation', () => {
+  it('ne tourne que sur les sauvegardes automatiques ; les sauvegardes demandées restent', async () => {
+    const { estAutomatique, motifValide } = await import('@gs/db');
+    expect(estAutomatique('gs-20261111-180000-quotidienne.sauvegarde')).toBe(true);
+    expect(estAutomatique('gs-20261111-180500-avant-restauration.sauvegarde')).toBe(true);
+    expect(estAutomatique('gs-20261111-120000-depart.sauvegarde')).toBe(false);
+    expect(estAutomatique('gs-20261111-120000-manuelle.sauvegarde')).toBe(false);
+    expect(motifValide('depart')).toBe(true);
+    expect(motifValide('Départ !')).toBe(false);
+  });
+});

@@ -1,0 +1,9 @@
+{
+  "name": "@gs/controle",
+  "private": true,
+  "type": "module",
+  "description": "Contrôle de fidélité aux maquettes : captures de l'application réelle, textes, liens (prompt § 2, D-20).",
+  "scripts": { "capturer": "tsx src/capturer.ts", "controler": "tsx src/controler.ts" },
+  "dependencies": { "puppeteer": "^24" },
+  "devDependencies": { "@types/node": "^22", "tsx": "^4", "typescript": "^5" }
+}

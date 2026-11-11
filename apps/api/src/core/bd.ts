@@ -15,11 +15,14 @@ pg.types.setTypeParser(20, (v) => Number(v));
 pg.types.setTypeParser(1700, (v) => Number(v));
 
 export function creerPool(c: ConfigPg, base = c.base): pg.Pool {
-  return new pg.Pool({
+  const pool = new pg.Pool({
     host: c.hote, port: c.port, database: base,
     user: c.application.utilisateur, password: c.application.motDePasse,
     max: 10,
   });
+  // Une connexion inactive coupée (restauration d'une sauvegarde, redémarrage de PostgreSQL) est remplacée à la demande suivante.
+  pool.on('error', () => {});
+  return pool;
 }
 
 export class Bd {

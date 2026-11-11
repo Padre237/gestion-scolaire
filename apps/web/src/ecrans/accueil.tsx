@@ -104,7 +104,7 @@ export function EcranTableauDeBord() {
     if (d.recouvrement) cartes.push(<CarteChiffre key="r" etiquette="Taux de recouvrement" valeur={`${d.recouvrement.du > 0 ? Math.floor((d.recouvrement.verse * 100) / d.recouvrement.du) : 0} %`}
       sous={`${montant(d.recouvrement.verse)} sur ${montant(d.recouvrement.du)} FCFA`} />);
     if (d.echu) cartes.push(<CarteChiffre key="x" etiquette="Échéances dépassées" valeur={montant(d.echu.montant)} unite="FCFA" couleur="var(--attention)" sous={`${pluriel(d.echu.eleves, 'élève')} en retard`} />);
-    const aTraiter = (d.aTraiter ?? []) as { code: string; nombre: number; sequence?: string }[];
+    const aTraiter = ((d.aTraiter ?? []) as { code: string; nombre: number; sequence?: string }[]).filter((a) => a.nombre > 0);
     return (
       <>
         {cartes.length > 0 && <Grille min={200} ecart={20}>{cartes}</Grille>}

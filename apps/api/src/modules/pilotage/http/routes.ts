@@ -8,6 +8,7 @@ import { ErreurMetier } from '../../../core/erreurs.ts';
 import { journaliser } from '../../../core/audit.ts';
 import { versCsv } from '../../../core/csv.ts';
 import { anneeOuverte } from '../../structure/index.ts';
+import { classesAccessibles, perimetreEnseignant } from '../../../core/perimetre.ts';
 import { pdfTableau } from '@gs/print';
 
 export async function routesPilotage(app: FastifyInstance) {
@@ -21,10 +22,16 @@ export async function routesPilotage(app: FastifyInstance) {
     const tout = ctx.a('pilotage.tableau.consulter');
     const voitFinances = tout || ctx.a('finances.impaye.consulter') || ctx.a('caisse.consulter');
     const res: Record<string, unknown> = { annee: annee.libelle };
+    // Un instituteur ne compte que son périmètre : ses classes, ses appels, ses matières (RG-34).
+    const perimetre = tout ? 'toutes' : await classesAccessibles(app.bd, ctx, 'scolarite.eleve.consulter');
+    const classesVues = perimetre === 'toutes' ? null : perimetre;
+    const enseignant = classesVues ? await perimetreEnseignant(app.bd, ctx) : null;
     if (tout || ctx.a('scolarite.eleve.consulter')) {
       res['effectifs'] = await app.bd.lireUn(sql`
-        SELECT (SELECT count(*)::int FROM reporting.v_inscription WHERE annee_id = ${annee.id} AND statut IN ('attente', 'validee')) AS eleves,
-               (SELECT count(*)::int FROM structure.classe WHERE annee_id = ${annee.id}) AS classes`);
+        SELECT (SELECT count(*)::int FROM reporting.v_inscription WHERE annee_id = ${annee.id} AND statut IN ('attente', 'validee')
+                   AND (${classesVues === null} OR classe_id = ANY(${tableau(classesVues ?? [])}::uuid[]))) AS eleves,
+               (SELECT count(*)::int FROM structure.classe WHERE annee_id = ${annee.id}
+                   AND (${classesVues === null} OR id = ANY(${tableau(classesVues ?? [])}::uuid[]))) AS classes`);
     }
     if (voitFinances) {
       res['jour'] = await app.bd.lireUn(sql`
@@ -59,14 +66,17 @@ export async function routesPilotage(app: FastifyInstance) {
     if (tout || ctx.a('vie_scolaire.dossier.consulter')) {
       const n = await app.bd.lireUn<{ n: number }>(sql`
         SELECT count(*)::int AS n FROM vie_scolaire.fiche_appel WHERE etablissement_id = ${ctx.etablissementId}
-           AND jour = (now() AT TIME ZONE 'Africa/Douala')::date AND statut = 'a_faire' AND debut < '12:00' AND fin <= (now() AT TIME ZONE 'Africa/Douala')::time`);
+           AND jour = (now() AT TIME ZONE 'Africa/Douala')::date AND statut = 'a_faire' AND debut < '12:00' AND fin <= (now() AT TIME ZONE 'Africa/Douala')::time
+           AND (${classesVues === null} OR personnel_id = ${ctx.personnelId ?? null})`);
       aTraiter.push({ code: 'appels', nombre: n!.n });
     }
     if (tout || ctx.a('pedagogie.note.lire')) {
       const s = await app.bd.lireUn<{ id: string; libelle: string; n: number }>(sql`
         SELECT s.id, s.libelle_fr AS libelle,
                (SELECT count(*)::int FROM structure.classe c WHERE c.annee_id = ${annee.id}
-                   AND NOT EXISTS (SELECT 1 FROM pedagogie.evaluation e WHERE e.sequence_id = s.id AND e.classe_id = c.id)) AS n
+                   AND (${classesVues === null} OR c.id = ANY(${tableau(classesVues ?? [])}::uuid[]))
+                   AND NOT EXISTS (SELECT 1 FROM pedagogie.evaluation e WHERE e.sequence_id = s.id AND e.classe_id = c.id
+                                     AND (${enseignant === null || (enseignant?.classesPrincipal.length ?? 0) > 0} OR e.matiere_id = ANY(${tableau(enseignant?.matieres.map((m) => m.matiereId) ?? [])}::uuid[])))) AS n
           FROM pedagogie.sequence s WHERE s.annee_id = ${annee.id} AND s.statut = 'ouverte' ORDER BY s.numero DESC LIMIT 1`);
       if (s) aTraiter.push({ code: 'notes', nombre: s.n, sequence: s.libelle.toLowerCase() } as never);
     }

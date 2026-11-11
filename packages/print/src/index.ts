@@ -255,6 +255,70 @@ export async function pdfCertificat(d: { etablissement: Etablissement; classe: s
   return doc.save();
 }
 
+// ---------------------------------------------------------------- cartes scolaires (maquette Classes, « Cartes scolaires »)
+
+export interface CarteEleve extends EleveListe { photo: Uint8Array | null }
+
+/** Cartes au format carte bancaire (85,6 × 54 mm), dix par page A4, bordées pour la découpe. */
+export async function pdfCartesScolaires(d: { etablissement: Etablissement; classe: string; annee: string; logo: Uint8Array | null; eleves: CarteEleve[] }) {
+  const { doc, polices: p } = await nouveauDocument(`Cartes scolaires ${d.classe}`);
+  const image = async (b: Uint8Array | null) => {
+    if (!b || b.length < 8) return null;
+    try { return b[0] === 0x89 ? await doc.embedPng(b) : await doc.embedJpg(b); } catch { return null; }
+  };
+  const logo = await image(d.logo);
+  const L = 85.6 * MM, H = 54 * MM, colonnes = 2, rangees = 5;
+  const mx = (595 - colonnes * L) / (colonnes + 1), my = (842 - rangees * H) / (rangees + 1);
+  let page = doc.addPage([595, 842]);
+  for (let i = 0; i < d.eleves.length; i++) {
+    const e = d.eleves[i]!;
+    const k = i % (colonnes * rangees);
+    if (i > 0 && k === 0) page = doc.addPage([595, 842]);
+    const x = mx + (k % colonnes) * (L + mx);
+    const y = 842 - my - (Math.floor(k / colonnes) + 1) * H - Math.floor(k / colonnes) * my;
+    page.drawRectangle({ x, y, width: L, height: H, borderColor: TRAIT, borderWidth: 0.8 });
+    // Bandeau : établissement, en français et en anglais.
+    const bande = 12 * MM;
+    page.drawRectangle({ x, y: y + H - bande, width: L, height: bande, color: ENCRE });
+    let xt = x + 3 * MM;
+    if (logo) {
+      const h = 9 * MM, w = Math.min(14 * MM, (logo.width / logo.height) * h);
+      page.drawImage(logo, { x: x + 2 * MM, y: y + H - bande + 1.5 * MM, width: w, height: h });
+      xt = x + 3.5 * MM + w;
+    }
+    const blanc = rgb(1, 1, 1);
+    texte(page, d.etablissement.nom_fr.toUpperCase(), xt, y + H - 5 * MM, p.gras, 6.6, blanc, x + L - xt - 2 * MM);
+    texte(page, d.etablissement.nom_en, xt, y + H - 8.6 * MM, p.normal, 6, blanc, x + L - xt - 2 * MM);
+    texte(page, 'CARTE SCOLAIRE · SCHOOL ID CARD', x + 3 * MM, y + H - bande - 4.2 * MM, p.gras, 6.5, rgb(0.114, 0.306, 0.847));
+    texteDroite(page, d.annee, x + L - 3 * MM, y + H - bande - 4.2 * MM, p.gras, 6.5);
+    // Photo d'identité, ou initiales.
+    const pw = 21 * MM, ph = 26 * MM, px = x + 3 * MM, py = y + 5 * MM;
+    const photo = await image(e.photo);
+    if (photo) {
+      const r = Math.max(pw / photo.width, ph / photo.height);
+      const w = photo.width * r, h = photo.height * r;
+      page.drawImage(photo, { x: px + (pw - w) / 2, y: py + (ph - h) / 2, width: w, height: h });
+      page.drawRectangle({ x: px, y: py, width: pw, height: ph, borderColor: TRAIT, borderWidth: 0.6 });
+    } else {
+      page.drawRectangle({ x: px, y: py, width: pw, height: ph, color: rgb(0.945, 0.957, 0.98), borderColor: TRAIT, borderWidth: 0.6 });
+      texteCentre(page, `${e.nom.charAt(0)}${e.prenoms.charAt(0)}`.toUpperCase(), px + pw / 2, py + ph / 2 - 5, p.gras, 15, DOUX);
+    }
+    // Identité.
+    const tx = px + pw + 3.5 * MM, tl = x + L - tx - 3 * MM;
+    let ty = py + ph - 3.2 * MM;
+    texte(page, e.nom.toUpperCase(), tx, ty, p.gras, 9.5, ENCRE, tl); ty -= 3.6 * MM;
+    texte(page, e.prenoms, tx, ty, p.normal, 8.5, ENCRE, tl); ty -= 4.4 * MM;
+    for (const [libelle, valeur] of [['Matricule', e.matricule], ['Classe · Class', d.classe], [e.sexe === 'F' ? 'Née le · Born on' : 'Né le · Born on', e.naissance]] as [string, string][]) {
+      texte(page, libelle, tx, ty, p.normal, 5.6, DOUX, tl);
+      texte(page, valeur, tx, ty - 2.8 * MM, p.gras, 7.6, ENCRE, tl);
+      ty -= 5.6 * MM;
+    }
+    const coord = [d.etablissement.ville_bp, d.etablissement.telephone ? `Tél. ${d.etablissement.telephone}` : null].filter(Boolean).join(' · ');
+    if (coord) texte(page, coord, x + 3 * MM, y + 1.6 * MM, p.normal, 5.2, DOUX, L - 6 * MM);
+  }
+  return doc.save();
+}
+
 // ---------------------------------------------------------------- fiche d'inscription (E-23)
 
 export async function pdfFicheInscription(d: Record<string, string> & { motDePasse: string | null; telephoneConnexion: string }) {

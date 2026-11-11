@@ -500,6 +500,13 @@ describe('Données et clôture : import, sauvegardes, accès en lecture, clôtur
     const encore = await sec.post('/scolarite/import', { essai: false, lignes });
     expect(encore.corps.importes).toBe(0);
   });
+  it('cartes scolaires de la classe en PDF ; refusées sans droit d\'imprimer (403)', async () => {
+    const r = await sec.get(`/scolarite/classes/${ids['classe:CM2 A']}/document?type=cartes`);
+    expect(r.status).toBe(200);
+    expect(String(r.entetes['content-type'])).toContain('application/pdf');
+    expect(r.brut.subarray(0, 4).toString()).toBe('%PDF');
+    expect((await eco.get(`/scolarite/classes/${ids['classe:CM2 A']}/document?type=cartes`)).status).toBe(403);
+  });
   it('403 : sauvegarde, restauration et accès en lecture restent à la secrétaire', async () => {
     expect((await eco.get('/core/sauvegardes')).status).toBe(403);
     expect((await pre.post('/core/sauvegardes', {})).status).toBe(403);

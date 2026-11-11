@@ -14,7 +14,7 @@ import { versCsv } from '../../../core/csv.ts';
 import { classeInfo, cleCompteur, exigerAnneeOuverte, FORMATS, prochainNumero, anneeOuverteTx } from '../../structure/index.ts';
 import { chiffres, formatTelephone, inscription } from '../index.ts';
 import '../index.ts';
-import { pdfCertificat, pdfFicheInscription, pdfListeClasse, pdfTableau } from '@gs/print';
+import { pdfCartesScolaires, pdfCertificat, pdfFicheInscription, pdfListeClasse, pdfTableau } from '@gs/print';
 
 const Uuid = z.uuid();
 const LIENS: Record<string, string> = { mere: 'Mère', pere: 'Père', tuteur: 'Tuteur' };
@@ -627,7 +627,7 @@ export async function routesScolarite(app: FastifyInstance) {
 
   r.get('/scolarite/classes/:id/document', {
     config: { permission: 'scolarite.eleve.consulter' },
-    schema: { tags: ['scolarite'], params: z.object({ id: Uuid }), querystring: z.object({ type: z.enum(['liste', 'certificats', 'csv']) }) },
+    schema: { tags: ['scolarite'], params: z.object({ id: Uuid }), querystring: z.object({ type: z.enum(['liste', 'certificats', 'cartes', 'csv']) }) },
   }, async (req, rep) => {
     const ctx = exiger(req);
     if (req.query.type !== 'liste' && !ctx.a('scolarite.document.imprimer') && !ctx.a('scolarite.eleve.exporter')) throw interdit('scolarite.document.imprimer');
@@ -643,6 +643,16 @@ export async function routesScolarite(app: FastifyInstance) {
     if (req.query.type === 'csv') {
       return rep.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="classe-${c.nom}.csv"`)
         .send(versCsv(eleves.map((e, i) => ({ 'N°': i + 1, Matricule: e.matricule, Nom: e.nom, Prénoms: e.prenoms, Sexe: e.sexe, 'Né(e) le': e.naissance }))));
+    }
+    if (req.query.type === 'cartes') {
+      const photos = await app.bd.lire<{ matricule: string; photo: Buffer | null }>(sql`
+        SELECT e.matricule, e.photo FROM scolarite.inscription i JOIN scolarite.eleve e ON e.id = i.eleve_id
+         WHERE i.classe_id = ${req.params.id} AND i.statut IN ('attente', 'validee')`);
+      const logo = await app.bd.lireUn<{ logo: Buffer | null }>(sql`SELECT logo FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      const parMatricule = new Map(photos.map((x) => [x.matricule, x.photo]));
+      const cartes = await pdfCartesScolaires({ etablissement: etab!, classe: c.nom, annee: c.annee, logo: logo?.logo ?? null,
+        eleves: eleves.map((e) => ({ ...e, photo: parMatricule.get(e.matricule) ?? null })) });
+      return rep.type('application/pdf').header('content-disposition', `inline; filename="cartes-${c.nom}.pdf"`).send(Buffer.from(cartes));
     }
     const pdf = req.query.type === 'liste'
       ? await pdfListeClasse({ etablissement: etab!, classe: c.nom, annee: c.annee, eleves })

@@ -6,11 +6,11 @@ import { useMoi } from '../core/session.tsx';
 import { telecharger } from '../core/documents.ts';
 import { enLettres, pluriel, versIso } from '../core/format.ts';
 import {
-  agir, Bandeau, Bascules, Bouton, CaseACocher, Cel2, Champ, Chargement, Colonnes, confirmer, Doux, Erreur, Etiquette, Filtres, Liste, Note,
+  agir, Bandeau, Bascules, Bouton, CaseACocher, Cel2, Champ, Chargement, Colonnes, confirmer, Doux, Erreur, Etiquette, Filtres, Icone, Liste, Note,
   ouvrirFormulaire, Panneau, Pastille, PiedFenetre, Tableau, TitrePanneau, useDonnees, type Ton,
 } from '../core/ui.tsx';
 import {
-  creerCompte, dateHeure, jourHeure, montrerMotDePasse, Pagination, rolesAttribuables, sansAccent, useDiffere, type PersonnelSansCompte, type Role,
+  BoutonAction, creerCompte, dateHeure, jourHeure, montrerMotDePasse, Pagination, rolesAttribuables, sansAccent, useDiffere, useEtroit, type PersonnelSansCompte, type Role,
 } from './admin-commun.tsx';
 
 interface Compte {
@@ -45,7 +45,7 @@ function FenetreModifierCompte({ fermer, compte, roles }: { fermer: (ok?: boolea
       <Champ libelle="Nom affiché" value={nom} onChange={setNom} autoFocus />
       <div className="champ-groupe">
         <span className="libelle">Rôles</span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 18 }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', columnGap: 18 }}>
           {rolesAttribuables(roles).map((r) => (
             <CaseACocher key={r.id} libelle={r.libelle} valeur={choisis.includes(r.id)}
               onChange={(v) => setChoisis((c) => (v ? [...c, r.id] : c.filter((x) => x !== r.id)))} />
@@ -53,7 +53,7 @@ function FenetreModifierCompte({ fermer, compte, roles }: { fermer: (ok?: boolea
         </div>
       </div>
       <Doux>Le périmètre suit les affectations : classes et matières confiées dans Notes et bulletins.</Doux>
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Enregistrer" onAction={valider} charge={charge} />
     </>
   );
@@ -91,8 +91,13 @@ function PanneauPermissions({ roles, catalogue, roleId, choisirRole, recharger }
   roles: Role[]; catalogue: Permission[]; roleId: string | null; choisirRole: (id: string) => void; recharger: () => Promise<void>;
 }) {
   const moi = useMoi();
+  const etroit = useEtroit();
   const role = roles.find((r) => r.id === roleId) ?? roles[0];
   const [cochees, setCochees] = useState<Set<string> | null>(null);
+  // Sections repliées par défaut sur téléphone (92 permissions), ouvertes sur grand écran comme la maquette ; chaque section a une ancre.
+  const [ouvertes, setOuvertes] = useState<Record<string, boolean> | null>(null);
+  const estOuverte = (g: string) => ouvertes?.[g] ?? !etroit;
+  const basculerSection = (g: string) => setOuvertes((o) => ({ ...(o ?? {}), [g]: !estOuverte(g) }));
   const [charge, setCharge] = useState(false);
   useEffect(() => { setCochees(null); }, [role?.id]);
   const codes = useMemo(() => new Set(catalogue.map((p) => p.code)), [catalogue]);
@@ -134,22 +139,46 @@ function PanneauPermissions({ roles, catalogue, roleId, choisirRole, recharger }
       {espaceParent ? (
         <Note>Les permissions de l’espace parent sont fixées par l’application : chaque famille ne voit que ses propres enfants.</Note>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {groupes.map(([g, ps]) => (
-            <div key={g} style={{ display: 'flex', flexDirection: 'column' }}>
-              <Etiquette>{g}</Etiquette>
-              {ps.map((p) => <CaseACocher key={p.code} libelle={p.libelle} valeur={vue.has(p.code)} onChange={modifiable ? (v) => basculer(p.code, v) : undefined} />)}
-            </div>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: etroit ? 4 : 12 }}>
+          {etroit && groupes.length > 1 && (
+            <nav aria-label="Sections des permissions" className="defile-x" style={{ gap: 8, paddingBottom: 4, margin: '0 -4px', padding: '0 4px 4px' }}>
+              {groupes.map(([g]) => (
+                <a key={g} href={`#permissions-${sansAccent(g).replace(/[^a-z0-9]+/g, '-')}`} className="pastille" style={{ height: 40, textDecoration: 'none' }}
+                  onClick={() => setOuvertes((o) => ({ ...(o ?? {}), [g]: true }))}>{g}</a>
+              ))}
+            </nav>
+          )}
+          {groupes.map(([g, ps]) => {
+            const id = `permissions-${sansAccent(g).replace(/[^a-z0-9]+/g, '-')}`;
+            const cochees = ps.filter((p) => vue.has(p.code)).length;
+            const ouverte = estOuverte(g);
+            return (
+              <section key={g} id={id} aria-labelledby={`${id}-titre`} style={{ display: 'flex', flexDirection: 'column', scrollMarginTop: 12 }}>
+                {etroit ? (
+                  <button type="button" aria-expanded={ouverte} aria-controls={`${id}-liste`} onClick={() => basculerSection(g)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, padding: 0, border: 0, background: 'none', cursor: 'pointer', font: 'inherit', textAlign: 'left', width: '100%' }}>
+                    <Icone nom="chevron" taille={16} style={{ color: 'var(--doux)', transform: ouverte ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                    <Etiquette style={{ flex: 1 }}><span id={`${id}-titre`}>{g}</span></Etiquette>
+                    <Doux>{cochees} / {ps.length}</Doux>
+                  </button>
+                ) : <Etiquette><span id={`${id}-titre`}>{g}</span></Etiquette>}
+                {ouverte && (
+                  <div id={`${id}-liste`} style={{ display: 'flex', flexDirection: 'column' }}>
+                    {ps.map((p) => <CaseACocher key={p.code} libelle={p.libelle} valeur={vue.has(p.code)} onChange={modifiable ? (v) => basculer(p.code, v) : undefined} />)}
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       )}
       {modifie && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="pile-mobile" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <Bouton variante="principal" charge={charge} onClick={enregistrer}>Enregistrer les permissions</Bouton>
           <Bouton onClick={() => setCochees(null)}>Annuler</Bouton>
         </div>
       )}
-      {moi.a('core.role.gerer') && !espaceParent && <div><Bouton icone="ajouter" onClick={creerRole}>Créer un rôle à partir de celui-ci</Bouton></div>}
+      {moi.a('core.role.gerer') && !espaceParent && <div className="pile-mobile"><Bouton icone="ajouter" onClick={creerRole}>Créer un rôle à partir de celui-ci</Bouton></div>}
       <Doux>{enLettres(systeme, true)} rôles prêts à l’emploi. La secrétaire peut créer un rôle et lui attribuer des permissions.</Doux>
     </Panneau>
   );
@@ -205,23 +234,23 @@ export function EcranUtilisateurs() {
   const tableau = comptes.erreur && !comptes.d ? <Erreur message={comptes.erreur} recharger={comptes.recharger} /> : !comptes.d ? <Chargement /> : (
     <>
       <Tableau
-        colonnes={[{ titre: 'Compte' }, { titre: 'Rôles' }, { titre: 'Périmètre' }, { titre: 'État' }, { titre: 'Actions', droite: true }]}
+        colonnes={[{ titre: 'Compte', mobile: 'entete' }, { titre: 'Rôles' }, { titre: 'Périmètre' }, { titre: 'État' }, { titre: 'Actions', droite: true }]}
         cles={visibles.map((c) => c.id)}
         vide="Aucun compte ne correspond à cette recherche."
         lignes={visibles.map((c) => [
           <Cel2 gras haut={c.nomAffiche} bas={c.identifiant} />,
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{c.roles.map((r) => <Pastille key={r} ton="accent">{r}</Pastille>)}</div>,
           c.perimetre,
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 8px' }}>
             <Pastille ton={c.actif ? 'succes' : 'neutre'}>{c.actif ? 'Actif' : 'Désactivé'}</Pastille>
             {c.derniereActivite && <Doux>{jourHeure(c.derniereActivite)}</Doux>}
           </div>,
-          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-            {moi.a('core.compte.gerer') && c.type !== 'famille' && <Bouton petit icone="colonnes" title={`Modifier le compte de ${c.nomAffiche}`} onClick={() => modifier(c)} />}
-            {moi.a('core.compte.reinitialiser') && c.actif && <Bouton petit icone="bouclier" title={`Réinitialiser le mot de passe de ${c.nomAffiche}`} onClick={() => reinitialiser(c)} />}
+          <div className="pile-mobile" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            {moi.a('core.compte.gerer') && c.type !== 'famille' && <BoutonAction icone="colonnes" court="Modifier le compte" libelle={`Modifier le compte de ${c.nomAffiche}`} onClick={() => modifier(c)} />}
+            {moi.a('core.compte.reinitialiser') && c.actif && <BoutonAction icone="bouclier" court="Réinitialiser le mot de passe" libelle={`Réinitialiser le mot de passe de ${c.nomAffiche}`} onClick={() => reinitialiser(c)} />}
             {moi.a('core.compte.desactiver') && c.id !== moi.compteId && (c.actif
-              ? <Bouton petit icone="fermer" title={`Désactiver le compte de ${c.nomAffiche}`} onClick={() => basculer(c)} />
-              : <Bouton petit icone="coche" title={`Réactiver le compte de ${c.nomAffiche}`} onClick={() => basculer(c)} />)}
+              ? <BoutonAction icone="fermer" danger court="Désactiver" libelle={`Désactiver le compte de ${c.nomAffiche}`} onClick={() => basculer(c)} />
+              : <BoutonAction icone="coche" court="Réactiver" libelle={`Réactiver le compte de ${c.nomAffiche}`} onClick={() => basculer(c)} />)}
           </div>,
         ])}
       />
@@ -235,10 +264,10 @@ export function EcranUtilisateurs() {
         { flex: 5, min: 640, enfants: (
           <Panneau>
             <TitrePanneau titre="Comptes" sous={nbRoles ? `${enLettres(nbRoles, true)} rôles ; une même personne peut en cumuler plusieurs` : undefined}
-              action={moi.a('core.compte.gerer') && <Bouton variante="principal" icone="ajouter" onClick={nouveauCompte} disabled={!roles.d}>Nouveau compte</Bouton>} />
+              action={moi.a('core.compte.gerer') && <span className="pleine-mobile" style={{ display: 'inline-flex' }}><Bouton variante="principal" pleine icone="ajouter" onClick={nouveauCompte} disabled={!roles.d}>Nouveau compte</Bouton></span>} />
             <Filtres champs={<>
               <Champ placeholder="Nom ou identifiant" ariaLabel="Rechercher un compte" value={q} onChange={setQ} largeur={260} />
-              <Bascules options={[['personnel', 'Personnel'], ['famille', 'Familles'], ['tous', 'Tous']]} valeur={type} onChange={setType} />
+              <div role="group" aria-label="Type de comptes"><Bascules options={[['personnel', 'Personnel'], ['famille', 'Familles'], ['tous', 'Tous']]} valeur={type} onChange={setType} /></div>
             </>} />
             {tableau}
             <Doux>Un compte peut cumuler plusieurs rôles, chacun limité à un périmètre : établissement, cycle, classe ou matière.</Doux>
@@ -296,14 +325,14 @@ export function EcranAudit() {
     <Coque module="parametres">
       <Filtres
         champs={<>
-          <Champ libelle="Du" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} largeur={140} erreur={duFaux ? 'Date JJ/MM/AAAA' : null} />
-          <Champ libelle="Au" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} largeur={140} erreur={auFaux ? 'Date JJ/MM/AAAA' : null} />
+          <Champ libelle="Du" placeholder="JJ/MM/AAAA" inputMode="numeric" value={du} onChange={setDu} largeur={140} erreur={duFaux ? 'Date JJ/MM/AAAA' : null} />
+          <Champ libelle="Au" placeholder="JJ/MM/AAAA" inputMode="numeric" value={au} onChange={setAu} largeur={140} erreur={auFaux ? 'Date JJ/MM/AAAA' : null} />
           <Liste libelle="Utilisateur" value={utilisateur} options={optUtilisateurs} onChange={setUtilisateur} largeur={220} />
           <Liste libelle="Objet" value={objet} options={optObjets} onChange={setObjet} largeur={180} />
           <Liste libelle="Action" value={action} options={optActions} onChange={setAction} largeur={180} />
         </>}
         actions={moi.a('core.audit.exporter') && (
-          <Bouton icone="exporter" onClick={() => telecharger(`/core/journal/export${requete({ du: duIso, au: auIso, utilisateur, objet, action })}`)}>Exporter</Bouton>
+          <div className="pleine-mobile"><Bouton pleine icone="exporter" onClick={() => telecharger(`/core/journal/export${requete({ du: duIso, au: auIso, utilisateur, objet, action })}`)}>Exporter</Bouton></div>
         )}
       />
       <Bandeau icone="bouclier">Le journal se consulte et se filtre ; il ne se modifie pas et ne se vide pas depuis l’application.</Bandeau>
@@ -312,16 +341,16 @@ export function EcranAudit() {
         {j.erreur && !d ? <Erreur message={j.erreur} recharger={j.recharger} /> : !d ? <Chargement /> : (
           <>
             <Tableau
-              colonnes={[{ titre: 'Date' }, { titre: 'Utilisateur' }, { titre: 'Action' }, { titre: 'Objet' }, { titre: 'Avant' }, { titre: 'Après' }]}
+              colonnes={[{ titre: 'Date', mobile: 'entete' }, { titre: 'Utilisateur' }, { titre: 'Action' }, { titre: 'Objet' }, { titre: 'Avant' }, { titre: 'Après' }]}
               cles={d.lignes.map((l) => l.id)}
               vide="Aucune opération ne correspond à ces critères."
               lignes={d.lignes.map((l) => [
                 <span style={{ whiteSpace: 'nowrap' }}>{dateHeure(l.horodatage)}</span>,
                 l.utilisateur,
                 <Pastille ton={TON_ACTION[l.action] ?? 'neutre'}>{l.action}</Pastille>,
-                l.objet,
-                l.avant || '–',
-                l.apres || '–',
+                <span style={{ overflowWrap: 'anywhere' }}>{l.objet}</span>,
+                <span style={{ overflowWrap: 'anywhere' }}>{l.avant || '–'}</span>,
+                <span style={{ overflowWrap: 'anywhere' }}>{l.apres || '–'}</span>,
               ])}
             />
             <Pagination total={d.total} page={page} taille={TAILLE_JOURNAL} nombre={d.lignes.length} mot="ligne" changer={setPage} />

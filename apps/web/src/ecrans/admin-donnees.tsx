@@ -149,8 +149,10 @@ function FenetreColonnes({ fermer, entete, carte, exemple }: { fermer: (c?: (Cha
               <span className="gras">« {h || `Colonne ${i + 1}`} »</span>
               {exemple[i] && <Doux>Exemple : {exemple[i]}</Doux>}
             </div>
-            <Liste ariaLabel={`Donnée de la colonne ${h || i + 1}`} value={c[i] ?? null} options={options} largeur={250}
-              onChange={(v) => setC((x) => x.map((y, j) => (j === i ? v : y)))} />
+            <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+              <Liste ariaLabel={`Donnée de la colonne ${h || i + 1}`} value={c[i] ?? null} options={options}
+                onChange={(v) => setC((x) => x.map((y, j) => (j === i ? v : y)))} />
+            </div>
           </div>
         ))}
       </div>
@@ -164,8 +166,8 @@ function TableauErreurs({ erreurs }: { erreurs: ErreurImport[] }) {
   const affichees = erreurs.slice(0, 50);
   return (
     <>
-      <Tableau serre colonnes={[{ titre: 'Ligne', droite: true, largeur: 70 }, { titre: 'Champ' }, { titre: 'Valeur' }, { titre: 'Problème' }]}
-        lignes={affichees.map((e) => [e.ligne, e.champ, e.valeur || '–', e.probleme])} />
+      <Tableau serre colonnes={[{ titre: 'Ligne', droite: true, largeur: 70 }, { titre: 'Champ', mobile: 'entete' }, { titre: 'Valeur' }, { titre: 'Problème' }]}
+        lignes={affichees.map((e) => [e.ligne, <span className="gras">{e.champ}</span>, <span style={{ overflowWrap: 'anywhere' }}>{e.valeur || '–'}</span>, e.probleme])} />
       {erreurs.length > affichees.length && <Doux>… et {pluriel(erreurs.length - affichees.length, 'autre erreur', 'autres erreurs')}, toutes dans le rapport.</Doux>}
     </>
   );
@@ -270,7 +272,7 @@ function PanneauImport() {
             <TableauErreurs erreurs={resultat.erreurs} />
           </>
         )}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {resultat.erreurs.length > 0 && <Bouton icone="exporter" onClick={() => rapport(resultat.erreurs)}>Télécharger le rapport d'erreurs</Bouton>}
           <Bouton onClick={() => { setFichier(null); setControle(null); setResultat(null); setProbleme(null); }}>Importer un autre fichier</Bouton>
         </div>
@@ -285,7 +287,7 @@ function PanneauImport() {
           <Chiffre libelle="Lignes en erreur" valeur={enErreur} couleur={enErreur ? 'var(--attention)' : undefined} />
         </div>
         {controle.erreurs.length > 0 && <TableauErreurs erreurs={controle.erreurs} />}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {controle.erreurs.length > 0 && <Bouton icone="exporter" onClick={() => rapport(controle.erreurs)}>Télécharger le rapport d'erreurs</Bouton>}
           <Bouton variante="principal" disabled={controle.valides === 0} charge={charge} onClick={importer}>Importer les {montant(controle.valides)} lignes valides</Bouton>
         </div>
@@ -299,7 +301,7 @@ function PanneauImport() {
       <TitrePanneau titre="Import depuis Excel" sous="Élèves et responsables · fichier CSV" action={<Bouton variante="lien" onClick={modele}>Modèle de fichier</Bouton>} />
       <Etapes etapes={etapes} />
       {fichier ? (
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12 }}>
           <div style={{ flex: '1 1 220px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span className="gras" style={{ overflowWrap: 'anywhere' }}>{fichier.nom}</span>
             <Doux>Élèves et responsables · {pluriel(fichier.lignes.length, 'ligne lue', 'lignes lues')}</Doux>
@@ -307,7 +309,7 @@ function PanneauImport() {
           <Bouton onClick={choisir} disabled={charge}>Changer de fichier</Bouton>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexDirection: 'column', gap: 10, alignItems: 'flex-start' }}>
           <p>Enregistrez la liste depuis Excel au format CSV (séparateur « ; » ou « , »), une ligne par élève, avec l’en-tête en première ligne.
             Les intitulés usuels sont reconnus en français et en anglais : Nom, Names, Prénoms, Sexe, Date de naissance, DOB, Classe, Class,
             Responsable, Parent, Téléphone, Parent phone, Matricule, Lien, Langue.</p>
@@ -321,10 +323,10 @@ function PanneauImport() {
           </div>
           <span>{reconnues.length ? reconnues.map((r) => `« ${r.h} » → ${libelleReconnu(r.k)}`).join(' · ') : 'Aucune colonne reconnue.'}</span>
           {ignorees.length > 0 && <Doux>Colonnes ignorées : {ignorees.map((h) => `« ${h} »`).join(', ')}</Doux>}
-          <div><Bouton petit icone="colonnes" onClick={corriger} disabled={charge}>Corriger les colonnes</Bouton></div>
+          <div className="pile-mobile"><Bouton icone="colonnes" onClick={corriger} disabled={charge}>Corriger les colonnes</Bouton></div>
         </div>
       )}
-      {probleme && <Note ton="danger">{probleme}</Note>}
+      {probleme && <div role="alert"><Note ton="danger">{probleme}</Note></div>}
       {charge && !controle && !resultat ? <Chargement /> : corps}
     </Panneau>
   );
@@ -364,7 +366,7 @@ function FenetreRestauration({ fermer, liste }: { fermer: (ok?: boolean) => void
         ))}
       </div>
       <CaseACocher libelle="Je confirme la restauration de cette sauvegarde" valeur={accord} onChange={setAccord} />
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Restaurer" onAction={valider} charge={charge} disabled={!nom || !accord} />
     </>
   );
@@ -395,14 +397,14 @@ function PanneauSauvegardes() {
             ? <Bandeau ton="succes" icone="coche">Dernière sauvegarde réussie : {dateAHeure(d.derniere.date)} · {taille(d.derniere.taille)}</Bandeau>
             : <Bandeau ton="attention" icone="alerte">Aucune sauvegarde pour l’instant.</Bandeau>}
           <div>
-            <LigneListe><span style={{ flex: 1 }}>Sauvegarde automatique</span><span className="gras">Chaque jour à {d.heure}</span></LigneListe>
+            <LigneListe><span style={{ flex: '1 1 160px' }}>Sauvegarde automatique</span><span className="gras">Chaque jour à {d.heure}</span></LigneListe>
             <LigneListe>
-              <span style={{ flex: 1 }}>Copie sur disque externe</span>
-              <span className="gras" style={{ overflowWrap: 'anywhere' }}>{d.copie ? `${d.copie.dossier} · ${d.copie.branche ? 'branché' : 'débranché'}` : 'Non configurée'}</span>
+              <span style={{ flex: '1 1 160px' }}>Copie sur disque externe</span>
+              <span className="gras" style={{ overflowWrap: 'anywhere', minWidth: 0 }}>{d.copie ? `${d.copie.dossier} · ${d.copie.branche ? 'branché' : 'débranché'}` : 'Non configurée'}</span>
             </LigneListe>
-            <LigneListe><span style={{ flex: 1 }}>Sauvegardes conservées</span><span className="gras">{d.conservation}</span></LigneListe>
+            <LigneListe><span style={{ flex: '1 1 160px' }}>Sauvegardes conservées</span><span className="gras">{d.conservation}</span></LigneListe>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {moi.a('core.sauvegarde.lancer') && <Bouton variante="principal" charge={charge} onClick={sauvegarder}>Sauvegarder maintenant</Bouton>}
             {moi.a('core.sauvegarde.restaurer') && <Bouton onClick={restaurer} disabled={d.liste.length === 0}>Restaurer…</Bouton>}
           </div>
@@ -428,11 +430,11 @@ function PanneauBase() {
       {b.erreur && !d ? <Erreur message={b.erreur} recharger={b.recharger} /> : !d ? <Chargement /> : (
         <>
           <div>
-            <LigneListe><span style={{ flex: 1 }}>Compte en lecture seule</span><span className="gras">{d.lecture}</span></LigneListe>
-            <LigneListe><span style={{ flex: 1 }}>Vues prêtes à l’emploi</span><span className="gras">schéma {d.schema}</span></LigneListe>
-            <LigneListe><span style={{ flex: 1 }}>Serveur</span><span className="gras">{d.hote} · port {d.port} · base {d.base}</span></LigneListe>
+            <LigneListe><span style={{ flex: '1 1 160px' }}>Compte en lecture seule</span><span className="gras" style={{ overflowWrap: 'anywhere' }}>{d.lecture}</span></LigneListe>
+            <LigneListe><span style={{ flex: '1 1 160px' }}>Vues prêtes à l’emploi</span><span className="gras">schéma {d.schema}</span></LigneListe>
+            <LigneListe><span style={{ flex: '1 1 160px' }}>Serveur</span><span className="gras" style={{ overflowWrap: 'anywhere' }}>{d.hote} · port {d.port} · base {d.base}</span></LigneListe>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             <Bouton icone="exporter" onClick={() => telecharger('/core/base/description')}>Description des tables et des vues</Bouton>
             <Bouton icone="bouclier" onClick={changer}>Changer le mot de passe</Bouton>
           </div>

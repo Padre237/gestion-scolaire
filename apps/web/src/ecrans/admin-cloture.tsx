@@ -10,7 +10,7 @@ import {
   agir, Bandeau, Bouton, Chargement, Colonnes, confirmer, Doux, Erreur, Etapes, Icone, InfoCaps, LigneListe, Liste, ouvrirFenetre, Panneau,
   Pastille, Tableau, TitrePanneau, useDonnees, type EtatEtape,
 } from '../core/ui.tsx';
-import { dateAHeure } from './admin-commun.tsx';
+import { dateAHeure, useLargeurConteneur } from './admin-commun.tsx';
 
 interface Verification { code: string; libelle: string; detail: string; ok: boolean }
 interface Passage { classeId: string; classe: string; effectif: number; admis: number; redoublent: number; sortants: number; accueil: string; accueilIds: string[] }
@@ -33,6 +33,9 @@ export function EcranCloture() {
   const e = useDonnees(() => api.get<EtatCloture>('/scolarite/cloture'));
   const [choix, setChoix] = useState<Record<string, string>>({});
   const [charge, setCharge] = useState(false);
+  // Sous 980 px les deux colonnes s'empilent : les étapes sont alors présentées dans l'ordre 1, 2, 3, 4.
+  const [cadre, largeur] = useLargeurConteneur<HTMLDivElement>();
+  const empile = largeur > 0 && largeur < 980;
   const d = e.d;
 
   const contenu = (() => {
@@ -85,72 +88,80 @@ export function EcranCloture() {
       ...d.classesSuivantes.filter((k) => !(p.accueilIds.length === 1 && p.accueilIds[0] === k.id)).map((k): [string, string] => [k.id, k.nom]),
       ...(p.accueilIds.length ? [[AUCUNE, 'Aucune : quittent l’école'] as [string, string]] : []),
     ];
+    const panneauPassage = (
+      <Panneau>
+        <TitrePanneau titre="2 · Passage des élèves" sous="D’après les décisions du conseil de classe" />
+        <Tableau
+          colonnes={[{ titre: 'Classe', mobile: 'entete' }, { titre: 'Effectif', droite: true }, { titre: 'Admis', droite: true }, { titre: 'Redoublent', droite: true },
+            { titre: 'Sortants', droite: true }, { titre: `Classe d’accueil en ${suivante}`, largeur: 220 }]}
+          cles={d.passage.map((p) => p.classeId)}
+          vide="Aucune classe pour l’année en cours."
+          lignes={d.passage.map((p) => [
+            <span className="gras">{p.classe}</span>, p.effectif, p.admis, p.redoublent, p.sortants,
+            peutCloturer && d.suivante
+              ? <Liste ariaLabel={`Classe d’accueil de ${p.classe} en ${suivante}`} value={valeur(p)} options={optionsAccueil(p)} onChange={(v) => setChoix((c) => ({ ...c, [p.classeId]: v }))} />
+              : <span className={aCreer(p) ? 'doux' : ''}>{majuscule(p.accueil)}</span>,
+          ])}
+          total={['Total', d.totaux.effectif, d.totaux.admis, d.totaux.redoublent, d.totaux.sortants, '']}
+        />
+        {manquantes.length > 0 && (
+          <Bandeau ton="attention" icone="alerte" action={moi.a('structure.consulter') && <Bouton onClick={() => naviguer('/parametres/etablissement')}>Établissement</Bouton>}>
+            Classes d’accueil à créer en {suivante} pour : {manquantes.map((p) => p.classe).join(', ')}.
+          </Bandeau>
+        )}
+        <Doux>Les admis sont réinscrits dans la classe d’accueil ; les redoublants restent dans leur niveau. Chaque réinscription crée l’échéancier {suivante}.</Doux>
+      </Panneau>
+    );
+    const panneauVerifications = (
+      <Panneau>
+        <TitrePanneau titre="1 · Vérifications" action={<Pastille ton={toutVerifie ? 'succes' : 'attention'} icone={toutVerifie ? 'coche' : 'alerte'}>{toutVerifie ? 'Tout est prêt' : 'À compléter'}</Pastille>} />
+        <div>
+          {d.verifications.map((v) => (
+            <LigneListe key={v.code}>
+              <Icone nom={v.ok ? 'coche' : 'alerte'} style={{ color: v.ok ? 'var(--succes)' : 'var(--attention)' }} />
+              <div style={{ flex: '1 1 160px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span className="gras">{v.libelle}</span>
+                <Doux>{v.ok ? 'Fait · ' : 'À faire · '}{v.code === 'sauvegarde' ? (v.detail === 'aucune' ? 'Aucune sauvegarde' : `Dernière : ${dateAHeure(v.detail)}`) : v.detail}</Doux>
+              </div>
+              {v.code === 'sauvegarde' && !v.ok && moi.a('core.sauvegarde.lancer') && <div className="pleine-mobile"><Bouton pleine onClick={sauvegarder}>Sauvegarder maintenant</Bouton></div>}
+            </LigneListe>
+          ))}
+        </div>
+      </Panneau>
+    );
+    const panneauSoldes = (
+      <Panneau>
+        <TitrePanneau titre="3 · Soldes impayés" />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 32px' }}>
+          <InfoCaps libelle="Élèves avec un reste dû" valeur={montant(d.soldes.eleves)} />
+          <InfoCaps libelle="Montant à reporter" valeur={fcfa(d.soldes.montant)} />
+        </div>
+        <Doux>Le reste dû devient une ligne « Arriéré {annee} », placée en tête du nouvel échéancier.</Doux>
+      </Panneau>
+    );
+    const panneauOuverture = (
+      <Panneau>
+        <TitrePanneau titre={`4 · Ouverture de ${suivante}`} action={<Pastille ton={d.pret ? 'succes' : 'neutre'} icone={d.pret ? 'coche' : undefined}>{d.pret ? 'Prête' : 'En attente'}</Pastille>} />
+        <p>L’année {annee} passe en lecture seule ; ses bulletins, ses reçus et son paramétrage ne changent plus. L’année {suivante} s’ouvre.</p>
+        {!d.suivante && (
+          <Bandeau ton="attention" icone="alerte" action={moi.a('structure.consulter') && <Bouton onClick={() => naviguer('/parametres/etablissement')}>Établissement</Bouton>}>
+            Préparez d’abord l’année suivante, avec ses classes et sa grille des frais.
+          </Bandeau>
+        )}
+        {peutCloturer && <Bouton variante="principal" pleine disabled={!actif} charge={charge} onClick={cloturer}>Clôturer {annee} et ouvrir {suivante}</Bouton>}
+        {!d.pret && <Doux>La clôture s’active quand toutes les vérifications sont faites.</Doux>}
+      </Panneau>
+    );
     return (
-      <>
+      <div ref={cadre} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
         <Panneau><Etapes etapes={etapes} /></Panneau>
-        <Colonnes colonnes={[
-          { flex: 3, min: 620, enfants: (
-            <Panneau>
-              <TitrePanneau titre="2 · Passage des élèves" sous="D’après les décisions du conseil de classe" />
-              <Tableau
-                colonnes={[{ titre: 'Classe' }, { titre: 'Effectif', droite: true }, { titre: 'Admis', droite: true }, { titre: 'Redoublent', droite: true },
-                  { titre: 'Sortants', droite: true }, { titre: `Classe d’accueil en ${suivante}`, largeur: 220 }]}
-                cles={d.passage.map((p) => p.classeId)}
-                vide="Aucune classe pour l’année en cours."
-                lignes={d.passage.map((p) => [
-                  <span className="gras">{p.classe}</span>, p.effectif, p.admis, p.redoublent, p.sortants,
-                  peutCloturer && d.suivante
-                    ? <Liste ariaLabel={`Classe d’accueil de ${p.classe}`} petit value={valeur(p)} options={optionsAccueil(p)} onChange={(v) => setChoix((c) => ({ ...c, [p.classeId]: v }))} />
-                    : <span className={aCreer(p) ? 'doux' : ''}>{majuscule(p.accueil)}</span>,
-                ])}
-                total={['Total', d.totaux.effectif, d.totaux.admis, d.totaux.redoublent, d.totaux.sortants, '']}
-              />
-              {manquantes.length > 0 && (
-                <Bandeau ton="attention" icone="alerte" action={moi.a('structure.consulter') && <Bouton petit onClick={() => naviguer('/parametres/etablissement')}>Établissement</Bouton>}>
-                  Classes d’accueil à créer en {suivante} pour : {manquantes.map((p) => p.classe).join(', ')}.
-                </Bandeau>
-              )}
-              <Doux>Les admis sont réinscrits dans la classe d’accueil ; les redoublants restent dans leur niveau. Chaque réinscription crée l’échéancier {suivante}.</Doux>
-            </Panneau>
-          ) },
-          { flex: 2, min: 340, enfants: <>
-            <Panneau>
-              <TitrePanneau titre="1 · Vérifications" action={<Pastille ton={toutVerifie ? 'succes' : 'attention'}>{toutVerifie ? 'Tout est prêt' : 'À compléter'}</Pastille>} />
-              <div>
-                {d.verifications.map((v) => (
-                  <LigneListe key={v.code}>
-                    <Icone nom={v.ok ? 'coche' : 'alerte'} style={{ color: v.ok ? 'var(--succes)' : 'var(--attention)' }} />
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 160 }}>
-                      <span className="gras">{v.libelle}</span>
-                      <Doux>{v.code === 'sauvegarde' ? (v.detail === 'aucune' ? 'Aucune sauvegarde' : `Dernière : ${dateAHeure(v.detail)}`) : v.detail}</Doux>
-                    </div>
-                    {v.code === 'sauvegarde' && !v.ok && moi.a('core.sauvegarde.lancer') && <Bouton petit onClick={sauvegarder}>Sauvegarder maintenant</Bouton>}
-                  </LigneListe>
-                ))}
-              </div>
-            </Panneau>
-            <Panneau>
-              <TitrePanneau titre="3 · Soldes impayés" />
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 32px' }}>
-                <InfoCaps libelle="Élèves avec un reste dû" valeur={montant(d.soldes.eleves)} />
-                <InfoCaps libelle="Montant à reporter" valeur={fcfa(d.soldes.montant)} />
-              </div>
-              <Doux>Le reste dû devient une ligne « Arriéré {annee} », placée en tête du nouvel échéancier.</Doux>
-            </Panneau>
-            <Panneau>
-              <TitrePanneau titre={`4 · Ouverture de ${suivante}`} action={<Pastille ton={d.pret ? 'succes' : 'neutre'}>{d.pret ? 'Prête' : 'En attente'}</Pastille>} />
-              <p>L’année {annee} passe en lecture seule ; ses bulletins, ses reçus et son paramétrage ne changent plus. L’année {suivante} s’ouvre.</p>
-              {!d.suivante && (
-                <Bandeau ton="attention" icone="alerte" action={moi.a('structure.consulter') && <Bouton petit onClick={() => naviguer('/parametres/etablissement')}>Établissement</Bouton>}>
-                  Préparez d’abord l’année suivante, avec ses classes et sa grille des frais.
-                </Bandeau>
-              )}
-              {peutCloturer && <Bouton variante="principal" pleine disabled={!actif} charge={charge} onClick={cloturer}>Clôturer {annee} et ouvrir {suivante}</Bouton>}
-              {!d.pret && <Doux>La clôture s’active quand toutes les vérifications sont faites.</Doux>}
-            </Panneau>
-          </> },
-        ]} />
-      </>
+        {empile
+          ? <>{panneauVerifications}{panneauPassage}{panneauSoldes}{panneauOuverture}</>
+          : <Colonnes colonnes={[
+            { flex: 3, min: 620, enfants: panneauPassage },
+            { flex: 2, min: 340, enfants: <>{panneauVerifications}{panneauSoldes}{panneauOuverture}</> },
+          ]} />}
+      </div>
     );
   })();
   return <Coque module="parametres">{contenu}</Coque>;

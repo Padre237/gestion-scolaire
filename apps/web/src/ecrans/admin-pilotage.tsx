@@ -56,9 +56,10 @@ export function EcranStatistiques() {
       <Colonnes colonnes={[
         { flex: 3, min: 620, enfants: <>
           <Panneau>
-            <TitrePanneau titre="Effectifs par niveau, sexe et statut" action={<Bouton petit icone="exporter" onClick={() => telecharger(adresse('csv', 'effectifs'))}>Exporter</Bouton>} />
+            <TitrePanneau titre="Effectifs par niveau, sexe et statut" action={<Bouton icone="exporter" title="Exporter les effectifs" onClick={() => telecharger(adresse('csv', 'effectifs'))}>Exporter</Bouton>} />
             <Tableau
-              colonnes={['Niveau', 'Classes', 'Garçons', 'Filles', 'Total', 'Nouveaux', 'Redoublants'].map((x, i) => ({ titre: x, droite: i > 0 }))}
+              /* Sur téléphone, chaque niveau devient une carte ; le nombre de classes, secondaire, y est omis. */
+              colonnes={['Niveau', 'Classes', 'Garçons', 'Filles', 'Total', 'Nouveaux', 'Redoublants'].map((x, i) => ({ titre: x, droite: i > 0, mobile: i === 0 ? 'entete' as const : i === 1 ? 'cachee' as const : undefined }))}
               cles={d.effectifs.map((e) => e.niveau)}
               vide="Aucune classe pour cette année."
               lignes={d.effectifs.map((e) => [<span className="gras">{e.niveau}</span>, e.classes, e.garcons, e.filles, <span className="gras">{montant(e.total)}</span>, e.nouveaux, e.redoublants])}
@@ -68,7 +69,7 @@ export function EcranStatistiques() {
           <Panneau>
             <TitrePanneau titre="Résultats par classe" sous={d.sequence ? `${d.sequence} · ${d.resultats.length} classes sur ${d.nbClasses} affichées` : undefined} />
             <Tableau
-              colonnes={[{ titre: 'Classe' }, { titre: 'Moyenne', droite: true }, { titre: 'Réussite', droite: true }, { titre: 'Matière la plus forte' }, { titre: 'Matière la plus faible' }]}
+              colonnes={[{ titre: 'Classe', mobile: 'entete' }, { titre: 'Moyenne', droite: true }, { titre: 'Réussite', droite: true }, { titre: 'Matière la plus forte' }, { titre: 'Matière la plus faible' }]}
               cles={d.resultats.map((r) => r.classe)}
               vide="Aucune note validée pour l’instant."
               lignes={d.resultats.map((r) => [<span className="gras">{r.classe}</span>, note2(Number(r.moyenne)), `${r.reussite} %`, r.forte ?? '–', r.faible ?? '–'])}
@@ -87,8 +88,8 @@ export function EcranStatistiques() {
           <Panneau>
             <TitrePanneau titre="Complétude" sous="Ce qui manque encore" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {jauges.map((j) => <Jauge key={j.libelle} libelle={j.libelle} valeur={j.texte} part={j.sur ? j.fait / j.sur : 0} grasLibelle={false}
-                couleur={j.sur && j.fait >= j.sur ? 'var(--succes)' : undefined} />)}
+              {jauges.map((j) => <Jauge key={j.libelle} libelle={j.libelle} valeur={<span style={{ whiteSpace: 'nowrap' }}>{j.texte}</span>} part={j.sur ? j.fait / j.sur : 0} grasLibelle={false}
+                sous={j.sur && j.fait >= j.sur ? 'Complet' : undefined} couleur={j.sur && j.fait >= j.sur ? 'var(--succes)' : undefined} />)}
               {jauges.length === 0 && <Doux>Rien à suivre pour cette année.</Doux>}
             </div>
           </Panneau>
@@ -97,8 +98,8 @@ export function EcranStatistiques() {
             <div>
               {RAPPORTS.map(([titre, detail, type]) => (
                 <LigneListe key={titre}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 160 }}><span className="gras">{titre}</span><Doux>{detail}</Doux></div>
-                  <Bouton petit onClick={() => ouvrirDocument(`/pilotage/rapports/${type}`)}>Générer</Bouton>
+                  <div style={{ flex: '1 1 160px', display: 'flex', flexDirection: 'column', minWidth: 0 }}><span className="gras">{titre}</span><Doux>{detail}</Doux></div>
+                  <div className="pleine-mobile"><Bouton pleine icone="exporter" title={`Générer : ${titre}`} onClick={() => ouvrirDocument(`/pilotage/rapports/${type}`)}>Générer</Bouton></div>
                 </LigneListe>
               ))}
             </div>
@@ -116,10 +117,10 @@ export function EcranStatistiques() {
           <Liste libelle="Année scolaire" value={anneeId ?? d?.anneeId ?? null} options={optionsAnnees} onChange={setAnneeId} largeur={180} />
           <Liste libelle="Sous-système" value={sousSysteme} options={SOUS_SYSTEMES} onChange={setSousSysteme} largeur={180} />
         </>}
-        actions={<>
+        actions={<div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
           <Bouton icone="exporter" disabled={!d} onClick={() => telecharger(adresse('csv', 'tout'))}>Exporter tout</Bouton>
           <Bouton icone="imprimer" disabled={!d} onClick={() => ouvrirDocument(adresse('pdf', 'effectifs'))}>Imprimer</Bouton>
-        </>}
+        </div>}
       />
       {contenu}
     </Coque>
@@ -181,7 +182,7 @@ export function EcranAssistant() {
             {!relie && <Bandeau ton="attention" icone="horsLigne">L’assistant n’est pas encore relié à un fournisseur : les demandes restent en file.</Bandeau>}
             <Champ libelle="Votre question" lignes={3} value={question} onChange={setQuestion} placeholder="Par exemple : quels niveaux ont le plus de frais restant à payer ?"
               erreur={question.trim().length > 500 ? `500 caractères au plus (${question.trim().length} saisis).` : null} />
-            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
+            <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
               <Doux style={{ flex: '1 1 260px' }}>Réponses tirées des vues de reporting. Seule la question part chez le fournisseur ; elle est journalisée.</Doux>
               <Bouton variante="principal" icone="envoyer" charge={charge} disabled={question.trim().length < 5 || question.trim().length > 500} onClick={demander}>Demander</Bouton>
             </div>
@@ -191,8 +192,8 @@ export function EcranAssistant() {
                 const reponse = texteDe(q.reponse);
                 return (
                   <LigneListe key={q.id}>
-                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
-                      <span className="gras">{q.question}</span>
+                    <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                      <span className="gras" style={{ overflowWrap: 'anywhere' }}>{q.question}</span>
                       <Doux>Posée le {dateHeure(q.creeLe)}</Doux>
                       {reponse && (
                         <div className="bloc-assistant">
@@ -226,7 +227,7 @@ export function EcranAssistant() {
                     <span className="gras">{p.libelle}</span>
                     <Doux>{texteDe(p.contenu) ?? `Proposée le ${dateHeure(p.creeLe)}`}</Doux>
                   </div>
-                  {RELIRE[p.type] && <Bouton petit onClick={() => naviguer(RELIRE[p.type]!)}>Relire</Bouton>}
+                  {RELIRE[p.type] && <div className="pleine-mobile"><Bouton pleine title={`Relire : ${p.libelle}`} onClick={() => naviguer(RELIRE[p.type]!)}>Relire</Bouton></div>}
                 </LigneListe>
               ))}
               {d.propositions.length === 0 && <Doux>Aucune proposition en attente.</Doux>}
@@ -235,9 +236,9 @@ export function EcranAssistant() {
           <Panneau>
             <TitrePanneau titre="Usage et confidentialité" />
             <div>
-              <LigneListe><span style={{ flex: 1 }}>Dépense du mois</span><span className="gras">{fcfa(d.usage.coutMois)}</span></LigneListe>
-              <LigneListe><span style={{ flex: 1 }}>Plafond mensuel</span><span className="gras">{d.usage.plafond === null ? 'Non fixé' : fcfa(d.usage.plafond)}</span></LigneListe>
-              <LigneListe><span style={{ flex: 1 }}>Demandes en file</span><span className="gras">{d.usage.enFile ? pluriel(d.usage.enFile, 'demande') : 'Aucune'}</span></LigneListe>
+              <LigneListe><span style={{ flex: '1 1 140px' }}>Dépense du mois</span><span className="gras">{fcfa(d.usage.coutMois)}</span></LigneListe>
+              <LigneListe><span style={{ flex: '1 1 140px' }}>Plafond mensuel</span><span className="gras">{d.usage.plafond === null ? 'Non fixé' : fcfa(d.usage.plafond)}</span></LigneListe>
+              <LigneListe><span style={{ flex: '1 1 140px' }}>Demandes en file</span><span className="gras">{d.usage.enFile ? pluriel(d.usage.enFile, 'demande') : 'Aucune'}</span></LigneListe>
             </div>
             <Doux>Noms et téléphones remplacés par des pseudonymes avant chaque envoi ; chaque appel est journalisé.</Doux>
           </Panneau>

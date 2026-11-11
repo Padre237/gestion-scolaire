@@ -1,6 +1,6 @@
 // Maquette Etablissement : identité et coordonnées, logo, cachet et signature, années scolaires, périodes d'évaluation,
 // cycles, niveaux et classes, numérotation des documents, modèles de documents.
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ErreurApi, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
@@ -9,7 +9,7 @@ import { choisirFichier } from '../core/documents.ts';
 import { jjmmaaaa, pluriel, versEntier, versIso } from '../core/format.ts';
 import {
   agir, Bascules, Bouton, Cel2, Champ, Chargement, Colonnes, confirmer, Doux, Erreur, Etiquette, Grille, LigneListe, Liste, Note,
-  ouvrirFormulaire, Panneau, Pastille, PiedFenetre, Rangee, signaler, Tableau, TitrePanneau, useDonnees, useRaccourci, type Ton,
+  ouvrirFormulaire, Panneau, Pastille, PiedFenetre, signaler, Tableau, TitrePanneau, useDonnees, useRaccourci, type Ton,
 } from '../core/ui.tsx';
 
 interface Identite {
@@ -36,6 +36,8 @@ const ORDRES: [Ordre, string][] = [['maternelle', 'Maternelle'], ['primaire', 'P
 interface TexteModele { entete: string; mentions: string }
 interface Modele { type: string; libelle: string; fr: TexteModele; en: TexteModele }
 const rempli = (t: TexteModele) => !!(t.entete.trim() || t.mentions.trim());
+/** Texte lu par les lecteurs d'écran sans être affiché. */
+const INVISIBLE: CSSProperties = { position: 'absolute', width: 1, height: 1, margin: -1, padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 };
 
 /** En-tête et mentions d'un document, en français et en anglais, imprimés sur ses PDF. */
 function FenetreModele({ modele, modifiable, fermer }: { modele: Modele; modifiable: boolean; fermer: (v?: boolean) => void }) {
@@ -72,13 +74,14 @@ function PanneauModeles({ modifiable }: { modifiable: boolean }) {
   return (
     <Panneau>
       <TitrePanneau titre="Modèles de documents" sous="En-têtes, mentions, signatures" />
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <div>
         {(d ?? []).map((m) => (
           <LigneListe key={m.type}>
-            <span className="gras" style={{ flex: 1 }}>{m.libelle}</span>
-            <Pastille ton={rempli(m.fr) ? 'accent' : undefined}>FR</Pastille><Pastille ton={rempli(m.en) ? 'accent' : undefined}>EN</Pastille>
-            <Bouton petit onClick={() => void ouvrir(m)}>{modifiable ? 'Modifier' : 'Voir'}</Bouton>
+            <span className="gras" style={{ flex: '1 1 140px', minWidth: 0 }}>{m.libelle}</span>
+            <Pastille ton={rempli(m.fr) ? 'accent' : undefined}>FR<span style={INVISIBLE}>{rempli(m.fr) ? ' renseigné' : ' vide'}</span></Pastille>
+            <Pastille ton={rempli(m.en) ? 'accent' : undefined}>EN<span style={INVISIBLE}>{rempli(m.en) ? ' renseigné' : ' vide'}</span></Pastille>
+            <Bouton onClick={() => void ouvrir(m)} title={`${modifiable ? 'Modifier' : 'Voir'} le modèle ${m.libelle}`}>{modifiable ? 'Modifier' : 'Voir'}</Bouton>
           </LigneListe>
         ))}
         {!d && !erreur && <Chargement />}
@@ -137,33 +140,35 @@ function PanneauIdentite({ identite, modifiable, apres }: { identite: Identite; 
   );
   return (
     <Panneau>
-      <TitrePanneau titre="Identité" action={modifiable && <Bouton variante="principal" touches={['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer</Bouton>} />
-      <Grille min={240} ecart={14}>
+      <TitrePanneau titre="Identité" action={modifiable && <span className="pleine-mobile" style={{ display: 'inline-flex' }}><Bouton variante="principal" pleine touches={['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer</Bouton></span>} />
+      {Object.keys(erreurs).length > 0 && <span role="alert" style={INVISIBLE}>{Object.values(erreurs).join(' ')}</span>}
+      {/* Une seule colonne sur téléphone (.pile-mobile), grille souple ailleurs. */}
+      <div className="grille pile-mobile" style={{ ['--min' as string]: '240px', gap: 14 }}>
         {champ('nomFr', 'Nom (français)')}
         {champ('nomEn', 'Name (English)')}
         {champ('devise', 'Devise', 'Devise de l’établissement')}
         {champ('villeBp', 'Ville et boîte postale', 'Ville · BP')}
         {champ('telephone', 'Téléphone')}
         {champ('seuil', 'Réductions sans validation jusqu’à (FCFA)')}
-      </Grille>
-      <Grille min={180} ecart={14}>
+      </div>
+      <div className="grille pile-mobile" style={{ ['--min' as string]: '180px', gap: 14 }}>
         {IMAGES.map((im) => (
-          <div key={im.type} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div key={im.type} style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'stretch' }}>
             <Etiquette>{im.libelle}</Etiquette>
             <div className="signature" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 'none', height: 72 }}>
               {identite[im.cle]
                 ? <img src={`${url(`/structure/etablissement/images/${im.type}`)}?v=${rafraichi}`} alt={im.libelle} style={{ maxHeight: 56, maxWidth: '100%', objectFit: 'contain' }} />
                 : <span>Aucune image</span>}
             </div>
-            {modifiable && <Bouton petit onClick={() => deposer(im.type, im.libelle)}>{identite[im.cle] ? 'Remplacer' : 'Choisir une image'}</Bouton>}
+            {modifiable && <Bouton onClick={() => deposer(im.type, im.libelle)} title={`${identite[im.cle] ? 'Remplacer' : 'Choisir'} l’image : ${im.libelle}`}>{identite[im.cle] ? 'Remplacer' : 'Choisir une image'}</Bouton>}
           </div>
         ))}
-      </Grille>
-      <Grille min={200} ecart={14}>
+      </div>
+      <div className="grille pile-mobile" style={{ ['--min' as string]: '200px', gap: 14 }}>
         {champ('signataire', 'Signataire des documents')}
         {champ('banque', 'Banque')}
         {champ('numeroCompte', 'Numéro de compte')}
-      </Grille>
+      </div>
       <Doux>Les coordonnées bancaires figurent sur les avis de paiement. Images PNG ou JPEG, 1 Mo au plus.</Doux>
     </Panneau>
   );
@@ -199,7 +204,7 @@ function FenetreAnnee({ fermer, derniere }: { fermer: (ok?: boolean) => void; de
         <Champ libelle="Du" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} />
         <Champ libelle="Au" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} />
       </Grille>
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Créer l’année" onAction={valider} charge={charge} />
     </>
   );
@@ -252,7 +257,7 @@ function FenetrePeriodes({ fermer, periodes }: { fermer: (ok?: boolean) => void;
           </Grille>
         </div>
       ))}
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Enregistrer les périodes" onAction={valider} charge={charge} />
     </>
   );
@@ -277,7 +282,7 @@ function FenetreCycle({ fermer, existants }: { fermer: (ok?: boolean) => void; e
       <div className="champ-groupe"><span className="libelle">Sous-système</span><Bascules options={SOUS_SYSTEMES} valeur={ss} onChange={setSs} /></div>
       <div className="champ-groupe"><span className="libelle">Ordre d’enseignement</span><Bascules options={ORDRES} valeur={ordre} onChange={setOrdre} /></div>
       {deja ? <Note ton="attention">Ce cycle existe déjà.</Note> : <Doux>Les niveaux du cycle sont créés avec lui ; les classes s’ajoutent ensuite, niveau par niveau.</Doux>}
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Ajouter le cycle" onAction={valider} charge={charge} disabled={deja} />
     </>
   );
@@ -324,7 +329,7 @@ function FenetreClasse({ fermer, s }: { fermer: (ok?: boolean) => void; s: Struc
         <Champ libelle="Nom de la classe" value={nom} onChange={setNom} />
         <Champ libelle="Effectif maximal" inputMode="numeric" value={effectif} onChange={setEffectif} droite />
       </Grille>
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Ajouter la classe" onAction={valider} charge={charge} />
     </>
   );
@@ -352,7 +357,7 @@ function FenetreModifierClasse({ fermer, classe }: { fermer: (ok?: boolean) => v
         <Champ libelle="Nom de la classe" value={nom} onChange={setNom} autoFocus />
         <Champ libelle="Effectif maximal" inputMode="numeric" value={effectif} onChange={setEffectif} droite />
       </Grille>
-      {erreur && <Note ton="danger">{erreur}</Note>}
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Enregistrer" onAction={valider} charge={charge} />
     </>
   );
@@ -406,11 +411,11 @@ export function EcranEtablissement() {
             <div>
               {s.annees.map((a) => (
                 <LigneListe key={a.id}>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 160 }}>
+                  <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                     <span className="gras">{a.libelle}</span>
                     <Doux>Du {jjmmaaaa(a.dateDebut)} au {jjmmaaaa(a.dateFin)}{a.statut === 'preparation' ? ' · grille des frais et classes à préparer' : ''}</Doux>
                   </div>
-                  {a.statut === 'preparation' && gererAnnees && !ouverte && <Bouton petit onClick={() => ouvrir(a)}>Ouvrir</Bouton>}
+                  {a.statut === 'preparation' && gererAnnees && !ouverte && <Bouton onClick={() => ouvrir(a)} title={`Ouvrir l’année ${a.libelle}`}>Ouvrir</Bouton>}
                   <Pastille ton={STATUT_ANNEE[a.statut][1]}>{STATUT_ANNEE[a.statut][0]}</Pastille>
                 </LigneListe>
               ))}
@@ -420,12 +425,12 @@ export function EcranEtablissement() {
           </Panneau>
           <Panneau>
             <TitrePanneau titre={`Périodes d'évaluation${anneePeriodes ? ` · ${anneePeriodes.libelle}` : ''}`}
-              action={moi.a('structure.periode.modifier') && s.periodes.length > 0 && <Bouton petit onClick={modifierPeriodes}>Modifier</Bouton>} />
+              action={moi.a('structure.periode.modifier') && s.periodes.length > 0 && <Bouton onClick={modifierPeriodes} title="Modifier les périodes d’évaluation">Modifier</Bouton>} />
             <Tableau
-              colonnes={[{ titre: 'Période' }, { titre: 'Du' }, { titre: 'Au' }, { titre: 'Séquences' }]}
+              colonnes={[{ titre: 'Période', mobile: 'entete' }, { titre: 'Du' }, { titre: 'Au' }, { titre: 'Séquences' }]}
               cles={s.periodes.map((p) => p.id)}
               vide="Aucune période : elles sont créées avec l’année scolaire."
-              lignes={s.periodes.map((p) => [`${p.libelleFr} · ${p.libelleEn}`, jjmmaaaa(p.dateDebut), jjmmaaaa(p.dateFin), p.sequences || '–'])}
+              lignes={s.periodes.map((p) => [<Cel2 gras haut={p.libelleFr} bas={p.libelleEn} />, jjmmaaaa(p.dateDebut), jjmmaaaa(p.dateFin), p.sequences || '–'])}
             />
           </Panneau>
         </> },
@@ -438,10 +443,13 @@ export function EcranEtablissement() {
                   <span className="gras">{libelleCycle(c)}</span>
                   <Doux>{pluriel(c.classes.length, 'classe')} · {pluriel(c.classes.reduce((t, k) => t + k.effectif, 0), 'élève')}</Doux>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: gererClasses ? '0 6px' : 6, alignItems: 'center' }}>
                   {c.classes.map((k) => (gererClasses
-                    ? <button key={k.id} type="button" className="pastille" style={{ border: 0, cursor: 'pointer', font: 'inherit', fontSize: 12, fontWeight: 600 }}
-                        title={`${k.nom} · ${k.effectif} élèves pour ${k.effectifMax} places`} onClick={() => modifierClasse(k)}>{k.nom}</button>
+                    /* La zone tactile fait 40 px de haut ; la pastille visible garde ses 22 px, comme sur la maquette. */
+                    ? <button key={k.id} type="button" style={{ border: 0, background: 'none', padding: '9px 0', margin: 0, cursor: 'pointer', font: 'inherit', minHeight: 40, minWidth: 40, display: 'inline-flex', alignItems: 'center' }}
+                        aria-label={`Modifier la classe ${k.nom} : ${k.effectif} élèves pour ${k.effectifMax} places`} title={`${k.nom} · ${k.effectif} élèves pour ${k.effectifMax} places`} onClick={() => modifierClasse(k)}>
+                        <span className="pastille" style={{ pointerEvents: 'none' }}>{k.nom}</span>
+                      </button>
                     : <Pastille key={k.id}>{k.nom}</Pastille>))}
                   {c.classes.length === 0 && <Doux>Aucune classe</Doux>}
                 </div>
@@ -449,17 +457,17 @@ export function EcranEtablissement() {
             ))}
             {s.cycles.length === 0 && <Doux>Aucun cycle pour l’instant.</Doux>}
             {gererClasses && (
-              <Rangee>
+              <div className="rangee pile-mobile">
                 <Bouton icone="ajouter" onClick={ajouterCycle}>Ajouter un cycle</Bouton>
                 <Bouton icone="ajouter" onClick={ajouterClasse}>Ajouter une classe</Bouton>
-              </Rangee>
+              </div>
             )}
             <Doux>Cycles disponibles : maternelle, primaire et secondaire, dans les deux sous-systèmes.</Doux>
           </Panneau>
           <Panneau>
             <TitrePanneau titre="Numérotation" />
             <Tableau
-              colonnes={[{ titre: 'Document et format' }, { titre: 'Prochain numéro', droite: true }]}
+              colonnes={[{ titre: 'Document et format', mobile: 'entete' }, { titre: 'Prochain numéro', droite: true }]}
               lignes={s.numerotation.map((n) => [<Cel2 gras haut={n.document} bas={n.format} />, <span className="gras">{n.prochain}</span>])}
             />
             <Doux>Numéros attribués sans trou ni doublon, même si deux postes enregistrent en même temps.</Doux>

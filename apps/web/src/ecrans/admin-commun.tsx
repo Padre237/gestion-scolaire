@@ -1,9 +1,10 @@
 // Éléments communs aux écrans d'administration : dates du serveur, mot de passe affiché une seule fois,
 // création d'un compte (Personnel et Utilisateurs), modèles de documents attendus de l'établissement.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
 import { api, ErreurApi } from '../core/api.ts';
 import { heure, jjmm, jjmmaaaa, pluriel } from '../core/format.ts';
-import { Bouton, CaseACocher, Champ, Doux, InfoCaps, Liste, Note, ouvrirFenetre, ouvrirFormulaire, PiedFenetre, signaler } from '../core/ui.tsx';
+import { Bouton, CaseACocher, Champ, Doux, Icone, InfoCaps, Liste, Note, ouvrirFenetre, ouvrirFormulaire, PiedFenetre, signaler } from '../core/ui.tsx';
+import type { NomIcone } from '../core/icones-traces.ts';
 
 /** Horodatage au format texte de PostgreSQL (« 2026-11-10 10:44:19.811912+00 ») → ISO lisible par Date. */
 export function isoPg(s: string | null | undefined): string | null {
@@ -28,19 +29,77 @@ export function useDiffere<T>(valeur: T, delai = 300): T {
   return v;
 }
 
-/** Pagination des listes : « 23 personnes · lignes 1 à 10 », Précédent, Suivant. */
+/** Vrai quand la fenêtre ne dépasse pas `max` pixels de large (téléphone sous 640 px par défaut) ; suit les changements d'orientation. */
+export function useEtroit(max = 640): boolean {
+  const [etroit, setEtroit] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${max}px)`).matches);
+  useEffect(() => {
+    const m = window.matchMedia(`(max-width: ${max}px)`);
+    const suivre = () => setEtroit(m.matches);
+    suivre();
+    m.addEventListener('change', suivre);
+    return () => m.removeEventListener('change', suivre);
+  }, [max]);
+  return etroit;
+}
+
+/** Largeur réelle d'un conteneur (pour savoir si des colonnes se sont empilées) : la référence s'attache même à un élément monté plus tard. */
+export function useLargeurConteneur<T extends HTMLElement>(): [(el: T | null) => void, number] {
+  const [el, setEl] = useState<T | null>(null);
+  const [largeur, setLargeur] = useState(0);
+  useLayoutEffect(() => {
+    if (!el) return;
+    setLargeur(el.clientWidth);
+    const o = new ResizeObserver((entrees) => { const e = entrees[0]; if (e) setLargeur(e.contentRect.width); });
+    o.observe(el);
+    return () => o.disconnect();
+  }, [el]);
+  const ref = useCallback((x: T | null) => setEl(x), []);
+  return [ref, largeur];
+}
+
+/** Bouton d'action d'une ligne : icône seule sur grand écran (44 × 44, nom accessible), icône et libellé court sur téléphone. */
+export function BoutonAction({ icone, libelle, court, onClick, danger, disabled }: { icone: NomIcone; libelle: string; court: string; onClick: () => void; danger?: boolean; disabled?: boolean }) {
+  return (
+    <button type="button" className={`bouton pleine-mobile ${danger ? 'danger' : ''}`} aria-label={libelle} title={libelle} disabled={disabled} onClick={onClick}
+      style={{ width: 44, padding: 0, borderColor: 'var(--bord)', background: 'transparent', color: danger ? 'var(--danger)' : 'var(--doux)' }}>
+      <Icone nom={icone} /><span className="cache-bureau">{court}</span>
+    </button>
+  );
+}
+
+/** Copie un texte dans le presse-papiers, avec repli sur la sélection quand l'accès direct n'est pas disponible (adresse en http). */
+export async function copierTexte(texte: string, element?: HTMLElement | null): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(texte); return true; }
+  } catch { /* repli ci-dessous */ }
+  try {
+    const zone = document.createElement('textarea');
+    zone.value = texte;
+    zone.setAttribute('readonly', '');
+    zone.style.position = 'fixed';
+    zone.style.opacity = '0';
+    document.body.append(zone);
+    zone.select();
+    const ok = document.execCommand('copy');
+    zone.remove();
+    if (!ok && element) { const sel = window.getSelection(); sel?.removeAllRanges(); const r = document.createRange(); r.selectNodeContents(element); sel?.addRange(r); }
+    return ok;
+  } catch { return false; }
+}
+
+/** Pagination des listes : « 23 personnes · lignes 1 à 10 », Précédent, Suivant (boutons de 44 px, côte à côte sur toute la largeur du téléphone). */
 export function Pagination({ total, page, taille, nombre, mot, motPluriel, changer }: {
   total: number; page: number; taille: number; nombre: number; mot: string; motPluriel?: string; changer: (p: number) => void;
 }) {
   const debut = total === 0 ? 0 : (page - 1) * taille + 1;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
+    <nav aria-label="Pages de la liste" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
       <Doux>{pluriel(total, mot, motPluriel)} · lignes {debut} à {total === 0 ? 0 : debut + nombre - 1}</Doux>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Bouton petit disabled={page <= 1} onClick={() => changer(page - 1)}>Précédent</Bouton>
-        <Bouton petit disabled={page * taille >= total} onClick={() => changer(page + 1)}>Suivant</Bouton>
+      <div className="pleine-mobile" style={{ display: 'flex', gap: 8 }}>
+        <div style={{ flex: '1 1 auto' }}><Bouton pleine disabled={page <= 1} onClick={() => changer(page - 1)}>Précédent</Bouton></div>
+        <div style={{ flex: '1 1 auto' }}><Bouton pleine disabled={page * taille >= total} onClick={() => changer(page + 1)}>Suivant</Bouton></div>
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -48,22 +107,24 @@ export function Pagination({ total, page, taille, nombre, mot, motPluriel, chang
 
 /** Mot de passe créé ou réinitialisé : affiché une seule fois, dans cette fenêtre. */
 export function montrerMotDePasse(titre: string, identifiant: string, motDePasse: string, consigne: ReactNode) {
-  const copier = () => {
-    navigator.clipboard?.writeText(motDePasse).then(() => signaler('Mot de passe copié'), () => signaler('Copie impossible sur ce poste : recopiez le mot de passe.', true));
+  let zone: HTMLElement | null = null;
+  const copier = async () => {
+    if (await copierTexte(motDePasse, zone)) signaler('Mot de passe copié');
+    else signaler('Copie impossible sur ce poste : le mot de passe est sélectionné, recopiez-le.', true);
   };
   return ouvrirFenetre<void>(titre, (fermer) => (
     <>
       <p>{consigne}</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 32px' }}>
-        <InfoCaps libelle="Identifiant" valeur={identifiant} />
-        <div className="info-caps">
+        <InfoCaps libelle="Identifiant" valeur={<span style={{ overflowWrap: 'anywhere', userSelect: 'all' }}>{identifiant}</span>} />
+        <div className="info-caps" style={{ minWidth: 0, maxWidth: '100%' }}>
           <span className="etiquette">Mot de passe</span>
-          <span className="valeur" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 20, letterSpacing: '0.06em', userSelect: 'all' }}>{motDePasse}</span>
+          <span ref={(el) => { zone = el; }} className="valeur" style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 20, letterSpacing: '0.06em', userSelect: 'all', overflowWrap: 'anywhere' }}>{motDePasse}</span>
         </div>
       </div>
       <Note ton="attention">Ce mot de passe ne s’affichera plus : notez-le maintenant et remettez-le en main propre.</Note>
-      <div className="pied">
-        {window.isSecureContext && <Bouton onClick={copier}>Copier</Bouton>}
+      <div className="pied pile-mobile">
+        <Bouton onClick={() => void copier()}>Copier le mot de passe</Bouton>
         <Bouton variante="principal" onClick={() => fermer()}>J’ai noté le mot de passe</Bouton>
       </div>
     </>
@@ -136,16 +197,16 @@ function FenetreCompte({ fermer, roles, initial, personnels }: {
       <Champ libelle="Identifiant de connexion" value={identifiant} onChange={(v) => setIdentifiant(v.toLowerCase())} erreur={surChamp('identifiant')} />
       <div className="champ-groupe">
         <span className="libelle">Rôles</span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', columnGap: 18 }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', columnGap: 18 }}>
           {rolesAttribuables(roles).map((r) => (
             <CaseACocher key={r.id} libelle={r.libelle} valeur={choisis.includes(r.id)}
               onChange={(v) => setChoisis((c) => (v ? [...c, r.id] : c.filter((x) => x !== r.id)))} />
           ))}
         </div>
-        {surChamp('roles') && <span className="erreur-champ">{surChamp('roles')}</span>}
+        {surChamp('roles') && <span className="erreur-champ" role="alert">{surChamp('roles')}</span>}
       </div>
       <Doux>Le mot de passe est créé par l’application ; il s’affiche une seule fois, juste après la création.</Doux>
-      {erreur && !['nomAffiche', 'identifiant', 'roles'].includes(erreur.champ ?? '') && <Note ton="danger">{erreur.message}</Note>}
+      {erreur && !['nomAffiche', 'identifiant', 'roles'].includes(erreur.champ ?? '') && <div role="alert"><Note ton="danger">{erreur.message}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Créer le compte" onAction={valider} charge={charge} />
     </>
   );

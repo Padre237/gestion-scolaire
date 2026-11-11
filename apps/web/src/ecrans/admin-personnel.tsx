@@ -1,5 +1,5 @@
 // Maquette Personnel : liste du personnel de l'établissement, fiche, compte utilisateur lié, heures de vacation.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ErreurApi, requete } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
@@ -10,7 +10,7 @@ import {
   agir, Avatar, Bandeau, Bascules, Bouton, Cel2, Champ, Chargement, Colonnes, Doux, Erreur, Etiquette, Filtres, Grille, InfoCaps,
   Liste, Note, ouvrirFormulaire, Panneau, PiedFenetre, Tableau, TitrePanneau, useDonnees,
 } from '../core/ui.tsx';
-import { creerCompte, Pagination, useDiffere, type Role } from './admin-commun.tsx';
+import { creerCompte, Pagination, useDiffere, useLargeurConteneur, type Role } from './admin-commun.tsx';
 
 const FONCTIONS: [string, string][] = [
   ['directeur', 'Directeur'], ['secretaire', 'Secrétaire'], ['econome', 'Économe'], ['prefet', 'Préfet des études'],
@@ -86,7 +86,7 @@ function PanneauFiche({ f, gerer, peutCreerCompte, modifier, creerSonCompte }: {
   const precision = [f.fonctionLibelle, ...(f.matieres.length ? [f.matieres.map(minusculeInitiale).join(', ')] : []), libelleStatut(f.statut).toLowerCase()].join(' · ');
   return (
     <Panneau>
-      <TitrePanneau titre="Fiche" action={gerer && <Bouton petit onClick={modifier}>Modifier</Bouton>} />
+      <TitrePanneau titre="Fiche" action={gerer && <Bouton onClick={modifier}>Modifier</Bouton>} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <Avatar nom={f.nomAffiche} taille={52} />
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -102,14 +102,14 @@ function PanneauFiche({ f, gerer, peutCreerCompte, modifier, creerSonCompte }: {
         {f.compte && <InfoCaps libelle="Compte" valeur={f.compte} />}
       </Grille>
       {!f.compte && (
-        <Bandeau ton="attention" icone="alerte" action={peutCreerCompte && <Bouton petit onClick={creerSonCompte}>Créer son compte</Bouton>}>
+        <Bandeau ton="attention" icone="alerte" action={peutCreerCompte && <Bouton onClick={creerSonCompte}>Créer son compte</Bouton>}>
           {instituteur ? 'Aucun compte utilisateur lié : cette personne ne peut pas saisir ses notes.' : 'Aucun compte utilisateur lié : cette personne ne peut pas se connecter.'}
         </Bandeau>
       )}
       {(f.statut === 'vacataire' || f.vacations.length > 0) && (
         <>
           <Etiquette>Heures de vacation</Etiquette>
-          <Tableau serre colonnes={[{ titre: 'Mois' }, { titre: 'Prévues', droite: true }, { titre: 'Effectuées', droite: true }]}
+          <Tableau serre colonnes={[{ titre: 'Mois', mobile: 'entete' }, { titre: 'Prévues', droite: true }, { titre: 'Effectuées', droite: true }]}
             lignes={f.vacations.map((v) => [libelleMois(v.mois), `${decimal(Number(v.prevues))} h`, `${decimal(Number(v.effectuees))} h`])}
             vide="Aucune heure relevée pour l’instant." />
           <Doux>Relevé des heures ; le calcul des vacations et de la paie se fait en dehors de l’application.</Doux>
@@ -131,6 +131,14 @@ export function EcranPersonnel() {
   const [statut, setStatut] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [choisi, setChoisi] = useState<string | null>(null);
+  // Quand la fiche passe sous la liste (colonnes empilées : moins de 980 px), choisir une personne amène à sa fiche.
+  const [cadre, largeur] = useLargeurConteneur<HTMLDivElement>();
+  const empile = largeur > 0 && largeur < 980;
+  const ficheRef = useRef<HTMLDivElement>(null);
+  const choisir = (id: string) => {
+    setChoisi(id);
+    if (empile) setTimeout(() => ficheRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
   useEffect(() => { setPage(1); }, [recherche]);
   const liste = useDonnees(() => api.get<{ total: number; lignes: LignePersonnel[] }>(`/personnel${requete({ q: recherche, fonction, statut, page, taille: TAILLE })}`),
     [recherche, fonction, statut, page]);
@@ -168,6 +176,7 @@ export function EcranPersonnel() {
           {gerer && <Bouton variante="principal" icone="ajouter" onClick={nouvelleFiche}>Nouvelle fiche</Bouton>}
         </>}
       />
+      <div ref={cadre}>
       <Colonnes colonnes={[
         { flex: 5, min: 640, enfants: (
           <Panneau>
@@ -175,15 +184,15 @@ export function EcranPersonnel() {
             {liste.erreur && !d ? <Erreur message={liste.erreur} recharger={liste.recharger} /> : !d ? <Chargement /> : (
               <>
                 <Tableau
-                  colonnes={[{ titre: 'Nom et fonction' }, { titre: 'Statut' }, { titre: 'Classes et matières' }, { titre: 'Téléphone' }, { titre: 'Compte' }]}
+                  colonnes={[{ titre: 'Nom et fonction', mobile: 'entete' }, { titre: 'Statut' }, { titre: 'Classes et matières' }, { titre: 'Téléphone' }, { titre: 'Compte' }]}
                   cles={d.lignes.map((l) => l.id)}
-                  onLigne={(i) => setChoisi(d.lignes[i]!.id)}
+                  onLigne={(i) => choisir(d.lignes[i]!.id)}
                   vide="Aucune personne ne correspond à ces critères."
                   lignes={d.lignes.map((l) => [
                     <Cel2 gras haut={<span style={l.id === choisi ? { color: 'var(--accent)' } : undefined}>{l.nomAffiche}</span>} bas={l.fonctionLibelle} />,
                     libelleStatut(l.statut),
                     l.classesMatieres,
-                    <span style={{ whiteSpace: 'nowrap' }}>{l.telephone || '–'}</span>,
+                    l.telephone || '–',
                     l.compte ?? <span className="doux">Sans compte</span>,
                   ])}
                 />
@@ -193,13 +202,16 @@ export function EcranPersonnel() {
           </Panneau>
         ) },
         { flex: 2, min: 320, enfants: (
-          choisi && fiche.erreur && (!fiche.d || fiche.d.id !== choisi) ? <Erreur message={fiche.erreur} recharger={fiche.recharger} />
-            : fiche.d && fiche.d.id === choisi ? <PanneauFiche f={fiche.d} gerer={gerer} peutCreerCompte={moi.a('core.compte.gerer') && moi.a('core.compte.consulter')}
-                modifier={() => modifier(fiche.d!)} creerSonCompte={() => creerSonCompte(fiche.d!)} />
-              : d && d.lignes.length === 0 ? <Panneau><TitrePanneau titre="Fiche" /><Doux>Choisissez une personne dans la liste.</Doux></Panneau>
-                : <Panneau><TitrePanneau titre="Fiche" /><Chargement /></Panneau>
+          <div ref={ficheRef} style={{ scrollMarginTop: 12 }}>
+            {choisi && fiche.erreur && (!fiche.d || fiche.d.id !== choisi) ? <Erreur message={fiche.erreur} recharger={fiche.recharger} />
+              : fiche.d && fiche.d.id === choisi ? <PanneauFiche f={fiche.d} gerer={gerer} peutCreerCompte={moi.a('core.compte.gerer') && moi.a('core.compte.consulter')}
+                  modifier={() => modifier(fiche.d!)} creerSonCompte={() => creerSonCompte(fiche.d!)} />
+                : d && d.lignes.length === 0 ? <Panneau><TitrePanneau titre="Fiche" /><Doux>Choisissez une personne dans la liste.</Doux></Panneau>
+                  : <Panneau><TitrePanneau titre="Fiche" /><Chargement /></Panneau>}
+          </div>
         ) },
       ]} />
+      </div>
     </Coque>
   );
 }

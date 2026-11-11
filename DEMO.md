@@ -79,7 +79,7 @@ La conception confie le paramétrage à la secrétaire, et le directeur valide s
 - **Écran** : Paramètres › Établissement.
 - **Gestes** :
   1. **Identité** : complétez la devise, la ville et la boîte postale, le téléphone et le signataire des documents. Dans « Réductions sans validation jusqu'à (FCFA) », saisissez par exemple **10 000**. Enregistrez (Ctrl S).
-  2. **Années scolaires** : créez l'année 2026/2027 (du 07/09/2026 au 25/06/2027) avec « Créer l'année », puis « Ouvrir ». Les trois trimestres sont créés avec elle ; vérifiez leurs dates sous « Périodes d'évaluation ».
+  2. **Années scolaires** : « Créer l'année scolaire ». Gardez 2026/2027, saisissez les dates (07/09/2026 et 25/06/2027), puis « Créer l'année ». Ensuite « Ouvrir », et confirmez avec « Ouvrir l'année ». Les trois trimestres sont créés avec elle ; vérifiez leurs dates sous « Périodes d'évaluation ».
   3. **Cycles, niveaux et classes** : « Ajouter un cycle », par exemple Francophone · primaire. Ses niveaux, de la SIL au CM2, sont créés avec lui.
   4. **Personnel** (menu Personnel) : « Nouvelle fiche » pour la directrice, l'économe, le préfet des études et deux instituteurs. Ouvrez chaque fiche, puis « Créer son compte ».
   5. **Paramètres › Utilisateurs et rôles** : vérifiez les rôles et périmètres. Donnez à un instituteur le rôle « Instituteur principal » de sa classe, et à l'autre le rôle « Instituteur de matière » pour l'EPS. Notez le mot de passe de chaque compte : il ne s'affiche qu'une fois.
@@ -111,7 +111,7 @@ La conception confie le paramétrage à la secrétaire, et le directeur valide s
 
 - **Compte** : l'économe.
 - **Gestes** :
-  1. **Frais et caisse › Caisse du jour** : « Ouvrir la session » avec le fonds de caisse.
+  1. **Frais et caisse › Caisse du jour** : saisissez le fonds initial, puis « Ouvrir la session ».
   2. « Encaisser un élève » (ou Ctrl K), choisissez l'élève inscrit à l'étape 2, saisissez un montant, espèces, puis « Valider et imprimer ».
   3. Le **reçu bilingue** s'affiche, en français et en anglais, avec le montant en lettres. Le PDF s'ouvre pour l'impression ; une réimpression porte la mention « Duplicata ».
   4. **Fiche de l'élève › Accorder une réduction** : un montant **au-delà du seuil** de l'étape 1, par exemple 15 000 FCFA, avec un motif. La réduction devient une demande, à valider par la directrice.
@@ -164,7 +164,7 @@ Pour montrer la règle des droits, connectez-vous en directrice et cherchez un b
 - **Ce qui doit apparaître** :
   - moyennes, rangs et appréciations calculés par l'application ;
   - le bulletin de chaque élève ;
-  - le PDF de la classe (« Imprimer la classe ») ;
+  - le PDF de la classe (« Imprimer la classe en PDF ») ;
   - une correction après publication, qui crée une version 2.
 
 ### Étape 8 · Parent : bulletin bloqué, message à l'économe

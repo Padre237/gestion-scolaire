@@ -59,10 +59,38 @@ function lignesDe(s: string, police: PDFFont, taille: number, largeur: number): 
   return res;
 }
 
-export interface Etablissement { nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire?: string | null; devise?: string | null }
+export interface TexteModele { entete?: string | null; mentions?: string | null }
+export interface ModeleDoc { fr?: TexteModele; en?: TexteModele }
+export type TypeModele = 'recu' | 'avis' | 'certificat' | 'liste' | 'bulletin';
+export interface Etablissement {
+  nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire?: string | null; devise?: string | null;
+  /** Modèles de documents saisis dans Paramètres › Établissement. */
+  modeles?: Partial<Record<TypeModele, ModeleDoc>> | null;
+}
 
-function enteteA4(page: PDFPage, p: Polices, e: Etablissement, titre: string, sousTitre?: string) {
+/** En-tête du modèle (par exemple la tutelle), au-dessus du nom de l'établissement : français, puis anglais. */
+function enteteModele(page: PDFPage, p: Polices, m: ModeleDoc | undefined, xCentre: number, yHaut: number, taille = 6.5) {
+  let y = yHaut;
+  for (const t of [m?.fr?.entete, m?.en?.entete]) {
+    if (!t?.trim()) continue;
+    for (const l of t.split('\n').slice(0, 2)) { texteCentre(page, l.trim(), xCentre, y, p.gras, taille, DOUX); y -= taille + 1.5; }
+  }
+}
+
+/** Mentions du modèle, en bas de page : français, puis anglais. */
+function mentionsModele(page: PDFPage, p: Polices, m: ModeleDoc | undefined, x: number, yBas: number, largeur: number, taille = 7.5) {
+  const lignes = [m?.fr?.mentions, m?.en?.mentions].filter((t): t is string => !!t?.trim()).flatMap((t) => lignesDe(t, p.normal, taille, largeur).slice(0, 2));
+  let y = yBas + (lignes.length - 1) * (taille + 2.5);
+  for (const l of lignes) { texte(page, l, x, y, p.normal, taille, DOUX); y -= taille + 2.5; }
+}
+
+function enteteA4(page: PDFPage, p: Polices, e: Etablissement, titre: string, sousTitre?: string, type?: TypeModele) {
   const { width, height } = page.getSize();
+  if (type) {
+    const m = e.modeles?.[type];
+    enteteModele(page, p, m, width / 2, height - 14);
+    mentionsModele(page, p, m, 40, 26, width - 80);
+  }
   texteCentre(page, `${e.nom_fr.toUpperCase()} · ${e.nom_en.toUpperCase()}`, width / 2, height - 50, p.gras, 13);
   const coord = [e.ville_bp, e.telephone ? `Tél. ${e.telephone}` : null].filter(Boolean).join(' · ');
   if (coord) texteCentre(page, coord, width / 2, height - 66, p.normal, 9, DOUX);
@@ -146,6 +174,9 @@ export async function pdfRecu(d: RecuData, exemplaires = 1): Promise<Uint8Array>
     texte(page, `Montant versé / Amount paid : ${montant(d.montant)} FCFA`, g, yFin - 14, p.gras, 9);
     texte(page, `${d.montantLettresFr} · ${d.montantLettresEn}`, g, yFin - 27, p.normal, 8);
     texte(page, `Mode / Method : ${d.modeFr} / ${d.modeEn}${d.bordereau ? ` · bordereau ${d.bordereau}` : ''}`, g, yFin - 40, p.normal, 8);
+    const m = d.etablissement.modeles?.recu;
+    enteteModele(page, p, m, width / 2, height - 12);
+    mentionsModele(page, p, m, g, g + 20, width - 2 * g, 6.8);
     texte(page, `Encaissé par / Received by : ${d.caissier}`, g, g + 6, p.normal, 8);
     texteDroite(page, 'Signature et cachet · Signature and stamp', width - g, g + 6, p.normal, 8, DOUX);
   }
@@ -199,7 +230,7 @@ export async function pdfAvis(avis: AvisData[]): Promise<Uint8Array> {
   const { doc, polices: p } = await nouveauDocument('Avis de paiement');
   for (const d of avis) {
     const page = doc.addPage([595, 842]);
-    enteteA4(page, p, d.etablissement, 'AVIS DE PAIEMENT · PAYMENT NOTICE', `N° ${d.numero} du ${d.date}`);
+    enteteA4(page, p, d.etablissement, 'AVIS DE PAIEMENT · PAYMENT NOTICE', `N° ${d.numero} du ${d.date}`, 'avis');
     let y = 842 - 165;
     for (const [k, v] of [['Élève', `${d.eleve} · ${d.matricule}`], ['Classe', d.classe], ['Responsable payeur', d.payeur]]) {
       texte(page, `${k} : ${v}`, 50, y, p.normal, 10); y -= 16;
@@ -225,10 +256,10 @@ export interface EleveListe { matricule: string; nom: string; prenoms: string; s
 export async function pdfListeClasse(d: { etablissement: Etablissement; classe: string; annee: string; eleves: EleveListe[] }) {
   const { doc, polices: p } = await nouveauDocument(`Liste de classe ${d.classe}`);
   let page = doc.addPage([595, 842]);
-  enteteA4(page, p, d.etablissement, `LISTE DE CLASSE · ${d.classe}`, `Année scolaire ${d.annee} · ${d.eleves.length} élèves`);
+  enteteA4(page, p, d.etablissement, `LISTE DE CLASSE · ${d.classe}`, `Année scolaire ${d.annee} · ${d.eleves.length} élèves`, 'liste');
   const cols: Colonne[] = [{ titre: 'N°', largeur: 30, droite: true }, { titre: 'Matricule', largeur: 80 }, { titre: 'Nom et prénoms', largeur: 210 },
     { titre: 'Sexe', largeur: 40 }, { titre: 'Né(e) le', largeur: 75 }, { titre: 'Signature', largeur: 60 }];
-  const parPage = 38;
+  const parPage = 35;
   for (let i = 0; i < d.eleves.length; i += parPage) {
     if (i > 0) { page = doc.addPage([595, 842]); }
     tableau(page, p, 50, i === 0 ? 842 - 150 : 800, cols, d.eleves.slice(i, i + parPage).map((e, k) => [
@@ -241,7 +272,7 @@ export async function pdfCertificat(d: { etablissement: Etablissement; classe: s
   const { doc, polices: p } = await nouveauDocument('Certificats de scolarité');
   for (const e of d.eleves) {
     const page = doc.addPage([595, 842]);
-    enteteA4(page, p, d.etablissement, 'CERTIFICAT DE SCOLARITÉ', 'School attendance certificate');
+    enteteA4(page, p, d.etablissement, 'CERTIFICAT DE SCOLARITÉ', 'School attendance certificate', 'certificat');
     const ne = e.sexe === 'F' ? 'née' : 'né';
     const inscrit = e.sexe === 'F' ? 'inscrite' : 'inscrit';
     const paragraphe = `${d.etablissement.signataire ? `Je soussigné(e), ${d.etablissement.signataire}` : 'Le chef d’établissement soussigné'}, certifie que l'élève ${e.nom} ${e.prenoms}, ${ne} le ${e.naissance}${e.lieu ? ` à ${e.lieu}` : ''}, matricule ${e.matricule}, est régulièrement ${inscrit} en classe de ${d.classe} pour l'année scolaire ${d.annee}.\n\nEn foi de quoi le présent certificat lui est délivré pour servir et valoir ce que de droit.`;
@@ -346,7 +377,7 @@ export async function pdfFicheInscription(d: Record<string, string> & { motDePas
 // ---------------------------------------------------------------- bulletins et procès-verbal (CU-21, CU-22)
 
 export interface BulletinPdf {
-  etablissement: string; periodeFr: string; periodeEn: string; annee: string; version: number; statut: string;
+  etablissement: string; periodeFr: string; periodeEn: string; annee: string; version: number; statut: string; modele?: ModeleDoc;
   eleve: string; matricule: string; classe: string; effectif: number; naissance: string;
   matieres: { libelle: string; coefficient: number; moyenne: number | null; points: number | null; moyenneClasse: number | null; appreciation: string | null }[];
   totalCoefficients: number; totalPoints: number; moyenne: number | null; rang: number | null;
@@ -359,6 +390,8 @@ export async function pdfBulletins(bulletins: BulletinPdf[]): Promise<Uint8Array
   const { doc, polices: p } = await nouveauDocument('Bulletins');
   for (const b of bulletins) {
     const page = doc.addPage([595, 842]);
+    enteteModele(page, p, b.modele, 297, 828);
+    mentionsModele(page, p, b.modele, 50, 26, 495);
     texteCentre(page, b.etablissement.toUpperCase(), 297, 790, p.gras, 13);
     texteCentre(page, `Bulletin du ${b.periodeFr} · ${b.periodeEn} report · ${b.annee}`, 297, 772, p.normal, 10, DOUX);
     texteDroite(page, `${b.statut === 'publie' ? 'Publié' : 'Brouillon'} · version ${b.version}`, 545, 752, p.normal, 8.5, DOUX);

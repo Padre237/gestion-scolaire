@@ -4,20 +4,20 @@ import { introuvable } from '../../core/erreurs.ts';
 import { inscription } from '../scolarite/index.ts';
 import { MODES } from './index.ts';
 import { francsCfaEn, francsCfaFr } from './domain/montant-lettres.ts';
-import { dateFr, type RecuData } from '@gs/print';
+import { type Etablissement, dateFr, type RecuData } from '@gs/print';
 
 const heureCm = (iso: string) => new Date(new Date(iso).getTime() + 3600_000).toISOString().slice(11, 16);
 const jourCm = (iso: string) => new Date(new Date(iso).getTime() + 3600_000).toISOString().slice(0, 10);
 
-export async function donneesRecu(tx: Tx, etab: string, versementId: string): Promise<RecuData & { nbImpressions: number; inscriptionId: string; familleId: string; eleveId: string }> {
+export async function donneesRecu(tx: Tx, etab: string, versementId: string): Promise<RecuData & { nbImpressions: number; inscriptionId: string; familleId: string; eleveId: string; aLogo: boolean }> {
   const v = await ligne<{ inscription_id: string; numero_recu: string; encaisse_le: string; montant: number; mode: string; banque: string | null;
     bordereau: string | null; date_bordereau: string | null; statut: string; caissier: string }>(tx, sql`
     SELECT v.inscription_id, v.numero_recu, v.encaisse_le, v.montant, v.mode, v.banque, v.bordereau, v.date_bordereau, v.statut, c.nom_affiche AS caissier
       FROM finances.versement v JOIN core.compte c ON c.id = v.caissier_id WHERE v.id = ${versementId} AND v.etablissement_id = ${etab}`);
   if (!v) throw introuvable('Versement');
   const i = await inscription(tx, v.inscription_id, etab);
-  const e = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; devise: string | null }>(tx, sql`
-    SELECT nom_fr, nom_en, ville_bp, telephone, devise FROM structure.etablissement WHERE id = ${etab}`);
+  const e = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; devise: string | null; modeles: Etablissement['modeles']; a_logo: boolean }>(tx, sql`
+    SELECT nom_fr, nom_en, ville_bp, telephone, devise, modeles, logo IS NOT NULL AS a_logo FROM structure.etablissement WHERE id = ${etab}`);
   const annee = await ligne<{ libelle: string }>(tx, sql`SELECT a.libelle FROM scolarite.inscription i JOIN structure.annee_scolaire a ON a.id = i.annee_id WHERE i.id = ${v.inscription_id}`);
   // État de l'échéancier juste après ce versement : imputations des versements antérieurs ou égaux (ordre des reçus).
   const l = await lignes<{ ordre: number; libelle_fr: string; libelle_en: string; prix_unitaire: number; reduction: number; verse: number; date_limite: string }>(tx, sql`
@@ -29,7 +29,8 @@ export async function donneesRecu(tx: Tx, etab: string, versementId: string): Pr
     SELECT count(*)::int AS n FROM core.journal_audit WHERE ligne_id = ${versementId} AND nature = 'metier' AND objet_type = 'Reçu'`);
   const mode = MODES[v.mode]!;
   return {
-    etablissement: { nom_fr: e!.nom_fr, nom_en: e!.nom_en, ville_bp: e!.ville_bp, telephone: e!.telephone, devise: e!.devise },
+    etablissement: { nom_fr: e!.nom_fr, nom_en: e!.nom_en, ville_bp: e!.ville_bp, telephone: e!.telephone, devise: e!.devise, modeles: e!.modeles },
+    aLogo: e!.a_logo,
     numero: v.numero_recu, date: dateFr(jourCm(v.encaisse_le)), heure: heureCm(v.encaisse_le),
     eleve: `${i!.nom} ${i!.prenoms}`, matricule: i!.matricule, classe: i!.classe, annee: annee!.libelle,
     lignes: l.map((x) => {

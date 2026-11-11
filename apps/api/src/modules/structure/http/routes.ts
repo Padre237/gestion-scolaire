@@ -115,6 +115,40 @@ export async function routesStructure(app: FastifyInstance) {
     });
   });
 
+  // Modèles de documents (maquette Etablissement) : en-tête et mentions, en français et en anglais, imprimés sur les PDF.
+  const TYPES_MODELE = ['recu', 'avis', 'certificat', 'liste', 'bulletin'] as const;
+  const LIBELLES_MODELE: Record<(typeof TYPES_MODELE)[number], string> = {
+    recu: 'Reçu', avis: 'Avis de paiement', certificat: 'Certificat de scolarité', liste: 'Liste de classe', bulletin: 'Bulletin' };
+  const TexteModele = z.object({ entete: z.string().trim().max(300).default(''), mentions: z.string().trim().max(600).default('') });
+
+  r.get('/structure/modeles', { config: { unePermissionParmi: ['structure.consulter', 'core.modele.modifier'] }, schema: { tags: ['structure'] } }, async (req) => {
+    const ctx = exiger(req);
+    const e = await app.bd.lireUn<{ modeles: Record<string, unknown> }>(sql`SELECT modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+    return TYPES_MODELE.map((type) => {
+      const m = (e?.modeles?.[type] ?? {}) as { fr?: { entete?: string; mentions?: string }; en?: { entete?: string; mentions?: string } };
+      return { type, libelle: LIBELLES_MODELE[type],
+        fr: { entete: m.fr?.entete ?? '', mentions: m.fr?.mentions ?? '' }, en: { entete: m.en?.entete ?? '', mentions: m.en?.mentions ?? '' } };
+    });
+  });
+
+  r.put('/structure/modeles/:type', {
+    config: { permission: 'core.modele.modifier' },
+    schema: { tags: ['structure'], params: z.object({ type: z.enum(TYPES_MODELE) }), body: z.object({ fr: TexteModele, en: TexteModele }) },
+  }, async (req) => {
+    const ctx = exiger(req);
+    const { type } = req.params;
+    return app.bd.transaction(ctx.compteId, async (tx) => {
+      const avant = await ligne<{ m: { fr?: { entete?: string }; en?: { entete?: string } } | null }>(tx, sql`
+        SELECT modeles -> ${type} AS m FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      await tx.execute(sql`UPDATE structure.etablissement SET modeles = jsonb_set(modeles, ${`{${type}}`}::text[], ${JSON.stringify(req.body)}::jsonb, true)
+                           WHERE id = ${ctx.etablissementId}`);
+      await journaliser(tx, ctx, { action: 'Modification', objetType: 'Établissement', objetLibelle: `Modèle de document · ${LIBELLES_MODELE[type]}`,
+        avant: avant?.m?.fr?.entete || avant?.m?.en?.entete ? 'Modèle précédent' : '–', apres: req.body.fr.entete || req.body.fr.mentions || 'Modèle vide',
+        ligneId: ctx.etablissementId, table: 'structure.etablissement' });
+      return { ok: true };
+    });
+  });
+
   // Logo, cachet, signature : image PNG ou JPEG en base64, 1 Mo au plus.
   r.put('/structure/etablissement/images/:type', {
     config: { permission: 'structure.etablissement.modifier' },

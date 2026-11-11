@@ -632,7 +632,7 @@ export async function routesScolarite(app: FastifyInstance) {
     const ctx = exiger(req);
     if (req.query.type !== 'liste' && !ctx.a('scolarite.document.imprimer') && !ctx.a('scolarite.eleve.exporter')) throw interdit('scolarite.document.imprimer');
     const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire: string | null }>(sql`
-      SELECT nom_fr, nom_en, ville_bp, telephone, signataire FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      SELECT nom_fr, nom_en, ville_bp, telephone, signataire, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
     const c = await app.bd.lireUn<{ nom: string; annee: string }>(sql`
       SELECT c.nom, a.libelle AS annee FROM structure.classe c JOIN structure.annee_scolaire a ON a.id = c.annee_id WHERE c.id = ${req.params.id} AND c.etablissement_id = ${ctx.etablissementId}`);
     if (!c) throw introuvable('Classe');
@@ -665,7 +665,7 @@ export async function routesScolarite(app: FastifyInstance) {
   }, async (req, rep) => {
     const ctx = exiger(req);
     const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire: string | null }>(sql`
-      SELECT nom_fr, nom_en, ville_bp, telephone, signataire FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      SELECT nom_fr, nom_en, ville_bp, telephone, signataire, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
     const e = await app.bd.lireUn<{ matricule: string; nom: string; prenoms: string; sexe: string; naissance: string; lieu: string | null; classe: string; annee: string }>(sql`
       SELECT i.matricule, i.nom, i.prenoms, i.sexe, to_char(i.date_naissance, 'DD/MM/YYYY') AS naissance, el.lieu_naissance AS lieu, i.classe, i.annee
         FROM reporting.v_inscription i JOIN scolarite.eleve el ON el.id = i.eleve_id

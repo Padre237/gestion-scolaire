@@ -12,7 +12,7 @@ import { perimetreEnseignant } from '../../../core/perimetre.ts';
 import { calculerResultats, distinctionProposee, type Distinction } from '../domain/calcul.ts';
 import { visibiliteBulletin } from '../../finances/domain/solvabilite.ts';
 import { reglesDe, titulaire, titulairesClasse } from '../index.ts';
-import { dateFr, pdfBulletins, pdfProcesVerbal } from '@gs/print';
+import { dateFr, pdfBulletins, type ModeleDoc, pdfProcesVerbal } from '@gs/print';
 import { exigerAnneeOuverte } from '../../structure/index.ts';
 
 const Uuid = z.uuid();
@@ -329,13 +329,13 @@ export async function routesResultats(app: FastifyInstance) {
         SELECT DISTINCT ON (inscription_id) inscription_id, statut, version FROM pedagogie.bulletin
          WHERE inscription_id = ANY(${tableau(resultats.map((x) => x.eleve.inscriptionId))}::uuid[]) AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid
            AND statut <> 'remplace' ORDER BY inscription_id, (statut = 'brouillon') DESC, version DESC`);
-      const etab = await ligne<{ nom_fr: string }>(tx, sql`SELECT nom_fr FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      const etab = await ligne<{ nom_fr: string; modeles: { bulletin?: ModeleDoc } | null }>(tx, sql`SELECT nom_fr, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
       await journaliser(tx, ctx, { action: 'Export', objetType: 'Bulletin', objetLibelle: `Bulletins · ${resultats[0]?.classe.nom ?? ''} · ${resultats[0]?.periode.libelleFr ?? ''}`,
         avant: '–', apres: `PDF · ${resultats.length} bulletins` });
       return pdfBulletins([...resultats].sort((a, b) => a.eleve.nom.localeCompare(b.eleve.nom)).map((x) => {
         const st = stockes.find((s) => s.inscription_id === x.eleve.inscriptionId);
         return {
-          etablissement: etab!.nom_fr, periodeFr: x.periode.libelleFr, periodeEn: x.periode.libelleEn, annee: x.annee,
+          etablissement: etab!.nom_fr, modele: etab!.modeles?.bulletin, periodeFr: x.periode.libelleFr, periodeEn: x.periode.libelleEn, annee: x.annee,
           version: st?.version ?? 1, statut: st?.statut === 'publie' ? 'publie' : 'brouillon',
           eleve: x.eleve.nom, matricule: x.eleve.matricule, classe: x.classe.nom, effectif: x.effectif, naissance: dateFr(x.eleve.dateNaissance),
           matieres: x.matieres.map((m) => ({ libelle: m.libelle, coefficient: m.coefficient, moyenne: m.moyenne, points: m.points, moyenneClasse: m.moyenneClasse, appreciation: m.appreciation })),

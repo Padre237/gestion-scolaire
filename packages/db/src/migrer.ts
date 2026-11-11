@@ -8,11 +8,12 @@ import { RACINE, type ConfigPg } from './config.ts';
 const DOSSIER = resolve(RACINE, 'packages/db/migrations');
 
 const SCHEMAS_METIER = ['core', 'structure', 'scolarite', 'finances', 'caisse', 'pedagogie', 'vie_scolaire',
-  'personnel', 'communication'];
+  'personnel', 'communication', 'assistant'];
 
 // Tables de liaison où une ligne peut être retirée ; ailleurs, pas de suppression physique (§ 6.1).
 const SUPPRESSION_PERMISE = ['core.role_permission', 'core.compte_role', 'pedagogie.affectation',
-  'finances.ligne_grille', 'scolarite.eleve_responsable'];
+  'finances.ligne_grille', 'scolarite.eleve_responsable', 'pedagogie.cours', 'pedagogie.creneau', 'caisse.budget',
+  'communication.annonce_famille', 'pedagogie.bulletin', 'vie_scolaire.absence', 'vie_scolaire.presence', 'communication.message'];
 
 export function connexionProprietaire(c: ConfigPg, base = c.base): pg.Client {
   return new pg.Client({ host: c.hote, port: c.port, database: base, user: c.proprietaire.utilisateur,

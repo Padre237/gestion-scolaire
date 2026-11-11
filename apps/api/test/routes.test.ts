@@ -8,7 +8,8 @@ beforeAll(async () => { env = await preparer(); });
 afterAll(async () => { await env?.fermer(); });
 
 // Routes accessibles à toute personne connectée, sans permission particulière.
-const SESSION_SEULE = new Set(['GET /api/v1/auth/moi', 'POST /api/v1/auth/deconnexion']);
+// Le logo de l'établissement figure sur les reçus et documents ; cachet et signature restent soumis à structure.consulter (contrôle dans la route).
+const SESSION_SEULE = new Set(['GET /api/v1/auth/moi', 'POST /api/v1/auth/deconnexion', 'GET /api/v1/structure/etablissement/images/:type']);
 
 describe('Déclaration des permissions', () => {
   it('chaque route /api/v1 est publique, de session seule, ou déclare une permission connue', () => {

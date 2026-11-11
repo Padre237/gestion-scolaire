@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { sql, ligne, lignes, type Tx } from '../../../core/bd.ts';
-import { ErreurMetier, introuvable } from '../../../core/erreurs.ts';
+import { ErreurMetier, interdit, introuvable } from '../../../core/erreurs.ts';
 import { exiger } from '../../../core/session.ts';
 import { journaliser } from '../../../core/audit.ts';
 import { anneeOuverte, cleCompteur, FORMATS, numeroSuivant } from '../index.ts';
@@ -133,11 +133,13 @@ export async function routesStructure(app: FastifyInstance) {
     return { ok: true };
   });
 
+  // Le logo figure sur les reçus et les documents : toute personne connectée le lit ; cachet et signature restent au paramétrage.
   r.get('/structure/etablissement/images/:type', {
-    config: { permission: 'structure.consulter' },
+    config: {},
     schema: { tags: ['structure'], params: z.object({ type: z.enum(['logo', 'cachet', 'signature']) }) },
   }, async (req, rep) => {
     const ctx = exiger(req);
+    if (req.params.type !== 'logo' && !ctx.a('structure.consulter')) throw interdit('structure.consulter');
     const e = await app.bd.lireUn<{ img: Buffer | null }>(
       req.params.type === 'logo' ? sql`SELECT logo AS img FROM structure.etablissement WHERE id = ${ctx.etablissementId}`
         : req.params.type === 'cachet' ? sql`SELECT cachet AS img FROM structure.etablissement WHERE id = ${ctx.etablissementId}`

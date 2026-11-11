@@ -4,7 +4,7 @@ import { sql, type Tx } from './bd.ts';
 import type { Contexte } from './contexte.ts';
 
 export type ActionAudit = 'Création' | 'Modification' | 'Annulation' | 'Demande' | 'Validation' | 'Refus'
-  | 'Levée de blocage' | 'Désactivation' | 'Réinitialisation' | 'Export' | 'Connexion refusée';
+  | 'Levée de blocage' | 'Désactivation' | 'Réinitialisation' | 'Export' | 'Import' | 'Connexion refusée';
 
 export interface EntreeAudit {
   action: ActionAudit;

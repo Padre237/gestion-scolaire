@@ -2,7 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { sql, ligne, lignes, tableau } from '../../../core/bd.ts';
+import { sql, ligne, lignes, tableau, type Tx } from '../../../core/bd.ts';
 import { ErreurMetier, interdit, introuvable } from '../../../core/erreurs.ts';
 import { exiger } from '../../../core/session.ts';
 import type { Contexte } from '../../../core/contexte.ts';
@@ -14,7 +14,7 @@ import { versCsv } from '../../../core/csv.ts';
 import { classeInfo, cleCompteur, exigerAnneeOuverte, FORMATS, prochainNumero, anneeOuverteTx } from '../../structure/index.ts';
 import { chiffres, formatTelephone, inscription } from '../index.ts';
 import '../index.ts';
-import { pdfCertificat, pdfFicheInscription, pdfListeClasse } from '@gs/print';
+import { pdfCertificat, pdfFicheInscription, pdfListeClasse, pdfTableau } from '@gs/print';
 
 const Uuid = z.uuid();
 const LIENS: Record<string, string> = { mere: 'Mère', pere: 'Père', tuteur: 'Tuteur' };
@@ -91,7 +91,7 @@ export async function routesScolarite(app: FastifyInstance) {
       classes: listeClasses };
   });
 
-  r.get('/scolarite/eleves/export', { config: { permission: 'scolarite.eleve.exporter' }, schema: { tags: ['scolarite'], querystring: Filtre.omit({ page: true, taille: true }) } }, async (req, rep) => {
+  r.get('/scolarite/eleves/export', { config: { permission: 'scolarite.eleve.exporter' }, schema: { tags: ['scolarite'], querystring: Filtre.omit({ page: true, taille: true }).extend({ format: z.enum(['csv', 'pdf']).default('csv') }) } }, async (req, rep) => {
     const ctx = exiger(req);
     const annee = await exigerAnneeOuverte(app.bd, ctx.etablissementId);
     const rows = await app.bd.lire<Record<string, unknown>>(sql`
@@ -100,7 +100,16 @@ export async function routesScolarite(app: FastifyInstance) {
              CASE WHEN s.reste = 0 THEN 'Soldé' WHEN s.echu > 0 THEN 'En retard' ELSE 'À jour' END AS "Situation", s.reste AS "Reste dû"
       ${requeteListe(ctx.etablissementId, annee.id, 'toutes', { ...req.query, page: 1, taille: 1000 })} ORDER BY i.nom, i.prenoms`);
     await app.bd.transaction(ctx.compteId, (tx) => journaliser(tx, ctx, { action: 'Export', objetType: 'Élève',
-      objetLibelle: `Export de la liste des élèves · ${rows.length} lignes`, avant: '–', apres: 'CSV' }));
+      objetLibelle: `Export de la liste des élèves · ${rows.length} lignes`, avant: '–', apres: req.query.format.toUpperCase() }));
+    if (req.query.format === 'pdf') {
+      const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`
+        SELECT nom_fr, nom_en, ville_bp, telephone FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      const cles = ['Matricule', 'Nom et prénoms', 'Classe', 'Sexe', 'Né(e) le', 'Responsable payeur', 'Situation', 'Reste dû'];
+      const pdf = await pdfTableau({ etablissement: etab!, titre: `ÉLÈVES INSCRITS EN ${annee.libelle}`, sousTitre: `${rows.length} élèves`,
+        colonnes: cles.map((c, i) => ({ titre: c, largeur: [70, 170, 60, 35, 70, 150, 70, 70][i]!, droite: i === 7 })),
+        lignes: rows.map((r) => cles.map((c) => String(r[c] ?? ''))) });
+      return rep.type('application/pdf').header('content-disposition', 'inline; filename="eleves.pdf"').send(Buffer.from(pdf));
+    }
     return rep.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="eleves.csv"').send(versCsv(rows));
   });
 
@@ -190,9 +199,18 @@ export async function routesScolarite(app: FastifyInstance) {
       SELECT round(avg(n.sur_20), 2) AS m FROM reporting.v_note n
         JOIN structure.periode p ON p.id = n.periode_id AND current_date BETWEEN p.date_debut AND p.date_fin + 30
        WHERE n.inscription_id = ${req.params.id} AND (${req.query.matiereExclue ?? null}::uuid IS NULL OR n.matiere_id <> ${req.query.matiereExclue ?? null}::uuid)`);
+    // Suivi de la fiche : moyenne de la dernière séquence notée, absences de la période (en demi-journées, E-33).
+    const seq = await app.bd.lireUn<{ libelle: string; m: number }>(sql`
+      SELECT s.libelle_fr AS libelle, round(avg(n.sur_20), 2) AS m FROM reporting.v_note n
+        JOIN pedagogie.sequence s ON s.periode_id = n.periode_id AND s.numero = n.sequence AND s.type = n.type_sequence
+       WHERE n.inscription_id = ${req.params.id} AND n.sur_20 IS NOT NULL
+       GROUP BY s.id, s.libelle_fr, s.numero ORDER BY s.numero DESC LIMIT 1`);
+    const abs = await app.bd.lireUn<{ n: number }>(sql`
+      SELECT count(DISTINCT (jour, debut < '12:00'))::int AS n FROM reporting.v_absence WHERE inscription_id = ${req.params.id}`);
     return { eleveId: i.eleve_id, nom: i.nom, classe: i.classe, sexe: i.sexe, dateNaissance: i.date_naissance,
       responsable: payeur ? `${payeur.nom} · ${formatTelephone(payeur.telephone)}` : null,
-      sanctions: sanctions?.n ?? 0, moyenneAutres: moyenne?.m ?? null };
+      sanctions: sanctions?.n ?? 0, moyenneAutres: moyenne?.m ?? null,
+      sequence: seq?.libelle ?? null, moyenneSequence: seq?.m ?? null, absencesDemiJournees: abs?.n ?? 0 };
   });
 
   // ------------------------------------------------------------- inscription (CU-06, CU-07)
@@ -230,113 +248,220 @@ export async function routesScolarite(app: FastifyInstance) {
     return { famille: { id: f.famille_id, compte: f.compte, telephone: formatTelephone(tel), enfants } };
   });
 
-  r.post('/scolarite/inscriptions', {
-    config: { permission: 'scolarite.inscription.creer' },
-    bodyLimit: 2_000_000,
-    schema: { tags: ['scolarite'], body: z.object({
-      eleveId: Uuid.optional(), eleve: NouvelEleve.optional(),
-      responsables: z.array(Responsable).min(1).max(4).optional(),
-      classeId: Uuid, type: z.enum(['nouvelle', 'reinscription', 'redoublement']), tarif: z.enum(['nouveau', 'ancien']),
-      doublonEcarte: z.boolean().default(false),
-    }) },
-  }, async (req) => {
-    const ctx = exiger(req);
-    const b = req.body;
+  const CorpsInscription = z.object({
+    eleveId: Uuid.optional(), eleve: NouvelEleve.optional(),
+    responsables: z.array(Responsable).min(1).max(4).optional(),
+    classeId: Uuid, type: z.enum(['nouvelle', 'reinscription', 'redoublement']), tarif: z.enum(['nouveau', 'ancien']),
+    doublonEcarte: z.boolean().default(false),
+  });
+  type Inscription = z.infer<typeof CorpsInscription> & { matricule?: string | null };
+
+  /** Inscription d'un élève (CU-06, CU-07) : commune à l'écran Inscription et à l'import (écran Données, import:csv). */
+  async function inscrire(tx: Tx, ctx: Contexte, b: Inscription) {
     if (!b.eleveId && (!b.eleve || !b.responsables)) throw new ErreurMetier('SCO_ELEVE_REQUIS', 422, 'Identité et responsables requis pour un nouvel élève.');
     if (b.responsables && b.responsables.filter((x) => x.payeur).length !== 1) {
       throw new ErreurMetier('SCO_UN_PAYEUR', 422, 'Il faut exactement un payeur principal (RG-08).', 'responsables');
     }
-    return app.bd.transaction(ctx.compteId, async (tx) => {
-      const annee = await anneeOuverteTx(tx, ctx.etablissementId);
-      const classe = await classeInfo(tx, b.classeId, ctx.etablissementId);
-      if (!classe || classe.annee_id !== annee.id) throw new ErreurMetier('SCO_CLASSE_HORS_ANNEE', 422, 'La classe doit appartenir à l\'année ouverte (RG-06).', 'classeId');
-      const grille = await ligne<{ n: number }>(tx, sql`
-        SELECT count(l.*)::int AS n FROM finances.grille_frais g JOIN finances.ligne_grille l ON l.grille_id = g.id
-         WHERE g.annee_id = ${annee.id} AND g.niveau_id = ${classe.niveau_id} AND g.statut_eleve = ${b.tarif}`);
-      if (!grille!.n) throw new ErreurMetier('SCO_GRILLE_ABSENTE', 422, `Aucune grille des frais pour le niveau ${classe.niveau_code} (CU-07).`, 'classeId');
-      let eleveId = b.eleveId;
-      let familleId: string;
-      let compteFamille: { cree: boolean; telephone: string; motDePasse?: string } | null = null;
-      let matricule: string;
-      if (eleveId) {
-        const e = await ligne<{ famille_id: string; matricule: string }>(tx, sql`SELECT famille_id, matricule FROM scolarite.eleve WHERE id = ${eleveId} AND etablissement_id = ${ctx.etablissementId}`);
-        if (!e) throw introuvable('Élève');
-        familleId = e.famille_id;
-        matricule = e.matricule; // RG-04 : le matricule ne change jamais
+    const annee = await anneeOuverteTx(tx, ctx.etablissementId);
+    const classe = await classeInfo(tx, b.classeId, ctx.etablissementId);
+    if (!classe || classe.annee_id !== annee.id) throw new ErreurMetier('SCO_CLASSE_HORS_ANNEE', 422, 'La classe doit appartenir à l\'année ouverte (RG-06).', 'classeId');
+    const grille = await ligne<{ n: number }>(tx, sql`
+      SELECT count(l.*)::int AS n FROM finances.grille_frais g JOIN finances.ligne_grille l ON l.grille_id = g.id
+       WHERE g.annee_id = ${annee.id} AND g.niveau_id = ${classe.niveau_id} AND g.statut_eleve = ${b.tarif}`);
+    if (!grille!.n) throw new ErreurMetier('SCO_GRILLE_ABSENTE', 422, `Aucune grille des frais pour le niveau ${classe.niveau_code} (CU-07).`, 'classeId');
+    let eleveId = b.eleveId;
+    let familleId: string;
+    let compteFamille: { cree: boolean; telephone: string; motDePasse?: string } | null = null;
+    let matricule: string;
+    if (eleveId) {
+      const e = await ligne<{ famille_id: string; matricule: string }>(tx, sql`SELECT famille_id, matricule FROM scolarite.eleve WHERE id = ${eleveId} AND etablissement_id = ${ctx.etablissementId}`);
+      if (!e) throw introuvable('Élève');
+      familleId = e.famille_id;
+      matricule = e.matricule; // RG-04 : le matricule ne change jamais
+    } else {
+      const ev = b.eleve!;
+      if (!b.doublonEcarte) {
+        const d = await ligne<{ nom: string }>(tx, sql`
+          SELECT nom || ' ' || prenoms AS nom FROM scolarite.eleve WHERE etablissement_id = ${ctx.etablissementId}
+             AND date_naissance = ${ev.dateNaissance} AND core.sans_accent(nom) = core.sans_accent(${ev.nom})
+             AND core.sans_accent(prenoms) = core.sans_accent(${ev.prenoms})`);
+        if (d) throw new ErreurMetier('SCO_DOUBLON', 409, `Un élève identique existe déjà : ${d.nom} (RG-09).`);
+      }
+      const payeur = b.responsables!.find((x) => x.payeur)!;
+      const existante = await ligne<{ famille_id: string }>(tx, sql`
+        SELECT famille_id FROM scolarite.responsable WHERE etablissement_id = ${ctx.etablissementId}
+           AND telephone = ANY(${tableau(b.responsables!.map((x) => x.telephone))}::text[])
+         ORDER BY (telephone = ${payeur.telephone}) DESC LIMIT 1`);
+      if (existante) {
+        familleId = existante.famille_id;
       } else {
-        const ev = b.eleve!;
-        if (!b.doublonEcarte) {
-          const d = await ligne<{ nom: string }>(tx, sql`
-            SELECT nom || ' ' || prenoms AS nom FROM scolarite.eleve WHERE etablissement_id = ${ctx.etablissementId}
-               AND date_naissance = ${ev.dateNaissance} AND core.sans_accent(nom) = core.sans_accent(${ev.nom})
-               AND core.sans_accent(prenoms) = core.sans_accent(${ev.prenoms})`);
-          if (d) throw new ErreurMetier('SCO_DOUBLON', 409, `Un élève identique existe déjà : ${d.nom} (RG-09).`);
-        }
-        const payeur = b.responsables!.find((x) => x.payeur)!;
-        const existante = await ligne<{ famille_id: string }>(tx, sql`
-          SELECT famille_id FROM scolarite.responsable WHERE etablissement_id = ${ctx.etablissementId}
-             AND telephone = ANY(${tableau(b.responsables!.map((x) => x.telephone))}::text[])
-           ORDER BY (telephone = ${payeur.telephone}) DESC LIMIT 1`);
-        if (existante) {
-          familleId = existante.famille_id;
-        } else {
-          familleId = (await ligne<{ id: string }>(tx, sql`
-            INSERT INTO scolarite.famille (etablissement_id, nom, cree_par) VALUES (${ctx.etablissementId}, ${ev.nom}, ${ctx.compteId}) RETURNING id`))!.id;
-        }
+        familleId = (await ligne<{ id: string }>(tx, sql`
+          INSERT INTO scolarite.famille (etablissement_id, nom, cree_par) VALUES (${ctx.etablissementId}, ${ev.nom}, ${ctx.compteId}) RETURNING id`))!.id;
+      }
+      if (b.matricule) {
+        // Import d'un élève déjà connu de l'école : il garde le matricule de son année d'entrée (RG-04).
+        const pris = await ligne(tx, sql`SELECT 1 FROM scolarite.eleve WHERE etablissement_id = ${ctx.etablissementId} AND matricule = ${b.matricule}`);
+        if (pris) throw new ErreurMetier('SCO_MATRICULE_PRIS', 409, `Le matricule ${b.matricule} est déjà attribué.`, 'matricule');
+        matricule = b.matricule;
+      } else {
         const numero = await prochainNumero(tx, ctx.etablissementId, cleCompteur.matricule(annee.annee_civile, classe.code_section));
         matricule = FORMATS.matricule(annee.annee_civile, classe.code_section, numero);
-        const photo = ev.photo ? Buffer.from(ev.photo, 'base64') : null;
-        eleveId = (await ligne<{ id: string }>(tx, sql`
-          INSERT INTO scolarite.eleve (etablissement_id, matricule, nom, prenoms, sexe, date_naissance, lieu_naissance, photo, famille_id, cree_par)
-          VALUES (${ctx.etablissementId}, ${matricule}, ${ev.nom}, ${ev.prenoms}, ${ev.sexe}, ${ev.dateNaissance}, ${ev.lieuNaissance ?? null},
-                  ${photo}, ${familleId}, ${ctx.compteId}) RETURNING id`))!.id;
-        let ordre = 1;
-        for (const resp of b.responsables!) {
-          let rid = (await ligne<{ id: string }>(tx, sql`
-            SELECT id FROM scolarite.responsable WHERE famille_id = ${familleId} AND telephone = ${resp.telephone}`))?.id;
-          if (!rid) {
-            rid = (await ligne<{ id: string }>(tx, sql`
-              INSERT INTO scolarite.responsable (etablissement_id, famille_id, nom, telephone, langue, cree_par)
-              VALUES (${ctx.etablissementId}, ${familleId}, ${resp.nom}, ${resp.telephone}, ${resp.langue}, ${ctx.compteId}) RETURNING id`))!.id;
-          }
-          await tx.execute(sql`INSERT INTO scolarite.eleve_responsable (eleve_id, responsable_id, lien, payeur, recoit_sms, ordre)
-                               VALUES (${eleveId}, ${rid}, ${resp.lien}, ${resp.payeur}, ${resp.recoitSms}, ${ordre++})`);
-        }
-        // RG-35 : un compte par famille, créé à l'inscription ; le mot de passe est imprimé sur la fiche.
-        const compte = await ligne<{ identifiant: string }>(tx, sql`SELECT identifiant FROM core.compte WHERE famille_id = ${familleId}`);
-        if (compte) {
-          compteFamille = { cree: false, telephone: formatTelephone(compte.identifiant) };
-        } else {
-          const motDePasse = motDePasseAleatoire(8);
-          const c = await ligne<{ id: string }>(tx, sql`
-            INSERT INTO core.compte (etablissement_id, identifiant, nom_affiche, mot_de_passe, type, famille_id, cree_par)
-            VALUES (${ctx.etablissementId}, ${payeur.telephone}, ${`Famille ${ev.nom}`}, ${await hacher(motDePasse)}, 'famille', ${familleId}, ${ctx.compteId})
-            RETURNING id`);
-          await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id)
-                               SELECT ${ctx.etablissementId}, ${c!.id}, id FROM core.role WHERE etablissement_id = ${ctx.etablissementId} AND code = 'parent'`);
-          compteFamille = { cree: true, telephone: formatTelephone(payeur.telephone), motDePasse };
-        }
       }
-      // RG-05 : au plus une inscription active par année (index unique) ; RG-06 : effectif maximal.
-      const actif = await ligne(tx, sql`SELECT 1 FROM scolarite.inscription WHERE eleve_id = ${eleveId} AND annee_id = ${annee.id} AND statut IN ('attente', 'validee')`);
-      if (actif) throw new ErreurMetier('SCO_DEJA_INSCRIT', 409, 'Cet élève a déjà une inscription active cette année (RG-05) : changez-le de classe.');
-      const effectif = await ligne<{ n: number }>(tx, sql`SELECT count(*)::int AS n FROM scolarite.inscription WHERE classe_id = ${b.classeId} AND statut IN ('attente', 'validee')`);
-      const pleine = effectif!.n >= classe.effectif_max;
-      const insc = await ligne<{ id: string }>(tx, sql`
-        INSERT INTO scolarite.inscription (etablissement_id, annee_id, eleve_id, classe_id, type, tarif, statut, cree_par)
-        VALUES (${ctx.etablissementId}, ${annee.id}, ${eleveId}, ${b.classeId}, ${b.type}, ${b.tarif}, 'attente', ${ctx.compteId}) RETURNING id`);
-      await emettre(tx, ctx, 'inscription.creee', { inscriptionId: insc!.id, eleveId: eleveId!, classeId: b.classeId, niveauId: classe.niveau_id, anneeId: annee.id, tarif: b.tarif });
-      const nom = b.eleve ? `${b.eleve.nom} ${b.eleve.prenoms}` : (await ligne<{ n: string }>(tx, sql`SELECT nom || ' ' || prenoms AS n FROM scolarite.eleve WHERE id = ${eleveId}`))!.n;
-      if (pleine) {
-        await tx.execute(sql`
-          INSERT INTO finances.demande (etablissement_id, type, inscription_id, objet, motif, demandeur)
-          VALUES (${ctx.etablissementId}, 'derogation', ${insc!.id}, ${`dépassement d'effectif (${classe.effectif_max} places)`},
-                  ${`Classe ${classe.nom} complète : ${effectif!.n} élèves sur ${classe.effectif_max}`}, ${ctx.compteId})`);
+      const photo = ev.photo ? Buffer.from(ev.photo, 'base64') : null;
+      eleveId = (await ligne<{ id: string }>(tx, sql`
+        INSERT INTO scolarite.eleve (etablissement_id, matricule, nom, prenoms, sexe, date_naissance, lieu_naissance, photo, famille_id, cree_par)
+        VALUES (${ctx.etablissementId}, ${matricule}, ${ev.nom}, ${ev.prenoms}, ${ev.sexe}, ${ev.dateNaissance}, ${ev.lieuNaissance ?? null},
+                ${photo}, ${familleId}, ${ctx.compteId}) RETURNING id`))!.id;
+      let ordre = 1;
+      for (const resp of b.responsables!) {
+        let rid = (await ligne<{ id: string }>(tx, sql`
+          SELECT id FROM scolarite.responsable WHERE famille_id = ${familleId} AND telephone = ${resp.telephone}`))?.id;
+        if (!rid) {
+          rid = (await ligne<{ id: string }>(tx, sql`
+            INSERT INTO scolarite.responsable (etablissement_id, famille_id, nom, telephone, langue, cree_par)
+            VALUES (${ctx.etablissementId}, ${familleId}, ${resp.nom}, ${resp.telephone}, ${resp.langue}, ${ctx.compteId}) RETURNING id`))!.id;
+        }
+        await tx.execute(sql`INSERT INTO scolarite.eleve_responsable (eleve_id, responsable_id, lien, payeur, recoit_sms, ordre)
+                             VALUES (${eleveId}, ${rid}, ${resp.lien}, ${resp.payeur}, ${resp.recoitSms}, ${ordre++})`);
       }
-      await journaliser(tx, ctx, { action: 'Création', objetType: 'Élève', objetLibelle: `Inscription · ${nom}`,
-        avant: '–', apres: `Inscription en ${classe.nom}${pleine ? ' · dérogation demandée' : ''}`, eleveId, ligneId: insc!.id, table: 'scolarite.inscription' });
-      return { inscriptionId: insc!.id, eleveId, matricule, classe: classe.nom, compteFamille, derogationDemandee: pleine };
-    });
+      // RG-35 : un compte par famille, créé à l'inscription ; le mot de passe est imprimé sur la fiche.
+      const compte = await ligne<{ identifiant: string }>(tx, sql`SELECT identifiant FROM core.compte WHERE famille_id = ${familleId}`);
+      if (compte) {
+        compteFamille = { cree: false, telephone: formatTelephone(compte.identifiant) };
+      } else {
+        const motDePasse = motDePasseAleatoire(8);
+        const c = await ligne<{ id: string }>(tx, sql`
+          INSERT INTO core.compte (etablissement_id, identifiant, nom_affiche, mot_de_passe, type, famille_id, cree_par)
+          VALUES (${ctx.etablissementId}, ${payeur.telephone}, ${`Famille ${ev.nom}`}, ${await hacher(motDePasse)}, 'famille', ${familleId}, ${ctx.compteId})
+          RETURNING id`);
+        await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id)
+                             SELECT ${ctx.etablissementId}, ${c!.id}, id FROM core.role WHERE etablissement_id = ${ctx.etablissementId} AND code = 'parent'`);
+        compteFamille = { cree: true, telephone: formatTelephone(payeur.telephone), motDePasse };
+      }
+    }
+    // RG-05 : au plus une inscription active par année (index unique) ; RG-06 : effectif maximal.
+    const actif = await ligne(tx, sql`SELECT 1 FROM scolarite.inscription WHERE eleve_id = ${eleveId} AND annee_id = ${annee.id} AND statut IN ('attente', 'validee')`);
+    if (actif) throw new ErreurMetier('SCO_DEJA_INSCRIT', 409, 'Cet élève a déjà une inscription active cette année (RG-05) : changez-le de classe.');
+    const effectif = await ligne<{ n: number }>(tx, sql`SELECT count(*)::int AS n FROM scolarite.inscription WHERE classe_id = ${b.classeId} AND statut IN ('attente', 'validee')`);
+    const pleine = effectif!.n >= classe.effectif_max;
+    const insc = await ligne<{ id: string }>(tx, sql`
+      INSERT INTO scolarite.inscription (etablissement_id, annee_id, eleve_id, classe_id, type, tarif, statut, cree_par)
+      VALUES (${ctx.etablissementId}, ${annee.id}, ${eleveId}, ${b.classeId}, ${b.type}, ${b.tarif}, 'attente', ${ctx.compteId}) RETURNING id`);
+    await emettre(tx, ctx, 'inscription.creee', { inscriptionId: insc!.id, eleveId: eleveId!, classeId: b.classeId, niveauId: classe.niveau_id, anneeId: annee.id, tarif: b.tarif });
+    const nom = b.eleve ? `${b.eleve.nom} ${b.eleve.prenoms}` : (await ligne<{ n: string }>(tx, sql`SELECT nom || ' ' || prenoms AS n FROM scolarite.eleve WHERE id = ${eleveId}`))!.n;
+    if (pleine) {
+      await tx.execute(sql`
+        INSERT INTO finances.demande (etablissement_id, type, inscription_id, objet, motif, demandeur)
+        VALUES (${ctx.etablissementId}, 'derogation', ${insc!.id}, ${`dépassement d'effectif (${classe.effectif_max} places)`},
+                ${`Classe ${classe.nom} complète : ${effectif!.n} élèves sur ${classe.effectif_max}`}, ${ctx.compteId})`);
+    }
+    await journaliser(tx, ctx, { action: 'Création', objetType: 'Élève', objetLibelle: `Inscription · ${nom}`,
+      avant: '–', apres: `Inscription en ${classe.nom}${pleine ? ' · dérogation demandée' : ''}`, eleveId, ligneId: insc!.id, table: 'scolarite.inscription' });
+    return { inscriptionId: insc!.id, eleveId, matricule, classe: classe.nom, compteFamille, derogationDemandee: pleine };
+  }
+
+  r.post('/scolarite/inscriptions', {
+    config: { permission: 'scolarite.inscription.creer' },
+    bodyLimit: 2_000_000,
+    schema: { tags: ['scolarite'], body: CorpsInscription },
+  }, async (req) => {
+    const ctx = exiger(req);
+    return app.bd.transaction(ctx.compteId, (tx) => inscrire(tx, ctx, req.body));
+  });
+
+  // ------------------------------------------------------------- import (écran Données, commande import:csv, IMPORT.md)
+
+  const LigneImport = z.object({
+    ligne: z.number().int().min(1), matricule: z.string().trim().max(20).nullish(),
+    nom: z.string().trim().max(60).default(''), prenoms: z.string().trim().max(80).default(''), sexe: z.string().trim().max(10).default(''),
+    dateNaissance: z.string().trim().max(20).default(''), lieuNaissance: z.string().trim().max(80).nullish(), classe: z.string().trim().max(40).default(''),
+    type: z.string().trim().max(20).nullish(), responsable: z.string().trim().max(80).default(''), lien: z.string().trim().max(20).nullish(),
+    telephone: z.string().trim().max(30).default(''), langue: z.string().trim().max(10).nullish(),
+    responsable2: z.string().trim().max(80).nullish(), lien2: z.string().trim().max(20).nullish(), telephone2: z.string().trim().max(30).nullish(),
+  });
+
+  const sansAccent = (x: string) => x.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const sexeDe = (x: string) => /^(m|g|h|garcon|garçon|masculin|male|boy)$/i.test(x.trim()) ? 'M' : /^(f|fille|feminin|féminin|female|girl)$/i.test(x.trim()) ? 'F' : null;
+  const lienDe = (x: string | null | undefined): 'mere' | 'pere' | 'tuteur' => {
+    const v = sansAccent(x ?? '');
+    return v.startsWith('pere') || v === 'father' ? 'pere' : v.startsWith('mere') || v === 'mother' || !v ? 'mere' : 'tuteur';
+  };
+  const dateDe = (x: string): string | null => {
+    const fr = x.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/);
+    const iso = x.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const [a, mo, j] = fr ? [Number(fr[3]), Number(fr[2]), Number(fr[1])] : iso ? [Number(iso[1]), Number(iso[2]), Number(iso[3])] : [0, 0, 0];
+    if (!a || !mo || !j) return null;
+    const d = new Date(Date.UTC(a, mo - 1, j));
+    if (d.getUTCFullYear() !== a || d.getUTCMonth() !== mo - 1 || d.getUTCDate() !== j) return null;
+    return d.toISOString().slice(0, 10);
+  };
+
+  r.post('/scolarite/import', {
+    config: { permission: 'scolarite.import.executer' }, bodyLimit: 6_000_000,
+    schema: { tags: ['scolarite'], body: z.object({ essai: z.boolean(), lignes: z.array(LigneImport).min(1).max(3000) }) },
+  }, async (req) => {
+    const ctx = exiger(req);
+    const annee = await exigerAnneeOuverte(app.bd, ctx.etablissementId);
+    const classes = await app.bd.lire<{ id: string; nom: string }>(sql`SELECT id, nom FROM structure.classe WHERE annee_id = ${annee.id}`);
+    const existants = await app.bd.lire<{ nom: string; naissance: string; matricule: string }>(sql`
+      SELECT nom || ' ' || prenoms AS nom, date_naissance::text AS naissance, matricule FROM scolarite.eleve WHERE etablissement_id = ${ctx.etablissementId}`);
+    const matricules = new Set(existants.map((x) => x.matricule));
+    const parCle = new Map(existants.map((e) => [`${sansAccent(e.nom)}|${e.naissance}`, e.matricule]));
+    const erreurs: { ligne: number; champ: string; valeur: string; probleme: string }[] = [];
+    const valides: { ligne: number; corps: Inscription; nom: string }[] = [];
+    const vusFichier = new Map<string, number>();
+    for (const l of req.body.lignes) {
+      const err = (champ: string, valeur: string, probleme: string) => erreurs.push({ ligne: l.ligne, champ, valeur, probleme });
+      const avant = erreurs.length;
+      // « Names » peut porter nom et prénoms ensemble : le premier mot est le nom.
+      let nom = l.nom, prenoms = l.prenoms;
+      if (!prenoms && /[\s,]/.test(nom)) { const [n, ...p] = nom.split(/[\s,]+/).filter(Boolean); nom = n ?? ''; prenoms = p.join(' '); }
+      if (!nom || !prenoms) err('Nom et prénoms', `${l.nom} ${l.prenoms}`.trim(), 'Nom ou prénoms manquants');
+      const sexe = sexeDe(l.sexe);
+      if (!sexe) err('Sexe', l.sexe, 'Sexe non reconnu (M ou F)');
+      const naissance = dateDe(l.dateNaissance);
+      if (!naissance) err('Date de naissance', l.dateNaissance, l.dateNaissance ? 'Date impossible' : 'Date manquante');
+      const classe = classes.find((c) => sansAccent(c.nom) === sansAccent(l.classe));
+      if (!classe) err('Classe', l.classe, `Classe inconnue en ${annee.libelle}`);
+      const tel = chiffres(l.telephone);
+      if (!/^\d{8,12}$/.test(tel)) err('Téléphone', l.telephone, 'Numéro incomplet');
+      const tel2 = l.telephone2 ? chiffres(l.telephone2) : null;
+      if (tel2 && !/^\d{8,12}$/.test(tel2)) err('Téléphone 2', l.telephone2 ?? '', 'Numéro incomplet');
+      if (!l.responsable || l.responsable.length < 2) err('Responsable', l.responsable, 'Responsable manquant');
+      const matricule = l.matricule?.toUpperCase().replace(/\s/g, '') || null;
+      if (matricule && !/^\d{2}[A-Z]{2,4}\d{4}$/.test(matricule)) err('Matricule', l.matricule ?? '', 'Matricule mal formé (ex. 25FR0012)');
+      else if (matricule && matricules.has(matricule)) err('Matricule', matricule, 'Matricule déjà attribué');
+      if (nom && prenoms && naissance) {
+        const cle = `${sansAccent(nom + ' ' + prenoms)}|${naissance}`;
+        const deja = parCle.get(cle);
+        if (deja) err('Nom et prénoms', `${nom.toUpperCase()} ${prenoms}`, `Doublon probable avec ${deja}`);
+        else if (vusFichier.has(cle)) err('Nom et prénoms', `${nom.toUpperCase()} ${prenoms}`, `Doublon dans le fichier (ligne ${vusFichier.get(cle)})`);
+        else vusFichier.set(cle, l.ligne);
+      }
+      if (erreurs.length > avant) continue;
+      const t = sansAccent(l.type ?? '');
+      const type = t.startsWith('red') ? 'redoublement' : t.startsWith('nouv') || t === 'new' ? 'nouvelle' : t || matricule ? 'reinscription' : 'nouvelle';
+      const langue = /^(en|anglais|english)$/i.test(l.langue ?? '') ? 'en' : 'fr';
+      const responsables: z.infer<typeof Responsable>[] = [{ nom: l.responsable, lien: lienDe(l.lien), telephone: tel, langue, payeur: true, recoitSms: true }];
+      if (l.responsable2 && tel2 && tel2 !== tel) responsables.push({ nom: l.responsable2, lien: lienDe(l.lien2), telephone: tel2, langue, payeur: false, recoitSms: false });
+      valides.push({ ligne: l.ligne, nom: `${nom.toUpperCase()} ${prenoms}`, corps: {
+        eleve: { nom: nom.toUpperCase(), prenoms, sexe: sexe!, dateNaissance: naissance!, lieuNaissance: l.lieuNaissance || null },
+        responsables, classeId: classe!.id, type, tarif: type === 'nouvelle' ? 'nouveau' : 'ancien', doublonEcarte: true, matricule } });
+      if (matricule) matricules.add(matricule);
+    }
+    if (req.body.essai) return { essai: true, lues: req.body.lignes.length, valides: valides.length, erreurs, importes: 0 };
+    let importes = 0;
+    for (const v of valides) {
+      try {
+        await app.bd.transaction(ctx.compteId, (tx) => inscrire(tx, ctx, v.corps));
+        importes++;
+      } catch (e) {
+        erreurs.push({ ligne: v.ligne, champ: 'Inscription', valeur: v.nom, probleme: (e as Error).message });
+      }
+    }
+    await app.bd.transaction(ctx.compteId, (tx) => journaliser(tx, ctx, { action: 'Import', objetType: 'Élève',
+      objetLibelle: `Import d'élèves et de responsables · ${req.body.lignes.length} lignes lues`, avant: '–', apres: `${importes} importées, ${erreurs.length} rejetées` }));
+    return { essai: false, lues: req.body.lignes.length, valides: valides.length, erreurs: erreurs.sort((a, b) => a.ligne - b.ligne), importes };
   });
 
   r.get('/scolarite/matricule-suivant', {
@@ -453,7 +578,8 @@ export async function routesScolarite(app: FastifyInstance) {
     const annee = await exigerAnneeOuverte(app.bd, ctx.etablissementId);
     const classes = await filtreClasses(ctx);
     const rows = await app.bd.lire(sql`
-      SELECT c.id, c.nom, c.effectif_max AS "effectifMax", cy.sous_systeme AS "sousSysteme",
+      SELECT c.id, c.nom, c.effectif_max AS "effectifMax", cy.sous_systeme AS "sousSysteme", n.id AS "niveauId", n.code AS "niveauCode",
+             cy.libelle AS cycle, cy.ordre_enseignement AS "ordreEnseignement",
              (SELECT count(*)::int FROM reporting.v_inscription i WHERE i.classe_id = c.id AND i.statut IN ('attente', 'validee')) AS effectif
         FROM structure.classe c JOIN structure.niveau n ON n.id = c.niveau_id JOIN structure.cycle cy ON cy.id = n.cycle_id
        WHERE c.annee_id = ${annee.id} AND (${classes === 'toutes'} OR c.id = ANY(${tableau(classes === 'toutes' ? [] : classes)}::uuid[]))

@@ -46,3 +46,15 @@ surEvenement('relance.sms', async (tx, _ctx, d) => {
                          SELECT etablissement_id, id, 'sms', ${d.compteId} FROM scolarite.inscription WHERE id = ${id}`);
   }
 });
+
+// Clôture d'année (E-26) : le reste dû devient la ligne « Arriéré », d'ordre 0, répartie en premier dans le nouvel échéancier.
+surEvenement('inscription.reportee', async (tx, ctx, d) => {
+  const l = await echeancier(tx, d.ancienneInscriptionId);
+  const reste = l.reduce((s, x) => s + Number(x.reste), 0);
+  if (reste <= 0) return;
+  await tx.execute(sql`
+    INSERT INTO finances.ligne_echeance (etablissement_id, inscription_id, rubrique_id, libelle_fr, libelle_en, ordre, prix_unitaire, date_limite, cree_par)
+    SELECT i.etablissement_id, ${d.nouvelleInscriptionId}, (SELECT id FROM finances.rubrique r WHERE r.etablissement_id = i.etablissement_id AND r.code = 'scolarite'),
+           ${`Arriéré ${d.libelleAnnee}`}, ${`Arrears ${d.libelleAnnee}`}, 0, ${reste}, ${d.dateLimite}, ${ctx?.compteId ?? null}
+      FROM scolarite.inscription i WHERE i.id = ${d.nouvelleInscriptionId}`);
+});

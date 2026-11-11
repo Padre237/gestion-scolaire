@@ -13,6 +13,7 @@ export interface Evenements {
   'absence.justifiee': { inscriptionId: string; jour: string };
   'relance.sms': { inscriptionIds: string[]; compteId: string };
   'bulletins.publies': { classeId: string; periodeId: string | null; inscriptionIds: string[] };
+  'inscription.reportee': { ancienneInscriptionId: string; nouvelleInscriptionId: string; libelleAnnee: string; dateLimite: string };
 }
 
 type Gestionnaire<K extends keyof Evenements> = (tx: Tx, ctx: Contexte | null, donnees: Evenements[K]) => Promise<void>;

@@ -168,8 +168,9 @@ export async function routesPortail(app: FastifyInstance) {
     const maintenant = new Date(Date.now() + 3600_000);
     const auj = ((maintenant.getUTCDay() + 6) % 7) + 1;
     const jour = req.query.jour ?? (auj > 6 ? 1 : auj);
-    const edt = await app.bd.lireUn<{ statut: string }>(sql`SELECT statut FROM pedagogie.emploi_du_temps WHERE classe_id = ${e.classe_id}`);
-    const cours = edt?.statut === 'publie' ? await coursDuJour(app.bd, e.classe_id, jour) : [];
+    // Un emploi du temps déjà publié reste en vigueur pendant qu'une modification attend la validation du préfet.
+    const edt = await app.bd.lireUn<{ statut: string; publie_le: string | null }>(sql`SELECT statut, publie_le FROM pedagogie.emploi_du_temps WHERE classe_id = ${e.classe_id}`);
+    const cours = edt && (edt.statut === 'publie' || edt.publie_le) ? await coursDuJour(app.bd, e.classe_id, jour) : [];
     const creneauxPause = await app.bd.lire<{ debut: string; fin: string; type: string }>(sql`
       SELECT to_char(cr.debut, 'HH24:MI') AS debut, to_char(cr.fin, 'HH24:MI') AS fin, cr.type FROM pedagogie.creneau cr
        WHERE cr.annee_id = (SELECT annee_id FROM structure.classe WHERE id = ${e.classe_id}) AND cr.type = 'recreation' AND ${jour} = ANY(cr.jours)`);

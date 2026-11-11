@@ -23,8 +23,9 @@ const minutes = (h: string) => Number(h.slice(0, 2)) * 60 + Number(h.slice(3, 5)
 
 /** RG-38 : chaque jour, une fiche d'appel par classe et par créneau, d'après l'emploi du temps publié. */
 export async function assurerFiches(tx: Tx, etab: string, classeId: string, jour: string) {
-  const edt = await ligne<{ statut: string }>(tx, sql`SELECT statut FROM pedagogie.emploi_du_temps WHERE classe_id = ${classeId}`);
-  if (edt?.statut !== 'publie') return;
+  // Un emploi du temps déjà publié reste en vigueur pendant qu'une modification attend la validation du préfet.
+  const edt = await ligne<{ statut: string; publie_le: string | null }>(tx, sql`SELECT statut, publie_le FROM pedagogie.emploi_du_temps WHERE classe_id = ${classeId}`);
+  if (!edt || (edt.statut !== 'publie' && !edt.publie_le)) return;
   const js = jourSemaine(jour);
   if (js > 6) return;
   for (const c of await coursDuJour(tx, classeId, js)) {

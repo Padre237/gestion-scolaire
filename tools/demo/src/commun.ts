@@ -11,7 +11,12 @@ export function argument(nom: string): string | undefined {
 
 export const drapeau = (nom: string) => process.argv.includes(`--${nom}`);
 
+/** --defauts, ou une entrée qui n'est pas un terminal : chaque question à valeur par défaut prend cette valeur sans attendre. */
+const SANS_QUESTION = process.argv.includes('--defauts') || !stdin.isTTY;
+
 export async function demander(question: string, defaut?: string, cache = false): Promise<string> {
+  if (SANS_QUESTION && defaut !== undefined) return defaut;
+  if (SANS_QUESTION && cache) return '';
   const rl = createInterface({ input: stdin, output: stdout, terminal: true });
   if (cache) {
     // Le mot de passe ne s'affiche pas pendant la frappe.

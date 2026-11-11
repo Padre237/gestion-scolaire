@@ -13,11 +13,11 @@ Ce document déroule la démonstration, rôle par rôle, à partir d'une base vi
    pnpm demo:vide
    ```
 
-   La commande demande :
-   - le nom de l'établissement, en français et en anglais ;
-   - l'identifiant de la secrétaire, puis son mot de passe, deux fois.
+   La commande demande le nom de l'établissement (français et anglais), puis, pour la secrétaire, le directeur, l'économe et le préfet des études : le nom affiché et l'identifiant. Le mot de passe de la secrétaire se choisit ; les autres sont tirés au sort. Aucun élève, aucun parent : la base ne contient que ces quatre comptes.
 
-   Le mot de passe ne s'affiche pas et n'est écrit nulle part : il est haché.
+   Les mots de passe sont hachés en base et écrits une seule fois dans `COMPTES-DEMO.md`, à la racine du projet : ce fichier reste sur ce poste et n'entre jamais dans le dépôt. Pour tout accepter sans question : `pnpm demo:vide --oui --defauts`.
+
+   Gardez tout de suite cet état sous un nom : `pnpm demo:sauvegarde --nom depart`.
 3. Démarrez l'application :
 
    ```

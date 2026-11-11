@@ -507,6 +507,34 @@ describe('Données et clôture : import, sauvegardes, accès en lecture, clôtur
     expect(r.brut.subarray(0, 4).toString()).toBe('%PDF');
     expect((await eco.get(`/scolarite/classes/${ids['classe:CM2 A']}/document?type=cartes`)).status).toBe(403);
   });
+  it('modèles de documents : lus avec le paramétrage, modifiés par la secrétaire seule (403)', async () => {
+    const corps = { fr: { entete: 'RÉPUBLIQUE DU CAMEROUN · Paix – Travail – Patrie', mentions: 'Les frais versés ne sont pas remboursables.' },
+      en: { entete: 'REPUBLIC OF CAMEROON · Peace – Work – Fatherland', mentions: 'Fees paid are not refundable.' } };
+    expect((await sec.put('/structure/modeles/recu', corps)).status).toBe(200);
+    const m = await sec.get('/structure/modeles');
+    expect(m.corps.map((x: { type: string }) => x.type)).toEqual(['recu', 'avis', 'certificat', 'liste', 'bulletin']);
+    expect(m.corps[0].en.mentions).toBe('Fees paid are not refundable.');
+    for (const c of [eco, dir, pre]) expect((await c.put('/structure/modeles/recu', corps)).status).toBe(403);
+    expect((await sec.get(`/scolarite/classes/${ids['classe:CM2 A']}/document?type=liste`)).status).toBe(200);
+  });
+  it('rapports pour la tutelle en PDF, réservés au pilotage (403)', async () => {
+    for (const t of ['rentree', 'instituteurs', 'trimestre']) {
+      const r = await dir.get(`/pilotage/rapports/${t}`);
+      expect(r.status).toBe(200);
+      expect(r.brut.subarray(0, 4).toString()).toBe('%PDF');
+    }
+    for (const c of [eco, sec, pre]) expect((await c.get('/pilotage/rapports/rentree')).status).toBe(403);
+  });
+  it('export comptable : écritures équilibrées, réservé aux comptes (403)', async () => {
+    const r = await eco.get(`/finances/comptes/document?format=ecritures&du=2020-01-01&au=${auj()}`);
+    expect(r.status).toBe(200);
+    const lignes = String(r.corps).replace(/^\uFEFF/, '').trim().split('\r\n').map((l) => l.split(';'));
+    expect(lignes[0]).toEqual(['Date', 'Journal', 'Compte', 'Intitulé du compte', 'Libellé', 'Pièce', 'Débit', 'Crédit']);
+    const somme = (k: number) => lignes.slice(1).reduce((t, l) => t + Number(l[k] || 0), 0);
+    expect(somme(6)).toBeGreaterThan(0);
+    expect(somme(6)).toBe(somme(7));
+    expect((await sec.get('/finances/comptes/document?format=ecritures')).status).toBe(403);
+  });
   it('403 : sauvegarde, restauration et accès en lecture restent à la secrétaire', async () => {
     expect((await eco.get('/core/sauvegardes')).status).toBe(403);
     expect((await pre.post('/core/sauvegardes', {})).status).toBe(403);

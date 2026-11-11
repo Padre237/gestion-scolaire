@@ -21,8 +21,12 @@ for (let i = 0; i < 30; i++) {
 }
 
 // ------------------------------------------------------------------ certificat local
-const adresses = Object.values(networkInterfaces()).flat()
-  .filter((a) => a && a.family === 'IPv4' && !a.internal).map((a) => a!.address);
+const interfaces = Object.entries(networkInterfaces());
+const adresses = interfaces.flatMap(([, l]) => l ?? []).filter((a) => a.family === 'IPv4' && !a.internal).map((a) => a.address);
+// Adresses à montrer : celles du Wi-Fi ou du réseau filaire, pas les ponts de Docker ni des machines virtuelles.
+const virtuelle = /^(docker|br-|veth|virbr|vmnet|vboxnet|lxc|lxd|cni|flannel|tun|tap|zt|tailscale)/;
+const visibles = interfaces.filter(([nom]) => !virtuelle.test(nom)).flatMap(([, l]) => l ?? [])
+  .filter((a) => a.family === 'IPv4' && !a.internal).map((a) => a.address);
 const nomPoste = hostname().toLowerCase().replace(/[^a-z0-9-]/g, '');
 const tls = resolve(RACINE, 'var/tls');
 const fichier = (n: string) => resolve(tls, n);
@@ -85,7 +89,7 @@ const serveur = spawn('pnpm', ['exec', 'tsx', 'src/server.ts'], { cwd: resolve(R
   env: { ...process.env, GS_PORT: String(port), GS_PORT_LOCAL: String(portLocal) } });
 setTimeout(() => {
   console.log(`\nSur ce poste : ${https ? `http://localhost:${portLocal}` : `http://localhost:${port}`}`);
-  for (const a of adresses.filter((x) => !x.startsWith('172.17.') && !x.startsWith('172.18.'))) {
+  for (const a of visibles.length ? visibles : adresses) {
     const base = `${https ? 'https' : 'http'}://${a}:${port}`;
     console.log(`Téléphones et autres postes du réseau : ${base}`);
     console.log(`  parent : ${base}/parent/connexion · instituteur : ${base}/instituteur/connexion`);

@@ -1,5 +1,8 @@
 # PostgreSQL 16 de l'école, en local seulement (conception § 3 et § 6).
 # Le port 5442 est choisi car 5432 et 5433 sont pris sur ce poste (ECARTS E-01).
+# Même projet Docker que le conteneur déjà en place : « up » le réutilise au lieu d'en créer un second.
+name: gestion-scolaire
+
 services:
   base:
     image: postgres:16-alpine

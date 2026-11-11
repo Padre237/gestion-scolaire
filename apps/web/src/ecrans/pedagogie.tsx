@@ -27,6 +27,40 @@ const majuscule = (s: string) => (s ? s[0]!.toUpperCase() + s.slice(1) : s);
 const heuresOuZero = (minutes: number) => (minutes ? heures(minutes) : '0 h');
 const libellePublication = (n: number) => (n === 1 ? 'Publier le bulletin' : `Publier les ${n} bulletins`);
 
+/** Largeur de l'écran : téléphone (≤ 640 px) et tactile (≤ 1024 px, téléphone ou tablette) ; au-dessus, le rendu des maquettes est inchangé. */
+function useLargeurMax(px: number) {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${px}px)`).matches);
+  useEffect(() => {
+    const m = window.matchMedia(`(max-width: ${px}px)`);
+    const f = () => setV(m.matches);
+    f();
+    m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, [px]);
+  return v;
+}
+const useEcran = () => { const telephone = useLargeurMax(640); const tactile = useLargeurMax(1024); return { telephone, tactile }; };
+
+/** Styles propres aux écrans du module, en complément du contrat commun (styles.css) : pied collé en bas sur téléphone, cartes de saisie. */
+const STYLES_PEDAGOGIE = `
+.carte-saisie { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--bord); }
+.carte-saisie:last-child { border-bottom: 0; }
+.carte-saisie .ligne-note { display: flex; gap: 10px; align-items: stretch; }
+.carte-saisie .ligne-note > * { flex: 1 1 0; min-width: 0; }
+.carte-saisie input.champ.note { height: 48px; font-size: 18px; font-weight: 600; }
+.ligne-bouton { background: none; border-top: 0; border-left: 0; border-right: 0; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; border-radius: 0; }
+.ligne-bouton:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.ligne-matiere { display: flex; flex-direction: column; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--bord); }
+.ligne-matiere > .haut { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+@media (max-width: 640px) {
+  .pied-colle { position: sticky; bottom: 0; z-index: 2; margin: 0 -14px -14px; padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); background: var(--panneau); border-top: 1px solid var(--bord); border-radius: 0 0 12px 12px; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+  .pied-colle .bouton { width: 100%; flex: none; }
+}
+.choix-defilants { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+.choix-defilants > .choix { width: auto; flex: none; border-color: var(--bord-fort); white-space: nowrap; }
+`;
+const StylesPedagogie = () => <style>{STYLES_PEDAGOGIE}</style>;
+
 /** Propositions de l'assistant encore à décider, d'un type donné : aucune tant que le service n'en a pas produit. */
 function usePropositions(moi: Moi, type: 'IA-05' | 'IA-06') {
   const [liste, setListe] = useState<Obj[]>([]);
@@ -54,6 +88,7 @@ function EcranMatieres() {
   const moi = useMoi();
   const modif = moi.a('pedagogie.programme.modifier');
   const affecter = moi.a('pedagogie.affectation.gerer');
+  const { telephone, tactile } = useEcran();
   const [niveau, setNiveau] = useState<string | null>(null);
   const [d, setD] = useState<Obj | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -163,6 +198,7 @@ function EcranMatieres() {
 
   return (
     <Coque module="notes">
+      <StylesPedagogie />
       <Filtres
         champs={<>
           <Liste libelle="Niveau" value={niveau} largeur={160} options={niveaux.map((n) => [n.id as string, `${n.code}`])} onChange={(v) => void charger(v)} />
@@ -181,21 +217,22 @@ function EcranMatieres() {
               <TitrePanneau titre={`Matières du niveau ${courant?.code ?? ''}`}
                 action={modif ? <Bouton variante="lien" icone="ajouter" onClick={ajouterMatiere}>Ajouter une matière</Bouton> : undefined} />
               <Tableau serre
-                colonnes={[{ titre: 'Ordre' }, { titre: 'Matière · Subject' }, { titre: 'Groupe' }, { titre: 'Coef.' }, { titre: 'Barème' }, { titre: 'Instituteur' }]}
+                colonnes={[{ titre: 'Ordre', mobile: 'cachee' }, { titre: 'Matière · Subject', mobile: 'entete' }, { titre: 'Groupe' }, { titre: 'Coef.' }, { titre: 'Barème' }, { titre: 'Instituteur' }]}
                 vide="Aucune matière pour ce niveau"
                 cles={(d.matieres as Obj[]).map((m) => m.matiereId)}
                 lignes={(d.matieres as Obj[]).map((m) => [
                   <span className="doux">{m.ordre}</span>,
                   <div style={{ display: 'flex', flexDirection: 'column' }}><span className="gras">{m.libelleFr}</span><span className="doux">{m.libelleEn}</span></div>,
                   m.groupe ? <Pastille>{m.groupe}</Pastille> : <span className="doux">–</span>,
-                  <Champ petit droite largeur={64} value={saisies[m.matiereId]?.coef ?? ''} readOnly={!modif} ariaLabel={`Coefficient de ${m.libelleFr}`}
+                  <Champ petit={!tactile} droite largeur={tactile ? 84 : 64} inputMode="decimal" value={saisies[m.matiereId]?.coef ?? ''} readOnly={!modif} ariaLabel={`Coefficient de ${m.libelleFr}`}
                     onChange={(v) => setSaisies((s) => ({ ...s, [m.matiereId]: { ...s[m.matiereId]!, coef: v } }))} />,
-                  <Champ petit droite largeur={64} value={saisies[m.matiereId]?.bareme ?? ''} readOnly={!modif} ariaLabel={`Barème de ${m.libelleFr}`}
+                  <Champ petit={!tactile} droite largeur={tactile ? 84 : 64} inputMode="numeric" value={saisies[m.matiereId]?.bareme ?? ''} readOnly={!modif} ariaLabel={`Barème de ${m.libelleFr}`}
                     onChange={(v) => setSaisies((s) => ({ ...s, [m.matiereId]: { ...s[m.matiereId]!, bareme: v } }))} />,
                   m.instituteur ? <span>{m.instituteur}</span> : <span className="doux">–</span>,
                 ])}
-                total={['', 'Total', '', decimal(totalCoef), '', '']}
+                total={telephone ? undefined : ['', 'Total', '', decimal(totalCoef), '', '']}
               />
+              {telephone && <span className="gras">Total des coefficients : {decimal(totalCoef)}</span>}
               <Doux>L’ordre est celui du bulletin. Coefficients et barèmes valent pour l’année {moi.annee ?? ''}.</Doux>
             </Panneau>
           ) },
@@ -211,9 +248,13 @@ function EcranMatieres() {
                       <span className="gras">{e.classe}</span>
                       <span className="doux" style={{ fontSize: 13 }}>{e.principal ? `Instituteur principal : ${e.principal.nom}${e.couverture ? ` · ${e.couverture}` : ''}` : 'Aucun instituteur principal'}</span>
                     </div>
-                    <span style={{ cursor: affecter ? 'pointer' : 'default' }} onClick={affecter ? () => affecterInstituteur(e.classeId, '', e.principal?.personnelId) : undefined}>
-                      {e.principal ? <Pastille ton="succes" icone="coche">Principal désigné</Pastille> : <Pastille ton="attention">À désigner</Pastille>}
-                    </span>
+                    {affecter ? (
+                      <button type="button" className="lien-texte" style={{ display: 'inline-flex', alignItems: 'center', minHeight: 44 }}
+                        aria-label={`${e.principal ? 'Changer' : 'Désigner'} l’instituteur principal de ${e.classe}`}
+                        onClick={() => affecterInstituteur(e.classeId, '', e.principal?.personnelId)}>
+                        {e.principal ? <Pastille ton="succes" icone="coche">Principal désigné</Pastille> : <Pastille ton="attention">À désigner</Pastille>}
+                      </button>
+                    ) : (e.principal ? <Pastille ton="succes" icone="coche">Principal désigné</Pastille> : <Pastille ton="attention">À désigner</Pastille>)}
                   </LigneListe>
                   {(e.exceptions as Obj[]).map((x) => (
                     <LigneListe key={x.affectationId}>
@@ -281,9 +322,65 @@ function GrilleSaisie({ lignes, setLignes, modifiable, libelleNote, appreciation
     maj(i, v ? { note: v, statut: 'present' } : { note: v });
   };
   const affichage = (l: LigneSaisie) => (l.note ? l.note : l.statut === 'present' ? '–' : STATUTS.find((s) => s[0] === l.statut)?.[1] ?? '–');
+  const { telephone, tactile } = useEcran();
+  const libelleStatut = (l: LigneSaisie) => STATUTS.find((s) => s[0] === l.statut)?.[1] ?? '';
+
+  // Le champ de note : au bureau, les lettres A, J, D posent le statut ; sur téléphone, le clavier décimal s'ouvre et Entrée passe à l'élève suivant.
+  const champNote = (l: LigneSaisie, i: number, classe: string) => (
+    <input ref={(el) => { champs.current[i] = el; }} className={classe} value={l.note}
+      inputMode={appreciation && !telephone ? undefined : 'decimal'} enterKeyHint="next" aria-label={`${ariaNote} de ${l.nom}`}
+      placeholder={(appreciation || telephone) && l.statut !== 'present' ? libelleStatut(l) : undefined}
+      onChange={(e) => saisi(i, e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); champs.current[i + 1]?.focus(); }
+        // Effacer un champ vide rend l'élève présent (sans note).
+        if ((e.key === 'Backspace' || e.key === 'Delete') && !l.note && l.statut !== 'present') maj(i, { statut: 'present' });
+      }} />
+  );
+  const listeStatut = (l: LigneSaisie, i: number, ecrit: boolean, largeur?: number) => (
+    <Liste petit={!tactile} largeur={largeur} value={l.statut} options={STATUTS} ariaLabel={`Statut de ${l.nom}`}
+      onChange={ecrit ? (v) => maj(i, v === 'present' ? { statut: v } : { statut: v, note: '' }) : undefined} />
+  );
+  const champTexte = (l: LigneSaisie, i: number) => (
+    <Champ petit={!tactile} value={appreciation ? l.appreciation : l.remarque} ariaLabel={`${appreciation ? 'Appréciation' : 'Remarque'} pour ${l.nom}`}
+      placeholder={telephone ? (appreciation ? 'Appréciation' : 'Remarque') : undefined}
+      onChange={(v) => maj(i, appreciation ? { appreciation: v } : { remarque: v })} />
+  );
+
+  if (telephone) {
+    // Téléphone : une carte par élève, saisissable au pouce ; le statut est un choix explicite (pas de raccourci clavier).
+    return (
+      <div>
+        {lignes.length === 0 && <Doux>Aucun élève dans cette classe</Doux>}
+        {lignes.map((l, i) => {
+          const ecrit = modifiable && l.modifiable;
+          return (
+            <div key={l.inscriptionId} className="carte-saisie">
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <span className="doux">{i + 1}</span><span className="gras" style={{ flex: 1 }}>{l.nom}</span>
+                {!ecrit && <span className="gras">{affichage(l)}</span>}
+              </div>
+              {ecrit ? (
+                <>
+                  <div className="ligne-note">
+                    <label className="champ-groupe"><span className="libelle">{libelleNote}</span>{champNote(l, i, 'champ droite note')}</label>
+                    <div className="champ-groupe"><span className="libelle">Statut</span>{listeStatut(l, i, ecrit)}</div>
+                  </div>
+                  {champTexte(l, i)}
+                </>
+              ) : (
+                <Doux>{l.statut !== 'present' ? `${libelleStatut(l)} · ` : ''}{appreciation ? l.appreciation : l.remarque}</Doux>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <Tableau serre
-      colonnes={[{ titre: 'N°' }, { titre: 'Élève' }, { titre: libelleNote }, ...(appreciation ? [] : [{ titre: 'Statut' }]), { titre: appreciation ? 'Appréciation de la matière' : 'Remarque' }]}
+      colonnes={[{ titre: 'N°' }, { titre: 'Élève', mobile: 'entete' }, { titre: libelleNote }, ...(appreciation ? [] : [{ titre: 'Statut' }]), { titre: appreciation ? 'Appréciation de la matière' : 'Remarque' }]}
       vide="Aucun élève dans cette classe"
       cles={lignes.map((l) => l.inscriptionId)}
       lignes={lignes.map((l, i) => {
@@ -292,24 +389,10 @@ function GrilleSaisie({ lignes, setLignes, modifiable, libelleNote, appreciation
           <span className="doux">{i + 1}</span>,
           <span className="gras">{l.nom}</span>,
           ecrit
-            ? <input ref={(el) => { champs.current[i] = el; }} className="champ petit droite" style={{ width: appreciation ? 130 : 84 }} value={l.note}
-                inputMode={appreciation ? undefined : 'decimal'} aria-label={`${ariaNote} de ${l.nom}`}
-                placeholder={appreciation && l.statut !== 'present' ? STATUTS.find((s) => s[0] === l.statut)?.[1] : undefined}
-                onChange={(e) => saisi(i, e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); champs.current[i + 1]?.focus(); }
-                  // Effacer un champ vide rend l'élève présent (sans note).
-                  if ((e.key === 'Backspace' || e.key === 'Delete') && !l.note && l.statut !== 'present') maj(i, { statut: 'present' });
-                }} />
+            ? <div style={{ width: appreciation ? 130 : tactile ? 96 : 84 }}>{champNote(l, i, `champ ${tactile ? '' : 'petit'} droite`)}</div>
             : <span>{affichage(l)}</span>,
-          ...(appreciation ? [] : [
-            <Liste petit largeur={170} value={l.statut} options={STATUTS} ariaLabel={`Statut de ${l.nom}`}
-              onChange={ecrit ? (v) => maj(i, v === 'present' ? { statut: v } : { statut: v, note: '' }) : undefined} />,
-          ]),
-          ecrit
-            ? <Champ petit value={appreciation ? l.appreciation : l.remarque} ariaLabel={`${appreciation ? 'Appréciation' : 'Remarque'} pour ${l.nom}`}
-                onChange={(v) => maj(i, appreciation ? { appreciation: v } : { remarque: v })} />
-            : <span className="doux">{appreciation ? l.appreciation : l.remarque}</span>,
+          ...(appreciation ? [] : [listeStatut(l, i, ecrit, 170)]),
+          ecrit ? champTexte(l, i) : <span className="doux">{appreciation ? l.appreciation : l.remarque}</span>,
         ];
       })}
     />
@@ -327,6 +410,7 @@ function EcranNotes() {
 
 function SaisieNotes({ moi }: { moi: Moi }) {
   const [params] = useSearchParams();
+  const { telephone } = useEcran();
   const [classes, setClasses] = useState<Obj[] | null>(null);
   const [periodes, setPeriodes] = useState<Obj[]>([]);
   const [classe, setClasse] = useState<string | null>(null);
@@ -452,6 +536,7 @@ function SaisieNotes({ moi }: { moi: Moi }) {
 
   return (
     <Coque module="notes">
+      <StylesPedagogie />
       <Filtres
         champs={<>
           <Liste libelle="Classe" value={classe} largeur={140} options={(classes ?? []).map((c) => [c.id as string, `${c.nom}`])}
@@ -482,9 +567,9 @@ function SaisieNotes({ moi }: { moi: Moi }) {
                   sous={evaluation ? `Devoir du ${jjmmaaaa(evaluation.faitLe)}, noté sur ${evaluation.bareme}` : `Noté sur ${d.bareme} ; la date du devoir s’enregistre avec la première note`} />
                 {d.modifiable !== true && d.raison && <Note>{d.raison}</Note>}
                 <GrilleSaisie lignes={lignes} setLignes={setLignes} modifiable={d.modifiable === true} libelleNote={`Note sur ${d.bareme}`} />
-                <div className="rangee entre centre">
+                <div className={`rangee entre centre ${d.modifiable === true ? 'pied-colle' : ''}`}>
                   <Doux>{vides === 0 ? 'Toutes les notes sont saisies.' : vides === 1 ? 'La ligne vide reste à saisir.' : `Les ${enLettres(vides)} lignes vides restent à saisir.`}</Doux>
-                  {d.modifiable === true && <Bouton variante="principal" touches={['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
+                  {d.modifiable === true && <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
                 </div>
               </Panneau>
             ) },
@@ -519,7 +604,8 @@ function SaisieNotes({ moi }: { moi: Moi }) {
                     ? <Bouton variante="lien" icone="ajouter" onClick={nouvelleEvaluation}>Nouvelle évaluation</Bouton> : undefined} />
                 <div style={{ height: 6 }} />
                 {(d.evaluations as Obj[]).map((e) => (
-                  <LigneListe key={e.id} onClick={() => { setSequence(e.id); void charger(classe, matiere, e.id); }}>
+                  <button key={e.id} type="button" className="ligne-liste cliquable ligne-bouton" aria-current={e.id === sequence ? 'true' : undefined}
+                    onClick={() => { setSequence(e.id); void charger(classe, matiere, e.id); }}>
                     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                       <span className="gras">{e.libelle}</span>
                       <span className="doux petit">
@@ -529,10 +615,10 @@ function SaisieNotes({ moi }: { moi: Moi }) {
                       </span>
                     </div>
                     {e.statut === 'ouverte' ? <Pastille ton="succes">Ouverte</Pastille> : e.statut === 'fermee' ? <Pastille icone="bouclier">Fermée</Pastille> : <Pastille>À venir</Pastille>}
-                  </LigneListe>
+                  </button>
                 ))}
               </Panneau>
-              <Panneau ecart={8}>
+              <Panneau ecart={8} className="cache-mobile">
                 <TitrePanneau titre="Au clavier" />
                 {([[['Entrée'], 'Élève suivant'], [['A'], 'Absent'], [['J'], 'Absent justifié'], [['D'], 'Dispensé'], [['Ctrl', 'S'], 'Enregistrer']] as [string[], string][]).map(([touches, l]) => (
                   <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -556,6 +642,7 @@ function VueMatiere() {
   const voitFiches = moi.a('scolarite.eleve.consulter');
   const observe = moi.a('vie_scolaire.observation.creer');
   const sanctionne = moi.a('vie_scolaire.sanction.decider');
+  const { telephone, tactile } = useEcran();
   const [mes, setMes] = useState<Obj | null>(null);
   const [choix, setChoix] = useState(0);
   const [d, setD] = useState<Obj | null>(null);
@@ -630,21 +717,25 @@ function VueMatiere() {
 
   return (
     <Coque module="notes" sansOnglets>
+      <StylesPedagogie />
       {erreur ? <Erreur message={erreur} recharger={() => void charger()} /> : !mes ? <Chargement /> : (
         <Colonnes colonnes={[
           { flex: 1, min: 260, enfants: (
             <Panneau ecart={6}>
               <TitrePanneau titre={`Mes classes · ${matiere}`} sous="Affectées par le préfet" />
-              {classes.map((c, i) => (
-                <Choix key={`${c.classeId}-${c.matiereId}`} actif={i === choix} style={{ padding: '10px 12px', flexDirection: 'column', alignItems: 'stretch', gap: 4 }}
-                  onClick={() => { setChoix(i); void chargerSaisie(mes, i); }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-                    <span className="gras">{c.classe}</span>
-                    {c.notes === c.total && nb(c.total) > 0 ? <Pastille ton="succes" icone="coche">Notes complètes</Pastille> : <Pastille ton="attention">{c.notes} sur {c.total}</Pastille>}
-                  </div>
-                  <span className="doux petit">{c.creneau ?? 'Aucun créneau placé'}</span>
-                </Choix>
-              ))}
+              {/* Sur téléphone et tablette (colonnes empilées), les classes forment une bande qui défile ; la grille de saisie vient tout de suite dessous. */}
+              <div className={tactile ? 'choix-defilants' : undefined} style={tactile ? undefined : { display: 'contents' }}>
+                {classes.map((c, i) => (
+                  <Choix key={`${c.classeId}-${c.matiereId}`} actif={i === choix} style={{ padding: '10px 12px', flexDirection: 'column', alignItems: 'stretch', gap: 4 }}
+                    onClick={() => { setChoix(i); void chargerSaisie(mes, i); }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                      <span className="gras">{c.classe}</span>
+                      {c.notes === c.total && nb(c.total) > 0 ? <Pastille ton="succes" icone="coche">Notes complètes</Pastille> : <Pastille ton="attention">{c.notes} sur {c.total}</Pastille>}
+                    </div>
+                    <span className="doux petit">{c.creneau ?? 'Aucun créneau placé'}</span>
+                  </Choix>
+                ))}
+              </div>
               {classes.length === 0 && <Doux>Aucune classe ne vous est affectée pour l’instant.</Doux>}
             </Panneau>
           ) },
@@ -655,9 +746,9 @@ function VueMatiere() {
               {d.modifiable !== true && d.raison && <Note>{d.raison}</Note>}
               <GrilleSaisie lignes={lignes} setLignes={setLignes} modifiable={d.modifiable === true} appreciation libelleNote={`${classe.matiere} sur ${d.bareme}`}
                 ariaNote={`Note ${deMatiere(`${classe.matiere}`)}`} />
-              <div className="rangee entre centre">
+              <div className={`rangee entre centre ${d.modifiable === true ? 'pied-colle' : ''}`}>
                 <Doux>Vous ne voyez et ne saisissez que {laMatiere(`${classe.matiere}`)}. Le principal{principal ? `, ${principal},` : ''} rassemble les matières de la classe.</Doux>
-                {d.modifiable === true && <Bouton variante="principal" touches={['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
+                {d.modifiable === true && <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
               </div>
             </Panneau>
           ) : classe && mes.sequence ? <Chargement /> : classe ? <Panneau><Doux>Aucune évaluation en cours.</Doux></Panneau> : null },
@@ -674,7 +765,7 @@ function VueMatiere() {
                 <Champ libelle="Ce qui s’est passé" value={description} onChange={setDescription} lignes={2} />
                 {sanctionne && <Liste libelle="Sanction" value={sanction} onChange={setSanction}
                   options={[[null, 'Aucune'], ['Retenue de 2 h', 'Retenue de 2 h'], ['Avertissement écrit aux parents', 'Avertissement écrit aux parents']]} />}
-                <div className="rangee fin"><Bouton variante="principal" icone="coche" onClick={() => void observer()}>Enregistrer l’observation</Bouton></div>
+                <div className="rangee fin pile-mobile"><Bouton variante="principal" icone="coche" onClick={() => void observer()}>Enregistrer l’observation</Bouton></div>
                 <Doux>{sanctionne ? 'Vous pouvez décider d’une sanction pour les faits que vous avez relevés. Le principal et le directeur la voient.'
                   : 'Le principal et le directeur voient l’observation.'}</Doux>
               </Panneau>
@@ -739,6 +830,7 @@ function resteASaisir(incompletes: Obj[], nomCourt: (m: Obj) => string): string 
 
 function EcranFusion() {
   const moi = useMoi();
+  const { tactile } = useEcran();
   const { choix, classe, setClasse, periode, setPeriode, erreur: erreurChoix } = useClassePeriode();
   const [d, setD] = useState<Obj | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -789,6 +881,7 @@ function EcranFusion() {
   const err = erreurChoix ?? erreur;
   return (
     <Coque module="notes">
+      <StylesPedagogie />
       <Filtres champs={<>
         <Liste libelle="Classe" value={classe} largeur={140} options={(choix?.classes ?? []).map((x) => [x.id as string, `${x.nom}`])} onChange={setClasse} />
         <Liste libelle="Période" value={periode} largeur={160} options={(choix?.periodes ?? []).map((p) => [p.id as string, `${p.libelleFr}`])} onChange={setPeriode} />
@@ -799,7 +892,7 @@ function EcranFusion() {
             <Panneau>
               <TitrePanneau titre={`${nomClasse} · ${d.periode} · ${pluriel(matieres.length, 'matière')}`} sous="Rassemblées pour le calcul des notes finales" />
               <Tableau
-                colonnes={[{ titre: 'Matière' }, { titre: 'Saisie par' }, { titre: 'Notes' }, { titre: 'État' }]}
+                colonnes={[{ titre: 'Matière', mobile: 'entete' }, { titre: 'Saisie par' }, { titre: 'Notes' }, { titre: 'État' }]}
                 cles={matieres.map((m) => m.matiereId)}
                 lignes={matieres.map((m) => {
                   const manque = nb(m.total) - nb(m.notes);
@@ -812,7 +905,7 @@ function EcranFusion() {
                         : nb(m.notes) === 0 ? <Pastille ton="attention">Aucune note</Pastille>
                         : <Pastille ton="attention">{manque} note{manque > 1 ? 's' : ''} manquante{manque > 1 ? 's' : ''}</Pastille>}
                       {signalees.has(`${m.matiereId}`) && <Pastille ton="attention" icone="alerte">Erreur signalée</Pastille>}
-                      {!m.estMoi && moi.a('pedagogie.note.signaler') && <Bouton variante="lien" petit onClick={() => signalerErreur(m)}>Signaler une erreur</Bouton>}
+                      {!m.estMoi && moi.a('pedagogie.note.signaler') && <Bouton variante="lien" petit={!tactile} onClick={() => signalerErreur(m)}>Signaler une erreur</Bouton>}
                     </div>,
                   ];
                 })}
@@ -830,7 +923,7 @@ function EcranFusion() {
                 </Bandeau>
               )}
               {moi.a('pedagogie.fusion.transmettre') && (
-                <div className="rangee fin centre">
+                <div className="rangee fin centre pile-mobile">
                   <Bouton icone="recalculer" onClick={() => void action('/pedagogie/fusion/calcul', 'Notes finales calculées.')}>Calculer les notes finales</Bouton>
                   <Bouton variante="principal" icone="envoyer" disabled={d.complet !== true || statut === 'transmise' || statut === 'publiee'}
                     onClick={() => void action('/pedagogie/fusion/transmission', 'Notes transmises au préfet.')}>Transmettre au préfet</Bouton>
@@ -863,6 +956,7 @@ function EcranFusion() {
 function EcranBulletins() {
   const moi = useMoi();
   const naviguer = useNavigate();
+  const { telephone, tactile } = useEcran();
   const [params] = useSearchParams();
   const { choix, classe, setClasse, periode, setPeriode, erreur: erreurChoix } = useClassePeriode(params.get('classeId'));
   const [inscription, setInscription] = useState<string | null>(params.get('inscriptionId'));
@@ -958,12 +1052,19 @@ function EcranBulletins() {
   const err = erreurChoix ?? erreur;
   return (
     <Coque module="notes">
+      <StylesPedagogie />
       <Filtres
         champs={<>
           <Liste libelle="Classe" value={classe} largeur={140} options={(choix?.classes ?? []).map((x) => [x.id as string, `${x.nom}`])}
             onChange={(v) => { setInscription(null); setClasse(v); }} />
           <Liste libelle="Période" value={periode} largeur={160}
             options={[...(choix?.periodes ?? []).map((p): [string, string] => [p.id, `${p.libelleFr}`]), ['annuel', 'Annuel']]} onChange={setPeriode} />
+          {/* Sur téléphone et tablette (colonnes empilées), l'élève se choisit dans une liste déroulante : la liste par rang ne précède pas le bulletin. */}
+          {tactile && d && classement.length > 0 && (
+            <Liste libelle={`Élève · ${nomClasse}, par rang`} value={inscription}
+              options={classement.map((e): [string, string] => [e.inscriptionId, `${e.rang ?? '–'}. ${e.nom} · ${note2(e.moyenne)}`])}
+              onChange={(v) => { setInscription(v); void charger(v); }} />
+          )}
         </>}
         actions={<>
           {moi.a('pedagogie.bulletin.calculer') && <Bouton icone="recalculer" onClick={() => void recalculer()}>Recalculer</Bouton>}
@@ -981,7 +1082,7 @@ function EcranBulletins() {
       )}
       {err ? <Erreur message={err} recharger={() => void charger()} /> : !d ? <Chargement /> : (
         <Colonnes colonnes={[
-          { flex: 1, min: 260, enfants: (
+          ...(tactile ? [] : [{ flex: 1, min: 260, enfants: (
             <Panneau ecart={2}>
               <TitrePanneau titre={`${nomClasse} · ${pluriel(classement.length, 'élève')}`} sous="Par rang" />
               <div style={{ height: 8 }} />
@@ -993,7 +1094,7 @@ function EcranBulletins() {
                 </Choix>
               ))}
             </Panneau>
-          ) },
+          ) }]),
           { flex: 3, min: 640, enfants: b
             ? <Bulletin b={b} classe={nomClasse} etablissement={moi.etablissement} appreciation={appreciation} setAppreciation={setAppreciation}
                 peutApprecier={moi.a('pedagogie.bulletin.apprecier') && periode !== 'annuel'} surAppreciation={(t) => enregistrerAppreciation(t)}
@@ -1016,7 +1117,7 @@ function BrouillonAppreciation({ texte, accepter, ecarter }: { texte: string; ac
     <div className="bloc-assistant">
       <div className="rangee centre" style={{ gap: 8 }}><Pastille ton="accent" icone="assistant">Brouillon de l’assistant</Pastille><Doux>À relire et à valider par une personne habilitée</Doux></div>
       <Champ libelle="Appréciation générale" value={t} onChange={setT} lignes={3} />
-      <div className="rangee centre" style={{ gap: 8 }}>
+      <div className="rangee centre pile-mobile" style={{ gap: 8 }}>
         <Bouton variante="principal" icone="coche" onClick={() => accepter(t)}>Accepter</Bouton>
         <Bouton icone="fermer" onClick={ecarter}>Écarter</Bouton>
         <Doux>Le texte reste modifiable avant acceptation.</Doux>
@@ -1036,8 +1137,10 @@ function Bulletin({ b, classe, etablissement, appreciation, setAppreciation, peu
   const [libDist, tonDist] = DISTINCTIONS[`${b.distinction}`] ?? DISTINCTIONS['aucune']!;
   const publie = b.statut === 'publie';
   const rang = b.rang === null || b.rang === undefined ? '–' : `${b.rang}${b.rang === 1 ? (e.sexe === 'F' ? 're' : 'er') : 'e'}`;
+  const { telephone } = useEcran();
+  const matieres = b.matieres as Obj[];
   return (
-    <Panneau marge={24} ecart={16}>
+    <Panneau marge={telephone ? undefined : 24} ecart={16}>
       <div className="rangee entre centre">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <span style={{ fontWeight: 700 }}>{etablissement.toUpperCase()}</span>
@@ -1054,16 +1157,38 @@ function Bulletin({ b, classe, etablissement, appreciation, setAppreciation, peu
         <InfoCaps libelle="Classe" valeur={`${classe} · ${pluriel(nb(b.effectif), 'élève')}`} />
         <InfoCaps libelle={e.sexe === 'F' ? 'Née le' : 'Né le'} valeur={jjmmaaaa(e.dateNaissance)} />
       </Grille>
-      <Tableau
-        colonnes={[{ titre: 'Matière' }, { titre: 'Coef.', droite: true }, { titre: 'Note sur 20', droite: true }, { titre: 'Note × coef.', droite: true }, { titre: 'Moy. classe', droite: true }, { titre: 'Appréciation' }]}
-        cles={(b.matieres as Obj[]).map((m) => m.matiereId)}
-        lignes={(b.matieres as Obj[]).map((m) => [
-          <span className="gras">{m.libelle}</span>, decimal(m.coefficient), <span className="gras">{note2(m.moyenne)}</span>, note2(m.points),
-          <span className="doux">{note2(m.moyenneClasse)}</span>, m.appreciation ?? '',
-        ])}
-        total={['Total', decimal(b.totalCoefficients), '', note2(b.totalPoints), '', '']}
-      />
-      <Grille min={170} ecart={16}>
+      {telephone ? (
+        // Téléphone : une ligne compacte par matière (« Matière · note / coef »), lisible en 390 px.
+        <div>
+          {matieres.map((m) => (
+            <div key={m.matiereId} className="ligne-matiere">
+              <div className="haut">
+                <span className="gras">{m.libelle}</span>
+                <span className="gras" style={{ whiteSpace: 'nowrap' }}>{note2(m.moyenne)} <span className="doux petit">/ 20</span></span>
+              </div>
+              <div className="haut">
+                <span className="doux petit">Coef. {decimal(m.coefficient)} · moyenne de la classe {note2(m.moyenneClasse)}</span>
+                <span className="doux petit" style={{ whiteSpace: 'nowrap' }}>{note2(m.points)} pts</span>
+              </div>
+              {m.appreciation && <span className="petit">{m.appreciation}</span>}
+            </div>
+          ))}
+          <div className="ligne-matiere" style={{ borderBottom: 0 }}>
+            <div className="haut"><span className="gras">Total · coef. {decimal(b.totalCoefficients)}</span><span className="gras">{note2(b.totalPoints)} pts</span></div>
+          </div>
+        </div>
+      ) : (
+        <Tableau
+          colonnes={[{ titre: 'Matière' }, { titre: 'Coef.', droite: true }, { titre: 'Note sur 20', droite: true }, { titre: 'Note × coef.', droite: true }, { titre: 'Moy. classe', droite: true }, { titre: 'Appréciation' }]}
+          cles={matieres.map((m) => m.matiereId)}
+          lignes={matieres.map((m) => [
+            <span className="gras">{m.libelle}</span>, decimal(m.coefficient), <span className="gras">{note2(m.moyenne)}</span>, note2(m.points),
+            <span className="doux">{note2(m.moyenneClasse)}</span>, m.appreciation ?? '',
+          ])}
+          total={['Total', decimal(b.totalCoefficients), '', note2(b.totalPoints), '', '']}
+        />
+      )}
+      <Grille min={telephone ? 125 : 170} ecart={telephone ? 10 : 16}>
         <CarteChiffre etiquette="Moyenne générale" valeur={note2(b.moyenne)} unite="sur 20" />
         <CarteChiffre etiquette="Rang" valeur={rang} sous={`sur ${pluriel(nb(b.effectif), 'élève')}`} />
         <CarteChiffre etiquette="Moyenne de la classe" valeur={note2(cl.moyenne)} sous={`de ${note2(cl.min)} à ${note2(cl.max)}`} />
@@ -1078,7 +1203,7 @@ function Bulletin({ b, classe, etablissement, appreciation, setAppreciation, peu
       ) : peutApprecier && !publie ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Champ libelle="Appréciation générale" value={appreciation} onChange={setAppreciation} lignes={3} />
-          <div><Bouton icone="coche" onClick={() => void surAppreciation()}>Enregistrer l’appréciation</Bouton></div>
+          <div className="pile-mobile"><Bouton icone="coche" onClick={() => void surAppreciation()}>Enregistrer l’appréciation</Bouton></div>
         </div>
       ) : appreciation ? <InfoCaps libelle="Appréciation générale" valeur={appreciation} /> : null}
       <div className="rangee" style={{ alignItems: 'stretch' }}>
@@ -1095,6 +1220,7 @@ function Bulletin({ b, classe, etablissement, appreciation, setAppreciation, peu
 function EcranConseil() {
   const moi = useMoi();
   const naviguer = useNavigate();
+  const { telephone, tactile } = useEcran();
   const { choix, classe, setClasse, periode, setPeriode, erreur: erreurChoix } = useClassePeriode();
   const [d, setD] = useState<Obj | null>(null);
   const [distinctions, setDistinctions] = useState<Record<string, string>>({});
@@ -1156,6 +1282,7 @@ function EcranConseil() {
   const err = erreurChoix ?? erreur;
   return (
     <Coque module="notes">
+      <StylesPedagogie />
       <Filtres
         champs={<>
           <Liste libelle="Classe" value={classe} largeur={140} options={(choix?.classes ?? []).map((x) => [x.id as string, `${x.nom}`])} onChange={setClasse} />
@@ -1164,12 +1291,12 @@ function EcranConseil() {
         actions={<>
           <Bouton icone="imprimer" disabled={!classe || !periode} onClick={() => imprimerDocument(`/pedagogie/conseil/document?classeId=${classe}&periodeId=${periode}`)}>Procès-verbal</Bouton>
           {(modifiable || decideur) && (
-            <Bouton variante="principal" touches={['Ctrl', 'S']} onClick={() => void enregistrer()}>{modifiable ? 'Enregistrer les distinctions' : 'Enregistrer les décisions'}</Bouton>
+            <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} onClick={() => void enregistrer()}>{modifiable ? 'Enregistrer les distinctions' : 'Enregistrer les décisions'}</Bouton>
           )}
         </>}
       />
       {err ? <Erreur message={err} recharger={() => void charger()} /> : !d || !s ? <Chargement /> : <>
-        <Grille min={220} ecart={16}>
+        <Grille min={telephone ? 125 : 220} ecart={telephone ? 10 : 16}>
           <CarteChiffre etiquette="Moyenne de la classe" valeur={note2(s.moyenne)} unite="sur 20" />
           <CarteChiffre etiquette="Taux de réussite" valeur={s.reussite === null ? '–' : `${s.reussite} %`} sous={`${s.reussis} élèves sur ${s.effectif} à 10 ou plus`} />
           <CarteChiffre etiquette="Absences" valeur={heuresOuZero(nb(s.absencesMinutes))} sous="sur le trimestre" />
@@ -1180,19 +1307,20 @@ function EcranConseil() {
             <Panneau>
               <TitrePanneau titre={`${nomClasse} · ${nomPeriode}`} />
               <Tableau serre
-                colonnes={[{ titre: 'Rang' }, { titre: 'Élève' }, { titre: 'Moyenne', droite: true }, { titre: 'Absences', droite: true }, { titre: 'Sanct.', droite: true },
+                colonnes={[{ titre: 'Rang' }, { titre: 'Élève', mobile: 'entete' }, { titre: 'Moyenne', droite: true }, { titre: 'Absences', droite: true }, { titre: 'Sanct.', droite: true },
                   { titre: 'Distinction' }, { titre: 'Fin d’année' }]}
                 cles={lignes.map((l) => l.inscriptionId)}
                 lignes={lignes.map((l) => [
                   <span className="doux">{l.rang ?? '–'}</span>,
                   <span className="gras">{l.nom}</span>,
-                  <span className="gras" style={{ color: l.moyenne !== null && nb(l.moyenne) < 10 ? 'var(--attention)' : undefined }}>{note2(l.moyenne)}</span>,
+                  <span className="gras" style={{ color: l.moyenne !== null && nb(l.moyenne) < 10 ? 'var(--attention)' : undefined }}
+                    title={l.moyenne !== null && nb(l.moyenne) < 10 ? 'Sous la moyenne' : undefined}>{note2(l.moyenne)}{l.moyenne !== null && nb(l.moyenne) < 10 && <span className="cache-bureau"> · sous 10</span>}</span>,
                   <span className={`${l.absences}` === '0' ? 'doux' : ''}>{l.absences}</span>,
                   <span className={nb(l.sanctions) === 0 ? 'doux' : ''}>{l.sanctions}</span>,
-                  <Liste petit largeur={190} value={distinctions[l.inscriptionId] ?? null} options={optionsDistinction} ariaLabel={`Distinction de ${l.nom}`}
+                  <Liste petit={!tactile} largeur={190} value={distinctions[l.inscriptionId] ?? null} options={optionsDistinction} ariaLabel={`Distinction de ${l.nom}`}
                     onChange={modifiable ? (v) => setDistinctions((x) => ({ ...x, [l.inscriptionId]: v as string })) : undefined} />,
                   d.dernierePeriode === true && decideur
-                    ? <Liste petit largeur={130} value={decisions[l.inscriptionId] ?? null} vide="À décider" options={optionsFin} ariaLabel={`Fin d’année de ${l.nom}`}
+                    ? <Liste petit={!tactile} largeur={130} value={decisions[l.inscriptionId] ?? null} vide="À décider" options={optionsFin} ariaLabel={`Fin d’année de ${l.nom}`}
                         onChange={(v) => setDecisions((x) => ({ ...x, [l.inscriptionId]: v as string }))} />
                     : <span className="doux">{l.finAnnee ? ((d.finsAnnee as Obj)[l.finAnnee] ?? l.finAnnee) : '3e trim.'}</span>,
                 ])}
@@ -1213,7 +1341,7 @@ function EcranConseil() {
                       <span className="doux petit">{e.texte}</span>
                     </div>
                   ))}
-                  <div className="rangee centre" style={{ gap: 8 }}>
+                  <div className="rangee centre pile-mobile" style={{ gap: 8 }}>
                     {modifiable && <Bouton icone="lire" onClick={() => void ajouterAuPv(elevesSynthese.map((e) => `${e.nom} : ${e.texte ?? ''}`))}>Ajouter au procès-verbal</Bouton>}
                     <Bouton variante="lien" icone="fermer" onClick={() => ecarter(synthese.id)}>Écarter</Bouton>
                   </div>
@@ -1229,7 +1357,7 @@ function EcranConseil() {
                   ))}
                   {difficiles.length === 0 && <Doux>Aucun élève sous la moyenne.</Doux>}
                   {modifiable && difficiles.length > 0 && (
-                    <div><Bouton icone="lire" onClick={() => void ajouterAuPv(difficiles.map((l) => `${l.nom} : ${note2(l.moyenne)} sur 20. ${detail(l)}`))}>Ajouter au procès-verbal</Bouton></div>
+                    <div className="pile-mobile"><Bouton icone="lire" onClick={() => void ajouterAuPv(difficiles.map((l) => `${l.nom} : ${note2(l.moyenne)} sur 20. ${detail(l)}`))}>Ajouter au procès-verbal</Bouton></div>
                   )}
                 </div>
               )}

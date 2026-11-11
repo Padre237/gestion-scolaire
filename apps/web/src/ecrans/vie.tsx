@@ -31,6 +31,67 @@ const tonObservation = (type: string): Ton => (type === 'comportement' ? 'danger
 const matiereMinuscule = (m: string) => (m === m.toUpperCase() ? m : m.toLowerCase());
 /** « un cours d’éducation physique », « un cours de mathématiques », « un cours d’EPS ». */
 const unCoursDe = (m: string) => { const x = matiereMinuscule(m); return `un cours ${/^[aeiouyhàâéèêëîïôöûü]/i.test(x) ? 'd’' : 'de '}${x}`; };
+/** « 8 h 30 » à partir de « 08:30 », pour les libellés parlés (aria-label). */
+const heureParlee = (h: string) => { const [hh, mm] = h.split(':'); return `${Number(hh)} h${mm && mm !== '00' ? ` ${mm}` : ''}`; };
+
+/** Largeur de l'écran : téléphone (≤ 640 px) et tactile (≤ 1024 px, téléphone ou tablette) ; au-dessus, le rendu des maquettes est inchangé. */
+function useLargeurMax(px: number) {
+  const [v, setV] = useState(() => typeof window !== 'undefined' && window.matchMedia(`(max-width: ${px}px)`).matches);
+  useEffect(() => {
+    const m = window.matchMedia(`(max-width: ${px}px)`);
+    const f = () => setV(m.matches);
+    f();
+    m.addEventListener('change', f);
+    return () => m.removeEventListener('change', f);
+  }, [px]);
+  return v;
+}
+const useEcran = () => { const telephone = useLargeurMax(640); const tactile = useLargeurMax(1024); return { telephone, tactile }; };
+
+/** Styles propres aux écrans de ces modules, en complément du contrat commun (styles.css). */
+const STYLES_VIE = `
+.ligne-bouton { background: none; border-top: 0; border-left: 0; border-right: 0; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; border-radius: 0; }
+.ligne-bouton:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.case-cours { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; color: inherit; text-align: left; }
+.case-cours:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.creneau-jour { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 0; border-bottom: 1px solid var(--bord); }
+.creneau-jour:last-child { border-bottom: 0; }
+.creneau-jour > .heure { flex: none; width: 52px; }
+.creneau-jour > .contenu { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.creneau-jour .case-cours { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 8px; }
+.carte-appel { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--bord); }
+.carte-appel:last-child { border-bottom: 0; }
+.carte-appel .bascules { flex-wrap: nowrap; }
+.carte-appel .bascules > button { flex: 1 1 0; min-height: 44px; padding: 0 6px; }
+.bulle { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; max-width: 78%; }
+.bulle.famille { align-self: flex-start; background: var(--champ); }
+.bulle.ecole { align-self: flex-end; background: var(--accent-fond); }
+.bulle.reponse { align-self: flex-end; width: 78%; background: var(--accent-fond); }
+@media (max-width: 1024px) {
+  .edt-grille .tableau-cadre { overflow-x: auto; }
+  .edt-grille table.tableau th:first-child, .edt-grille table.tableau td:first-child { position: sticky; left: 0; z-index: 1; background: var(--panneau); }
+  .edt-grille table.tableau td { white-space: nowrap; }
+  .edt-grille .case-cours { min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; }
+}
+@media (max-width: 640px) {
+  .pied-colle { position: sticky; bottom: 0; z-index: 2; margin: 0 -14px -14px; padding: 10px 14px calc(12px + env(safe-area-inset-bottom)); background: var(--panneau); border-top: 1px solid var(--bord); border-radius: 0 0 12px 12px; display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+  .pied-colle .bouton { width: 100%; flex: none; }
+  .bulle { max-width: 92%; }
+  .bulle.reponse { width: 100%; }
+  .bascules.defile-x { padding-bottom: 4px; }
+  .bascules.defile-x > button { white-space: nowrap; }
+}
+`;
+const StylesVie = () => <style>{STYLES_VIE}</style>;
+
+/** Bascules qui, sur téléphone, défilent horizontalement au lieu de passer à la ligne (destinataires, modèles, jours). */
+function BasculesDefilantes<T extends string>({ options, valeur, onChange, ariaLabel, defiler }: { options: [T, string][]; valeur: T; onChange: (v: T) => void; ariaLabel: string; defiler: boolean }) {
+  return (
+    <div className={`bascules ${defiler ? 'defile-x' : ''}`} role="group" aria-label={ariaLabel}>
+      {options.map(([v, l]) => <button key={v} type="button" className={v === valeur ? 'actif' : ''} aria-pressed={v === valeur} onClick={() => onChange(v)}>{l}</button>)}
+    </div>
+  );
+}
 
 // ===================================================================== emploi du temps et cahier de textes
 
@@ -38,23 +99,27 @@ function GrilleHoraire({ fermer, creneaux }: { fermer: (v?: boolean) => void; cr
   const [lignes, setLignes] = useState<{ debut: string; fin: string; type: string; jours: number[] }[]>(
     creneaux.map((c) => ({ debut: c.debut, fin: c.fin, type: c.type, jours: [...c.jours] })));
   const [charge, setCharge] = useState(false);
+  const { tactile } = useEcran();
   const changer = (i: number, p: Partial<{ debut: string; fin: string; type: string; jours: number[] }>) => setLignes((l) => l.map((x, k) => (k === i ? { ...x, ...p } : x)));
+  const nomCreneau = (l: { debut: string }, i: number) => `créneau ${i + 1} (${l.debut})`;
   return (
     <>
       <Doux>Créneaux de l’école, du lundi au samedi. La grille se change avant de placer les cours.</Doux>
-      <Tableau serre colonnes={[{ titre: 'Début' }, { titre: 'Fin' }, { titre: 'Type' }, { titre: 'Jours' }, { titre: '' }]} lignes={lignes.map((l, i) => [
-        <Champ petit value={l.debut} onChange={(v) => changer(i, { debut: v })} largeur={80} ariaLabel="Début" />,
-        <Champ petit value={l.fin} onChange={(v) => changer(i, { fin: v })} largeur={80} ariaLabel="Fin" />,
-        <Liste petit value={l.type} options={[['cours', 'Cours'], ['recreation', 'Récréation'], ['pause', 'Pause']]} onChange={(v) => changer(i, { type: v })} largeur={130} ariaLabel="Type" />,
+      <Tableau serre colonnes={[{ titre: 'Début', mobile: 'entete' }, { titre: 'Fin' }, { titre: 'Type' }, { titre: 'Jours' }, { titre: 'Action' }]} lignes={lignes.map((l, i) => [
+        <Champ petit={!tactile} value={l.debut} onChange={(v) => changer(i, { debut: v })} largeur={tactile ? 96 : 80} ariaLabel={`Début du ${nomCreneau(l, i)}`} />,
+        <Champ petit={!tactile} value={l.fin} onChange={(v) => changer(i, { fin: v })} largeur={tactile ? 96 : 80} ariaLabel={`Fin du ${nomCreneau(l, i)}`} />,
+        <Liste petit={!tactile} value={l.type} options={[['cours', 'Cours'], ['recreation', 'Récréation'], ['pause', 'Pause']]} onChange={(v) => changer(i, { type: v })} largeur={130} ariaLabel={`Type du ${nomCreneau(l, i)}`} />,
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {JOURS.map((j, k) => (
-            <label key={j} className="case" style={{ minHeight: 30, gap: 4 }}>
-              <input type="checkbox" checked={l.jours.includes(k + 1)} onChange={(e) => changer(i, { jours: e.target.checked ? [...l.jours, k + 1].sort() : l.jours.filter((x) => x !== k + 1) })} />
+            <label key={j} className="case" style={{ minHeight: tactile ? 44 : 30, gap: 4 }}>
+              <input type="checkbox" checked={l.jours.includes(k + 1)} aria-label={`${j}, ${nomCreneau(l, i)}`}
+                onChange={(e) => changer(i, { jours: e.target.checked ? [...l.jours, k + 1].sort() : l.jours.filter((x) => x !== k + 1) })} />
               {j.slice(0, 3)}
             </label>
           ))}
         </div>,
-        <button type="button" className="lien-texte danger" style={{ fontWeight: 600 }} onClick={() => setLignes((x) => x.filter((_, k) => k !== i))}>Retirer</button>,
+        <button type="button" className="lien-texte danger" style={{ fontWeight: 600, minHeight: tactile ? 44 : undefined }} aria-label={`Retirer le ${nomCreneau(l, i)}`}
+          onClick={() => setLignes((x) => x.filter((_, k) => k !== i))}>Retirer</button>,
       ])} />
       <div><Bouton icone="ajouter" variante="lien" onClick={() => setLignes((l) => [...l, { debut: '15:00', fin: '16:00', type: 'cours', jours: [1, 2, 3, 4, 5] }])}>Ajouter un créneau</Bouton></div>
       <PiedFenetre fermer={() => fermer()} action="Enregistrer la grille" charge={charge} onAction={async () => {
@@ -100,13 +165,13 @@ function NouvelleSeance({ fermer, classeId, jour, matieres }: { fermer: (v?: boo
   return (
     <>
       <Rangee>
-        <Champ libelle="Heure" value={h} onChange={setH} largeur={110} />
-        <div style={{ flex: 1 }}><Champ libelle="Matière ou activité" value={libelle} onChange={setLibelle} autoFocus /></div>
+        <Champ libelle="Heure" value={h} onChange={setH} largeur={110} inputMode="numeric" />
+        <div style={{ flex: '1 1 200px' }}><Champ libelle="Matière ou activité" value={libelle} onChange={setLibelle} autoFocus /></div>
       </Rangee>
       <Champ libelle="Ce qui a été fait" value={contenu} onChange={setContenu} lignes={2} />
       <Rangee>
-        <div style={{ flex: 1 }}><Champ libelle="Devoir" value={devoir} onChange={setDevoir} /></div>
-        <Champ libelle="Pour le" value={pour} onChange={setPour} placeholder="JJ/MM/AAAA" largeur={140} />
+        <div style={{ flex: '1 1 200px' }}><Champ libelle="Devoir" value={devoir} onChange={setDevoir} /></div>
+        <Champ libelle="Pour le" value={pour} onChange={setPour} placeholder="JJ/MM/AAAA" largeur={140} inputMode="numeric" />
       </Rangee>
       <PiedFenetre fermer={() => fermer()} action="Ajouter" charge={charge} onAction={async () => {
         const l = libelle.trim().toLowerCase();
@@ -133,7 +198,10 @@ function Motif({ fermer, libelle, action }: { fermer: (v?: string) => void; libe
 
 export function EcranEmploiDuTemps() {
   const moi = useMoi();
+  const { telephone } = useEcran();
   const [vue, setVue] = useState<'classe' | 'instituteur'>('classe');
+  // Téléphone : un jour à la fois ; par défaut le jour courant (ou lundi le dimanche).
+  const [jourChoisi, setJourChoisi] = useState<number | null>(null);
   const [choixClasse, setChoixClasse] = useState<string | null>(null);
   const [personnel, setPersonnel] = useState<string | null>(null);
   const [matieres, setMatieres] = useState<any[]>([]);
@@ -160,16 +228,23 @@ export function EcranEmploiDuTemps() {
       <PlacerCours fermer={fermer} titre="" cours={c} matieres={matieres} classeId={classe!} jour={jour} creneauId={cr.id} />, 440);
     if (ok) await recharger();
   };
-  const caseCours = (cr: any, jour: number): ReactNode => {
+  const caseCours = (cr: any, jour: number, libre = 'Libre'): ReactNode => {
     const ouvert = (cr.jours as number[]).includes(jour);
     if (cr.type !== 'cours') return <span className="doux">{ouvert ? (cr.type === 'recreation' ? 'Récréation' : 'Pause') : '–'}</span>;
     const c = cours.find((x) => x.creneauId === cr.id && x.jour === jour);
     const contenu = c
       ? <span style={{ display: 'inline-block', padding: '4px 8px', borderRadius: 6, background: fondGroupe(c.groupe), fontWeight: 600 }}>{vue === 'classe' ? c.libelle : `${c.libelle} · ${c.classe}`}</span>
-      : <span className="doux">–</span>;
+      : <span className="doux">{libre}</span>;
     if (!peutPlacer || !ouvert) return contenu;
-    return <button type="button" onClick={() => placer(cr, jour, c)} style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit' }} title="Placer un cours">{contenu}</button>;
+    const quand = `${JOURS[jour - 1]!.toLowerCase()} ${heureParlee(cr.debut)}`;
+    return (
+      <button type="button" className="case-cours" onClick={() => placer(cr, jour, c)} title="Placer un cours"
+        aria-label={c ? `Modifier le cours, ${quand} : ${c.libelle}` : `Placer un cours, ${quand}`}>{contenu}</button>
+    );
   };
+  const jourAuj = (() => { const j = new Date(`${d?.aujourdhui ?? aujourdhuiIso()}T12:00:00`).getDay(); return j >= 1 && j <= 6 ? j : 1; })();
+  const jourVu = jourChoisi ?? jourAuj;
+  const joursOuverts = [1, 2, 3, 4, 5, 6].filter((j) => creneaux.some((cr) => (cr.jours as number[]).includes(j)));
   const etapes: [string, EtatEtape][] = [
     ['Grille horaire', 'faite'],
     ['Cours de la classe', cours.length ? 'faite' : 'courante'],
@@ -190,11 +265,12 @@ export function EcranEmploiDuTemps() {
   const etat = d?.etat;
   return (
     <Coque module="edt" titre="Emploi du temps">
+      <StylesVie />
       <div className="filtres">
         <div className="champs">
           <div className="champ-groupe">
             <span className="libelle">Vue</span>
-            <Bascules options={[['classe', 'Par classe'], ['instituteur', 'Par instituteur']]} valeur={vue} onChange={changerVue} />
+            <BasculesDefilantes ariaLabel="Vue" options={[['classe', 'Par classe'], ['instituteur', 'Par instituteur']]} valeur={vue} onChange={changerVue} defiler={false} />
           </div>
           {vue === 'classe'
             ? <Liste libelle="Classe" largeur={160} value={classe} options={((d?.classes ?? []) as any[]).map((c): [string, string] => [c.id, c.nom])} onChange={setChoixClasse} />
@@ -215,8 +291,26 @@ export function EcranEmploiDuTemps() {
           { flex: 5, min: 640, enfants: (
             <Panneau>
               <TitrePanneau titre={`${d.titre} · semaine du ${jjmmaaaa(d.semaine)}`} sous={sousTitre || undefined} />
-              <Tableau serre colonnes={[{ titre: 'Début' }, ...JOURS.map((j) => ({ titre: j }))]}
-                lignes={creneaux.map((cr) => [<span className={cr.type === 'cours' ? 'gras' : 'doux'}>{cr.debut}</span>, ...[1, 2, 3, 4, 5, 6].map((j) => caseCours(cr, j))])} />
+              {telephone ? (
+                // Téléphone : les jours défilent en bandeau, les créneaux du jour choisi s'empilent.
+                <>
+                  <BasculesDefilantes ariaLabel="Jour" defiler options={joursOuverts.map((j): [string, string] => [`${j}`, JOURS[j - 1]!])} valeur={`${jourVu}`} onChange={(v) => setJourChoisi(Number(v))} />
+                  <div>
+                    {creneaux.filter((cr) => (cr.jours as number[]).includes(jourVu)).map((cr) => (
+                      <div key={cr.id} className="creneau-jour">
+                        <span className={`heure ${cr.type === 'cours' ? 'gras' : 'doux'}`}>{cr.debut}</span>
+                        <div className="contenu">{caseCours(cr, jourVu, peutPlacer ? 'Placer un cours' : 'Libre')}</div>
+                      </div>
+                    ))}
+                    {creneaux.every((cr) => !(cr.jours as number[]).includes(jourVu)) && <Doux>Aucun créneau ce jour-là.</Doux>}
+                  </div>
+                </>
+              ) : (
+                <div className="edt-grille">
+                  <Tableau serre colonnes={[{ titre: 'Début' }, ...JOURS.map((j) => ({ titre: j }))]}
+                    lignes={creneaux.map((cr) => [<span className={cr.type === 'cours' ? 'gras' : 'doux'}>{cr.debut}</span>, ...[1, 2, 3, 4, 5, 6].map((j) => caseCours(cr, j, '–'))])} />
+                </div>
+              )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center' }}>
                 {((d.groupes ?? []) as any[]).map((g) => (
                   <div key={g.libelle} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -240,7 +334,7 @@ export function EcranEmploiDuTemps() {
                     <strong>{c.jourLibelle} {c.debut}</strong> · {c.instituteur} a aussi {unCoursDe(String(c.matiere ?? ''))} avec {c.autres} : cours commun aux deux classes, autorisé. Chaque classe garde sa fiche d’appel.
                   </Bandeau>
                 ))}
-                <Rangee fin centre>
+                <div className="rangee fin centre pile-mobile">
                   {d.peutPlacer && statut !== 'soumis' && cours.length > 0 && (
                     <Bouton icone="envoyer" variante="principal" onClick={async () => {
                       const r = await agir(() => api.post(`/pedagogie/edt/${classe}/soumission`), 'Emploi du temps soumis au préfet.');
@@ -253,7 +347,7 @@ export function EcranEmploiDuTemps() {
                       <Bouton icone="coche" variante="principal" disabled={!cours.length} onClick={() => decision(true)}>Valider et publier</Bouton>
                     </>
                   )}
-                </Rangee>
+                </div>
               </Panneau>
               <Panneau ecart={0}>
                 <TitrePanneau titre={`Cahier de textes · ${jourDate(d.aujourdhui ?? aujourdhuiIso())}`}
@@ -289,6 +383,7 @@ type Presence = { statut: 'present' | 'absent' | 'retard'; minutes: number | nul
 export function EcranAppel() {
   const moi = useMoi();
   const naviguer = useNavigate();
+  const { telephone, tactile } = useEcran();
   const [jour, setJour] = useState(jjmmaaaa(aujourdhuiIso()));
   const [jourIso, setJourIso] = useState(aujourdhuiIso());
   const [choixClasse, setChoixClasse] = useState<string | null>(null);
@@ -326,11 +421,19 @@ export function EcranAppel() {
   const nomClasse = classes.find((c) => c.id === classe)?.nom ?? f?.classe ?? '';
   const fiches: any[] = d?.fiches ?? [];
   const ecole = d?.ecole;
+  const PRESENCES: [Presence['statut'], string][] = [['present', 'Présent'], ['absent', 'Absent'], ['retard', 'Retard']];
+  const poserPresence = (e: any, p: Presence) => (v: Presence['statut']) => setPresences((x) => ({ ...x, [e.inscriptionId]: { statut: v, minutes: v === 'retard' ? (p.minutes ?? 15) : null } }));
+  const listeMinutes = (e: any, p: Presence) => (
+    <Liste petit={!tactile} largeur={telephone ? undefined : 110} value={p.minutes ?? 15} options={[5, 10, 15, 20, 30, 45, 60].map((m): [number, string] => [m, `${m} min`])}
+      onChange={(v) => setPresences((x) => ({ ...x, [e.inscriptionId]: { statut: 'retard', minutes: v } }))} ariaLabel={`Minutes de retard de ${e.nom}`} />
+  );
+  const compteurs = `${pluriel(presents, 'présent')} · ${pluriel(absents, 'absent')} · ${pluriel(retards.length, 'retard')}`;
   return (
     <Coque module="vie" titre="Vie scolaire">
+      <StylesVie />
       <div className="filtres">
         <div className="champs">
-          <Champ libelle="Date" value={jour} placeholder="JJ/MM/AAAA" largeur={150}
+          <Champ libelle="Date" value={jour} placeholder="JJ/MM/AAAA" largeur={150} inputMode="numeric"
             onChange={(v) => { setJour(v); const x = versIso(v); if (x && v.trim().length === 10 && x !== jourIso) allerAu(x); }}
             onEnter={() => { const v = versIso(jour); if (v) allerAu(v); else signaler('Date au format JJ/MM/AAAA.', true); }} />
           <Liste libelle="Classe" largeur={150} value={classe} options={classes.map((c): [string, string] => [c.id, c.nom])} onChange={(v) => { setChoixFiche(null); setChoixClasse(v); }} />
@@ -341,7 +444,7 @@ export function EcranAppel() {
         <Panneau><Note>Aucune fiche d’appel : l’emploi du temps de la classe n’est pas publié, ou aucun cours n’a lieu ce jour-là.</Note></Panneau>
       ) : (
         <>
-          <Grille min={220} ecart={16}>
+          <Grille min={telephone ? 90 : 220} ecart={telephone ? 10 : 16}>
             <CarteChiffre etiquette="Présents" valeur={presents} couleur="var(--succes)" sous={`sur ${valeurs.length} élèves`} />
             <CarteChiffre etiquette="Absents" valeur={absents} couleur="var(--danger)" />
             <CarteChiffre etiquette="Retards" valeur={retards.length} couleur="var(--attention)" sous={retards.length ? `${minutes} minutes` : undefined} />
@@ -353,27 +456,51 @@ export function EcranAppel() {
                 <TitrePanneau titre={`${nomClasse} · ${jourDate(f.jour)} · ${f.debut} – ${f.fin}`}
                   sous={`${f.libelle} · ${f.personnel ?? '–'}${f.coursCommun ? ` · ${f.coursCommun}` : ''} · ${f.statut === 'faite' ? 'fiche faite' : 'pré-rempli d’après l’emploi du temps'}`} />
                 {!modifiable && <Note>Seul l’instituteur prévu à ce créneau fait l’appel ; vous lisez la fiche.</Note>}
-                <Tableau serre colonnes={[{ titre: 'N°' }, { titre: 'Élève' }, { titre: 'Présence' }, { titre: 'Retard' }]}
-                  lignes={((f.eleves ?? []) as any[]).map((e) => {
-                    const p = presences[e.inscriptionId] ?? { statut: 'present', minutes: null };
-                    return [
-                      <span className="doux">{e.numero}</span>,
-                      <span className="gras">{e.nom}</span>,
-                      <Bascules petites options={[['present', 'Présent'], ['absent', 'Absent'], ['retard', 'Retard']]} valeur={p.statut}
-                        onChange={modifiable ? (v) => setPresences((x) => ({ ...x, [e.inscriptionId]: { statut: v, minutes: v === 'retard' ? (p.minutes ?? 15) : null } })) : undefined} />,
-                      p.statut === 'retard'
-                        ? (modifiable
-                          ? <Liste petit largeur={110} value={p.minutes ?? 15} options={[5, 10, 15, 20, 30, 45, 60].map((m): [number, string] => [m, `${m} min`])}
-                              onChange={(v) => setPresences((x) => ({ ...x, [e.inscriptionId]: { statut: 'retard', minutes: v } }))} ariaLabel="Minutes de retard" />
-                          : <span>{p.minutes ?? 15} min</span>)
-                        : <span className="doux">–</span>,
-                    ];
-                  })} />
+                {telephone ? (
+                  // Téléphone : une carte par élève, trois boutons larges pour le statut.
+                  <div>
+                    {((f.eleves ?? []) as any[]).map((e) => {
+                      const p = presences[e.inscriptionId] ?? { statut: 'present', minutes: null };
+                      return (
+                        <div key={e.inscriptionId} className="carte-appel">
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            <span className="doux">{e.numero}</span><span className="gras" style={{ flex: 1 }}>{e.nom}</span>
+                            {!modifiable && <span className={p.statut === 'present' ? 'doux' : 'gras'}>{PRESENCES.find(([v]) => v === p.statut)?.[1]}{p.statut === 'retard' ? ` · ${p.minutes ?? 15} min` : ''}</span>}
+                          </div>
+                          {modifiable && (
+                            <div role="group" aria-label={`Présence de ${e.nom}`} className="bascules">
+                              {PRESENCES.map(([v, l]) => (
+                                <button key={v} type="button" className={v === p.statut ? 'actif' : ''} aria-pressed={v === p.statut} onClick={() => poserPresence(e, p)(v)}>{l}</button>
+                              ))}
+                            </div>
+                          )}
+                          {modifiable && p.statut === 'retard' && listeMinutes(e, p)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <Tableau serre colonnes={[{ titre: 'N°' }, { titre: 'Élève', mobile: 'entete' }, { titre: 'Présence' }, { titre: 'Retard' }]}
+                    lignes={((f.eleves ?? []) as any[]).map((e) => {
+                      const p = presences[e.inscriptionId] ?? { statut: 'present', minutes: null };
+                      return [
+                        <span className="doux">{e.numero}</span>,
+                        <span className="gras">{e.nom}</span>,
+                        <div role="group" aria-label={`Présence de ${e.nom}`}>
+                          <Bascules petites={!tactile} options={PRESENCES} valeur={p.statut} onChange={modifiable ? poserPresence(e, p) : undefined} />
+                        </div>,
+                        p.statut === 'retard'
+                          ? (modifiable ? listeMinutes(e, p) : <span>{p.minutes ?? 15} min</span>)
+                          : <span className="doux">–</span>,
+                      ];
+                    })} />
+                )}
                 {modifiable && (
-                  <Rangee fin centre>
+                  <div className="rangee fin centre pied-colle">
+                    {telephone && <Doux>{compteurs}</Doux>}
                     <Bouton onClick={() => setPresences((x) => Object.fromEntries(Object.keys(x).map((k) => [k, { statut: 'present', minutes: null }])) as Record<string, Presence>)}>Tous présents</Bouton>
-                    <Bouton variante="principal" touches={['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer l'appel</Bouton>
-                  </Rangee>
+                    <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer l'appel</Bouton>
+                  </div>
                 )}
               </Panneau>
             ) },
@@ -383,13 +510,13 @@ export function EcranAppel() {
                   <TitrePanneau titre={`Fiches du jour · ${nomClasse}`} />
                   <div style={{ marginTop: 6 }}>
                     {fiches.map((x) => (
-                      <LigneListe key={x.id} onClick={() => setChoixFiche(x.id)}>
+                      <button key={x.id} type="button" className="ligne-liste cliquable ligne-bouton" aria-current={x.id === f.id ? 'true' : undefined} onClick={() => setChoixFiche(x.id)}>
                         <div style={{ flex: '1 1 180px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}><Pastille>{x.debut} – {x.fin}</Pastille><span className="gras">{x.libelle}</span></div>
                           <Doux>{x.personnel ?? '–'}{x.coursCommun ? ` · ${x.coursCommun}` : ''}</Doux>
                         </div>
                         {x.statut === 'faite' ? <Pastille ton="succes" icone="coche">Faite</Pastille> : <Pastille>À faire</Pastille>}
-                      </LigneListe>
+                      </button>
                     ))}
                   </div>
                   <Doux style={{ marginTop: 10 }}>Une fiche par classe et par créneau, créée chaque matin. Quand un cours réunit deux classes, chacune garde sa fiche.</Doux>
@@ -452,13 +579,13 @@ function NouvelleObservation({ fermer, types, sanction }: { fermer: (v?: boolean
       {eleve ? (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span className="gras" style={{ flex: 1 }}>{eleve.nom} · {eleve.classe}</span>
-          <button type="button" className="lien-texte" style={{ fontWeight: 600 }} onClick={() => setEleve(null)}>Changer d’élève</button>
+          <button type="button" className="lien-texte" style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', minHeight: 44 }} onClick={() => setEleve(null)}>Changer d’élève</button>
         </div>
       ) : (
         <div>
           <Champ libelle="Élève" value={q} onChange={setQ} placeholder="Nom ou matricule" autoFocus />
           {resultats.map((e) => (
-            <LigneListe key={e.inscriptionId} onClick={() => setEleve(e)}><span className="gras" style={{ flex: 1 }}>{e.nom}</span><Doux>{e.classe}</Doux></LigneListe>
+            <button key={e.inscriptionId} type="button" className="ligne-liste cliquable ligne-bouton" onClick={() => setEleve(e)}><span className="gras" style={{ flex: 1 }}>{e.nom}</span><Doux>{e.classe}</Doux></button>
           ))}
         </div>
       )}
@@ -481,7 +608,10 @@ function NouvelleObservation({ fermer, types, sanction }: { fermer: (v?: boolean
 export function EcranDiscipline() {
   const moi = useMoi();
   const naviguer = useNavigate();
+  const { tactile } = useEcran();
   const { d, erreur, recharger } = useDonnees(() => api.get('/vie-scolaire/absences'));
+  // Sur écran tactile, les liens texte gardent leur aspect mais atteignent 44 px de haut.
+  const lienTactile = tactile ? { display: 'inline-flex', alignItems: 'center', minHeight: 44 } as const : {};
   const justifier = async (a: any) => {
     const ok = await ouvrirFormulaire<boolean>(`Justifier · ${a.eleve}`, ({ fermer }) => <Justifier fermer={fermer} a={a} />, 460);
     if (ok) await recharger();
@@ -493,30 +623,33 @@ export function EcranDiscipline() {
   };
   return (
     <Coque module="vie" titre="Vie scolaire">
+      <StylesVie />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <Colonnes colonnes={[
           { flex: 3, min: 620, enfants: (
             <>
               <Panneau>
                 <TitrePanneau titre="Absences" sous={`Du ${jjmmaaaa(d.du).slice(0, 5)} au ${jjmmaaaa(d.au)}`} />
-                <Tableau colonnes={[{ titre: 'Élève' }, { titre: 'Date' }, { titre: 'Durée', droite: true }, { titre: 'Motif' }, { titre: 'État' }, { titre: 'Action' }]}
+                <Tableau colonnes={[{ titre: 'Élève', mobile: 'entete' }, { titre: 'Date' }, { titre: 'Durée', droite: true }, { titre: 'Motif' }, { titre: 'État' }, { titre: 'Action' }]}
                   vide="Aucune absence cette semaine"
                   lignes={((d.absences ?? []) as any[]).map((a) => [
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <button type="button" className="lien-texte" style={{ textAlign: 'left', fontWeight: 600 }} onClick={() => naviguer(`/scolarite/eleves/${a.eleveId}`)}>{a.eleve}</button>
+                      <button type="button" className="lien-texte" style={{ textAlign: 'left', fontWeight: 600, ...lienTactile }} aria-label={`Ouvrir la fiche de ${a.eleve}`}
+                        onClick={() => naviguer(`/scolarite/eleves/${a.eleveId}`)}>{a.eleve}</button>
                       <Doux>{a.classe}</Doux>
                     </div>,
                     <span className="doux">{jjmmaaaa(a.jour)} {a.moment}</span>,
                     heures(a.minutes),
                     a.motif ? <span>{a.motif}</span> : <span className="doux">–</span>,
                     a.justifiee ? <Pastille ton="succes" icone="coche">Justifiée</Pastille> : <Pastille ton="attention">Non justifiée</Pastille>,
-                    a.justifiee || !d.peutJustifier ? <span className="doux">–</span> : <button type="button" className="lien-texte" style={{ fontWeight: 600 }} onClick={() => justifier(a)}>Justifier</button>,
+                    a.justifiee || !d.peutJustifier ? <span className="doux">–</span>
+                      : <button type="button" className="lien-texte" style={{ fontWeight: 600, ...lienTactile }} aria-label={`Justifier l’absence de ${a.eleve} du ${jjmmaaaa(a.jour)}`} onClick={() => justifier(a)}>Justifier</button>,
                   ])} />
                 <Doux>Une absence se justifie par le principal, le directeur ou la secrétaire ; le parent peut le demander depuis son application.</Doux>
               </Panneau>
               <Panneau>
                 <TitrePanneau titre={`Cumul du ${d.periode ?? 'trimestre'}`} sous="Les trois plus élevés" />
-                <Tableau colonnes={[{ titre: 'Élève' }, { titre: 'Classe' }, { titre: 'Total', droite: true }, { titre: 'Dont justifiées', droite: true }]}
+                <Tableau colonnes={[{ titre: 'Élève', mobile: 'entete' }, { titre: 'Classe' }, { titre: 'Total', droite: true }, { titre: 'Dont justifiées', droite: true }]}
                   vide="Aucune absence sur la période"
                   lignes={((d.cumul ?? []) as any[]).map((c) => [
                     <span className="gras">{c.eleve}</span>, c.classe, heures(c.minutes), <span className={c.justifiees ? '' : 'doux'}>{heures(c.justifiees)}</span>,
@@ -558,6 +691,7 @@ export function EcranDiscipline() {
 const CIBLES: Record<string, string> = { ecole: 'Toute l’école', niveau: 'Un niveau', classe: 'Une classe', parent: 'Un parent', debiteurs: 'Familles débitrices' };
 
 export function EcranAnnonces() {
+  const { telephone } = useEcran();
   const { d, erreur, recharger } = useDonnees(() => api.get('/communication/annonces'));
   const [cible, setCible] = useState('classe');
   const [cibleId, setCibleId] = useState<string | null>(null);
@@ -593,6 +727,7 @@ export function EcranAnnonces() {
   const complete = titre.trim().length >= 3 && fr.trim().length >= 3 && (!libelleChoix || !!cibleId);
   return (
     <Coque module="messages" titre="Messages">
+      <StylesVie />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <Colonnes colonnes={[
           { flex: 3, min: 600, enfants: (
@@ -600,25 +735,25 @@ export function EcranAnnonces() {
               <TitrePanneau titre="Nouvelle annonce" />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Etiquette>Destinataires</Etiquette>
-                <Bascules options={((d.cibles ?? []) as string[]).map((c): [string, string] => [c, CIBLES[c] ?? c])} valeur={cible} onChange={setCible} />
+                <BasculesDefilantes ariaLabel="Destinataires" defiler={telephone} options={((d.cibles ?? []) as string[]).map((c): [string, string] => [c, CIBLES[c] ?? c])} valeur={cible} onChange={setCible} />
               </div>
-              <Rangee>
+              <div className="rangee pile-mobile">
                 {libelleChoix && <Liste libelle={libelleChoix} largeur={200} value={cibleId} options={options} onChange={setCibleId} />}
                 <div style={{ flex: '3 1 320px' }}><Champ libelle="Titre" value={titre} onChange={setTitre} /></div>
-              </Rangee>
-              <Rangee>
+              </div>
+              <div className="rangee pile-mobile">
                 <div style={{ flex: '1 1 260px' }}><Champ libelle="Texte en français" value={fr} onChange={setFr} lignes={4} /></div>
                 <div style={{ flex: '1 1 260px' }}><Champ libelle="Text in English" value={en} onChange={setEn} lignes={4} /></div>
-              </Rangee>
+              </div>
               <Grille min={140} ecart={14}>
                 <InfoCaps libelle="Familles concernées" valeur={estimation?.familles ?? '–'} />
                 <InfoCaps libelle="Par SMS" valeur={estimation ? estimation.sms : '–'} />
                 <InfoCaps libelle="Dans l’application" valeur={estimation?.familles ?? '–'} />
               </Grille>
-              <Rangee fin centre>
+              <div className="rangee fin centre pile-mobile">
                 <Bouton disabled={!complete || charge} onClick={() => envoyer(false)}>Enregistrer le brouillon</Bouton>
                 <Bouton icone="envoyer" variante="principal" charge={charge} disabled={!complete} onClick={() => envoyer(true)}>Publier</Bouton>
-              </Rangee>
+              </div>
             </Panneau>
           ) },
           { flex: 2, min: 380, enfants: (
@@ -649,6 +784,7 @@ export function EcranAnnonces() {
 
 export function EcranSms() {
   const moi = useMoi();
+  const { telephone, tactile } = useEcran();
   const { d, erreur, recharger } = useDonnees(() => api.get('/communication/sms'));
   const [cible, setCible] = useState('debiteurs');
   const [cibleId, setCibleId] = useState<string | null>(null);
@@ -698,6 +834,7 @@ export function EcranSms() {
   };
   return (
     <Coque module="messages" titre="Messages">
+      <StylesVie />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <Colonnes colonnes={[
           { flex: 3, min: 600, enfants: !peutEnvoyer ? null : (
@@ -705,9 +842,9 @@ export function EcranSms() {
               <TitrePanneau titre="Nouveau message" />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <Etiquette>Destinataires</Etiquette>
-                <Bascules options={[['classe', 'Une classe'], ['niveau', 'Un niveau'], ['ecole', 'Tout l\'établissement'], ['debiteurs', 'Familles en retard']]} valeur={cible} onChange={choisirCible} />
+                <BasculesDefilantes ariaLabel="Destinataires" defiler={telephone} options={[['classe', 'Une classe'], ['niveau', 'Un niveau'], ['ecole', 'Tout l\'établissement'], ['debiteurs', 'Familles en retard']]} valeur={cible} onChange={choisirCible} />
               </div>
-              <Rangee>
+              <div className="rangee pile-mobile">
                 <div style={{ flex: '1 1 240px' }}>
                   <Liste libelle="Modèle" value={modele} options={modeles.map((m): [string, string] => [m.code, m.libelle])} onChange={appliquer} />
                 </div>
@@ -717,11 +854,11 @@ export function EcranSms() {
                       options={((cible === 'classe' ? d.classes : d.niveaux) as any[]).map((o): [string, string] => [o.id, o.nom])} onChange={setCibleId} />
                   </div>
                 )}
-              </Rangee>
-              <Rangee>
+              </div>
+              <div className="rangee pile-mobile">
                 <div style={{ flex: '1 1 260px' }}><Champ libelle="Message en français" value={fr} onChange={setFr} lignes={5} /></div>
                 <div style={{ flex: '1 1 260px' }}><Champ libelle="Message in English" value={en} onChange={setEn} lignes={5} /></div>
-              </Rangee>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
                 <span className="gras doux">Variables</span>
                 {['[responsable]', '[élève]', '[classe]', '[montant]', '[date limite]'].map((v) => <Pastille key={v}>{v}</Pastille>)}
@@ -733,7 +870,7 @@ export function EcranSms() {
                 <InfoCaps libelle="SMS par message" valeur={estimation?.smsParMessage ?? '–'} />
                 <InfoCaps libelle="Coût estimé" valeur={estimation ? `${pluriel(estimation.destinataires * (Number(estimation.smsParMessage) || 1), 'SMS')} au tarif du prestataire` : '–'} />
               </Grille>
-              <Rangee fin centre>
+              <div className="rangee fin centre pile-mobile">
                 <Bouton onClick={apercu}>Aperçu par famille</Bouton>
                 <Bouton icone="envoyer" variante="principal" charge={charge} disabled={fr.trim().length < 3} onClick={async () => {
                   setCharge(true);
@@ -741,7 +878,7 @@ export function EcranSms() {
                   setCharge(false);
                   if (r) await recharger();
                 }}>Mettre en file d'attente</Bouton>
-              </Rangee>
+              </div>
             </Panneau>
           ) },
           { flex: 2, min: 380, enfants: (
@@ -767,17 +904,31 @@ export function EcranSms() {
               <Panneau ecart={0}>
                 <TitrePanneau titre="Notifications automatiques" />
                 <div style={{ marginTop: 6 }}>
-                  {((d.notifications ?? []) as any[]).map((n) => (
-                    <LigneListe key={n.code} style={{ padding: 0 }}>
-                      <span style={{ flex: 1 }}>
-                        <CaseACocher libelle={n.libelle} valeur={n.active === true} onChange={moi.a('communication.sms.parametrer') ? async (v) => {
-                          const r = await agir(() => api.put(`/communication/notifications/${n.code}`, { active: v }));
-                          if (r) await recharger();
-                        } : undefined} />
-                      </span>
-                      <Doux>{n.canal}</Doux>
-                    </LigneListe>
-                  ))}
+                  {((d.notifications ?? []) as any[]).map((n) => {
+                    const parametrer = moi.a('communication.sms.parametrer');
+                    const changer = async (v: boolean) => {
+                      const r = await agir(() => api.put(`/communication/notifications/${n.code}`, { active: v }));
+                      if (r) await recharger();
+                    };
+                    return (
+                      <LigneListe key={n.code} style={{ padding: tactile ? '4px 0' : 0 }}>
+                        {tactile ? (
+                          // Écran tactile : un interrupteur large (44 px), l'état est écrit et pas seulement coché.
+                          <>
+                            <span style={{ flex: '1 1 160px', fontWeight: 500 }}>{n.libelle}</span>
+                            <Doux>{n.canal}</Doux>
+                            <Bouton petit={false} icone={n.active === true ? 'coche' : undefined} disabled={!parametrer} onClick={() => void changer(n.active !== true)}
+                              title={`${n.libelle} : ${n.active === true ? 'activée' : 'désactivée'}`}>{n.active === true ? 'Activée' : 'Désactivée'}</Bouton>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ flex: 1 }}><CaseACocher libelle={n.libelle} valeur={n.active === true} onChange={parametrer ? changer : undefined} /></span>
+                            <Doux>{n.canal}</Doux>
+                          </>
+                        )}
+                      </LigneListe>
+                    );
+                  })}
                 </div>
               </Panneau>
             </>
@@ -815,7 +966,10 @@ function boite(libelle: string): { a: string; de: string } {
 
 export function EcranMessagerie() {
   const moi = useMoi();
+  const { telephone, tactile } = useEcran();
   const [choisie, setChoisie] = useState<string | null>(null);
+  // Téléphone : un seul panneau à la fois ; la conversation ne s'ouvre qu'au toucher d'une ligne et « Retour » ramène à la liste.
+  const [ouverte, setOuverte] = useState(false);
   const [reponse, setReponse] = useState('');
   const [saisie, setSaisie] = useState(false);
   const liste = useDonnees(() => api.get('/communication/conversations'));
@@ -856,64 +1010,78 @@ export function EcranMessagerie() {
   const b = boite(String(l?.boite ?? ''));
   const c = conv.d;
   const conversations: any[] = l?.conversations ?? [];
+  const montrerListe = !telephone || !ouverte;
+  const montrerConversation = !telephone || ouverte;
+  const panneauListe = (
+    <Panneau ecart={0}>
+      <TitrePanneau titre="Conversations" sous={`Adressées à ${b.a} · ${l?.nonLues ?? 0} non lue${(l?.nonLues ?? 0) > 1 ? 's' : ''}`} />
+      <div style={{ marginTop: 6 }}>
+        {conversations.map((x) => (
+          <button key={x.id} type="button" className="ligne-liste cliquable ligne-bouton" style={{ alignItems: 'flex-start' }} aria-current={x.id === choisie ? 'true' : undefined}
+            onClick={() => { setChoisie(x.id); setOuverte(true); }}>
+            <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                <span className="gras" style={x.id === choisie ? { color: 'var(--accent)' } : undefined}>Famille {x.famille}</span>
+                {x.nonLu && <Pastille ton="accent">Nouveau</Pastille>}
+              </div>
+              <Doux>{x.eleve}, {x.classe ?? '–'}</Doux>
+              <span style={{ fontSize: 13 }}>{x.sujet ?? x.dernier ?? ''}</span>
+            </div>
+            <Doux>{quand(x.derniereActivite)}</Doux>
+          </button>
+        ))}
+        {conversations.length === 0 && <LigneListe><Doux>Aucun message des parents pour l’instant.</Doux></LigneListe>}
+      </div>
+    </Panneau>
+  );
+  const panneauConversation = !c ? (choisie ? <Panneau><Chargement /></Panneau> : null) : (
+    <Panneau ecart={12}>
+      {telephone && <div><Bouton variante="lien" icone="chevron" onClick={() => setOuverte(false)}>Retour aux conversations</Bouton></div>}
+      <TitrePanneau titre={`Famille ${c.famille} · ${c.eleve}, ${c.classe ?? '–'}`} />
+      {((c.messages ?? []) as any[]).filter((m) => !m.brouillon).map((m) => (
+        <div key={m.id} className={`bulle ${m.auteurType === 'famille' ? 'famille' : 'ecole'}`}>
+          <span>{m.texte}</span>
+          <Doux>{m.auteur} · {jm(m.envoyeLe)} à {hm(m.envoyeLe)}</Doux>
+        </div>
+      ))}
+      {/* Réponse en cours : bulle de l'école, enregistrée comme brouillon dès qu'on la quitte ; sur téléphone, réponse et Envoyer restent collés en bas. */}
+      <div className={telephone ? 'pied-colle' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="bulle reponse" style={{ outline: saisie ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }}>
+          <textarea value={reponse} rows={3} placeholder="Votre réponse" aria-label="Votre réponse"
+            onChange={(e) => setReponse(e.target.value)} onFocus={() => setSaisie(true)} onBlur={() => { setSaisie(false); garderBrouillon(); }}
+            style={{ width: '100%', minHeight: 48, padding: 0, border: 0, outline: 'none', resize: 'vertical', background: 'transparent', color: 'inherit', font: 'inherit', lineHeight: 'inherit' }} />
+          {reponse.trim() && <Doux>{moi.nom} · brouillon</Doux>}
+        </div>
+        <div className="rangee fin centre pile-mobile">
+          {c.absenceAJustifier && moi.a('vie_scolaire.absence.justifier') && (
+            <Bouton icone="coche" onClick={async () => {
+              const r = await agir(() => api.post('/vie-scolaire/absences/justification', { inscriptionId: c.inscription_id, jour: c.absenceAJustifier,
+                motif: 'Demande du parent, certificat à suivre' }), 'Absence justifiée.');
+              if (r) await conv.recharger();
+            }}>Justifier l’absence</Bouton>
+          )}
+          <Bouton icone="envoyer" variante="principal" disabled={!reponse.trim()} onClick={envoyer}>Envoyer</Bouton>
+        </div>
+      </div>
+      <Doux>Le parent choisit son destinataire : instituteur principal, économe, directeur ou secrétaire. Chacun ne voit que les messages qui lui sont adressés ; ici, {b.de}.</Doux>
+    </Panneau>
+  );
   return (
     <Coque module="messages" titre="Messages">
-      {liste.erreur ? <Erreur message={liste.erreur} recharger={liste.recharger} /> : !l ? <Chargement /> : (
-        <Colonnes colonnes={[
-          { flex: 2, min: 360, enfants: (
-            <Panneau ecart={0}>
-              <TitrePanneau titre="Conversations" sous={`Adressées à ${b.a} · ${l.nonLues} non lue${l.nonLues > 1 ? 's' : ''}`} />
-              <div style={{ marginTop: 6 }}>
-                {conversations.map((x) => (
-                  <LigneListe key={x.id} onClick={() => setChoisie(x.id)} style={{ alignItems: 'flex-start' }}>
-                    <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-                        <span className="gras" style={x.id === choisie ? { color: 'var(--accent)' } : undefined}>Famille {x.famille}</span>
-                        {x.nonLu && <Pastille ton="accent">Nouveau</Pastille>}
-                      </div>
-                      <Doux>{x.eleve}, {x.classe ?? '–'}</Doux>
-                      <span style={{ fontSize: 13 }}>{x.sujet ?? x.dernier ?? ''}</span>
-                    </div>
-                    <Doux>{quand(x.derniereActivite)}</Doux>
-                  </LigneListe>
-                ))}
-                {conversations.length === 0 && <LigneListe><Doux>Aucun message des parents pour l’instant.</Doux></LigneListe>}
-              </div>
-            </Panneau>
-          ) },
-          { flex: 3, min: 560, enfants: !c ? (choisie ? <Panneau><Chargement /></Panneau> : null) : (
-            <Panneau ecart={12}>
-              <TitrePanneau titre={`Famille ${c.famille} · ${c.eleve}, ${c.classe ?? '–'}`} />
-              {((c.messages ?? []) as any[]).filter((m) => !m.brouillon).map((m) => (
-                <div key={m.id} style={{ alignSelf: m.auteurType === 'famille' ? 'flex-start' : 'flex-end', maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 4,
-                  padding: '10px 12px', borderRadius: 12, background: m.auteurType === 'famille' ? 'var(--champ)' : 'var(--accent-fond)' }}>
-                  <span>{m.texte}</span>
-                  <Doux>{m.auteur} · {jm(m.envoyeLe)} à {hm(m.envoyeLe)}</Doux>
-                </div>
-              ))}
-              {/* Réponse en cours : bulle de l'école, enregistrée comme brouillon dès qu'on la quitte. */}
-              <div style={{ alignSelf: 'flex-end', width: '78%', display: 'flex', flexDirection: 'column', gap: 4, padding: '10px 12px', borderRadius: 12,
-                background: 'var(--accent-fond)', outline: saisie ? '2px solid var(--accent)' : 'none', outlineOffset: 1 }}>
-                <textarea value={reponse} rows={3} placeholder="Votre réponse" aria-label="Votre réponse"
-                  onChange={(e) => setReponse(e.target.value)} onFocus={() => setSaisie(true)} onBlur={() => { setSaisie(false); garderBrouillon(); }}
-                  style={{ width: '100%', minHeight: 48, padding: 0, border: 0, outline: 'none', resize: 'vertical', background: 'transparent', color: 'inherit', font: 'inherit', lineHeight: 'inherit' }} />
-                {reponse.trim() && <Doux>{moi.nom} · brouillon</Doux>}
-              </div>
-              <Rangee fin centre>
-                {c.absenceAJustifier && moi.a('vie_scolaire.absence.justifier') && (
-                  <Bouton icone="coche" onClick={async () => {
-                    const r = await agir(() => api.post('/vie-scolaire/absences/justification', { inscriptionId: c.inscription_id, jour: c.absenceAJustifier,
-                      motif: 'Demande du parent, certificat à suivre' }), 'Absence justifiée.');
-                    if (r) await conv.recharger();
-                  }}>Justifier l’absence</Bouton>
-                )}
-                <Bouton icone="envoyer" variante="principal" disabled={!reponse.trim()} onClick={envoyer}>Envoyer</Bouton>
-              </Rangee>
-              <Doux>Le parent choisit son destinataire : instituteur principal, économe, directeur ou secrétaire. Chacun ne voit que les messages qui lui sont adressés ; ici, {b.de}.</Doux>
-            </Panneau>
-          ) },
-        ].filter((x) => x.enfants !== null)} />
-      )}
+      <StylesVie />
+      {liste.erreur ? <Erreur message={liste.erreur} recharger={liste.recharger} /> : !l ? <Chargement />
+        : tactile && !telephone ? (
+          // Tablette : liste et fil côte à côte (2/5 – 3/5), alors que les colonnes ordinaires s'empilent.
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            <div style={{ flex: '2 1 0', minWidth: 0 }}>{panneauListe}</div>
+            {panneauConversation && <div style={{ flex: '3 1 0', minWidth: 0 }}>{panneauConversation}</div>}
+          </div>
+        ) : (
+          <Colonnes colonnes={[
+            ...(montrerListe ? [{ flex: 2, min: 360, enfants: panneauListe }] : []),
+            ...(montrerConversation ? [{ flex: 3, min: 560, enfants: panneauConversation }] : []),
+          ].filter((x) => x.enfants !== null)} />
+        )}
     </Coque>
   );
 }

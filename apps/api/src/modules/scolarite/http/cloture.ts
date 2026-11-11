@@ -102,6 +102,13 @@ export async function routesCloture(app: FastifyInstance) {
     const suivante = e.suivante;
     return app.bd.transaction(ctx.compteId, async (tx) => {
       const grilles = await lignes<{ niveau_id: string }>(tx, sql`SELECT niveau_id FROM finances.grille_frais WHERE annee_id = ${suivante.id} AND statut_eleve = 'ancien'`);
+      // Aucun élève admis ou redoublant ne quitte l'école faute de classe : toutes les classes d'accueil doivent exister.
+      const sansClasse = e.passage.filter((p) => {
+        const choix = req.body.passages.find((x) => x.classeId === p.classeId)?.accueilClasseIds ?? p.accueilIds;
+        return (p.admis > 0 && !choix.length && p.accueil === 'classe à créer') || (p.redoublent > 0 && !p.redoublementIds.length);
+      });
+      if (sansClasse.length) throw new ErreurMetier('STR_CLASSE_ACCUEIL', 422,
+        `Créez d’abord, pour ${suivante.libelle}, les classes qui accueillent les élèves de ${sansClasse.map((p) => p.classe).join(', ')}.`);
       let reinscrits = 0, reportes = 0;
       for (const p of e.passage) {
         const choix = req.body.passages.find((x) => x.classeId === p.classeId)?.accueilClasseIds ?? p.accueilIds;

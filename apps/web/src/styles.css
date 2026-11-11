@@ -209,3 +209,20 @@ table.tableau tbody tr.cliquable:hover { background: var(--neutre-fond); }
   body { background: #fff; }
   .panneau { box-shadow: none; }
 }
+
+/* ---------------------------------------------------------------- classes utilitaires du responsive (contrat commun des écrans)
+   .pile-mobile   : sous 640 px, les enfants s'empilent sur toute la largeur (boutons, champs, colonnes) ;
+   .cache-mobile  : masqué sous 640 px ; .cache-bureau : masqué au-dessus de 640 px ;
+   .pleine-mobile : largeur 100 % sous 640 px ;
+   .defile-x      : bande qui défile horizontalement (bascules, onglets) sans retour à la ligne, avec un bord qui montre la suite.
+   L'implémentation détaillée est dans la section « petits écrans » ci-dessus ; ces règles de base garantissent le comportement. */
+@media (max-width: 640px) {
+  .pile-mobile { display: flex !important; flex-direction: column !important; align-items: stretch !important; }
+  .pile-mobile > * { width: 100%; max-width: none !important; flex: none !important; }
+  .cache-mobile { display: none !important; }
+  .pleine-mobile { width: 100% !important; }
+}
+@media (min-width: 641px) { .cache-bureau { display: none !important; } }
+.defile-x { display: flex; flex-wrap: nowrap !important; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.defile-x > * { flex: none; scroll-snap-align: start; }
+

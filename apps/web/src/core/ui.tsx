@@ -146,7 +146,8 @@ export const Rangee = ({ children, fin, entre, centre, ecart, style }: { childre
 export const Filtres = ({ champs, actions }: { champs: ReactNode; actions?: ReactNode }) =>
   <div className="filtres"><div className="champs">{champs}</div>{actions && <div className="actions">{actions}</div>}</div>;
 
-export interface Colonne { titre: ReactNode; droite?: boolean; largeur?: number | string }
+/** `mobile` : sous 640 px, chaque ligne devient une carte ; 'entete' = la cellule sert de titre de carte, 'cachee' = cellule omise sur téléphone. */
+export interface Colonne { titre: ReactNode; droite?: boolean; largeur?: number | string; mobile?: 'entete' | 'cachee' }
 export function Tableau({ colonnes, lignes, total, vide, onLigne, serre, cles }: {
   colonnes: Colonne[]; lignes: ReactNode[][]; total?: ReactNode[]; vide?: string; onLigne?: (i: number) => void; serre?: boolean; cles?: string[];
 }) {
@@ -157,7 +158,8 @@ export function Tableau({ colonnes, lignes, total, vide, onLigne, serre, cles }:
         <tbody>
           {lignes.map((l, r) => (
             <tr key={cles?.[r] ?? r} className={onLigne ? 'cliquable' : ''} onClick={onLigne ? () => onLigne(r) : undefined}>
-              {l.map((c, i) => <td key={i} className={colonnes[i]?.droite ? 'droite' : ''}>{c}</td>)}
+              {l.map((c, i) => <td key={i} className={`${colonnes[i]?.droite ? 'droite' : ''} ${colonnes[i]?.mobile === 'entete' || (i === 0 && !colonnes.some((x) => x.mobile === 'entete')) ? 'carte-titre' : ''} ${colonnes[i]?.mobile === 'cachee' ? 'cache-mobile' : ''}`}
+                data-titre={typeof colonnes[i]?.titre === 'string' ? (colonnes[i]!.titre as string) : undefined}>{c}</td>)}
             </tr>
           ))}
         </tbody>

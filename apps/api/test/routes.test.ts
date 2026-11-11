@@ -1,0 +1,30 @@
+// Conception § 8 : chaque route déclare elle-même sa permission. Une route d'API sans déclaration est une faille.
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { preparer } from './aide.ts';
+import { estPermission } from '@gs/shared';
+
+let env: Awaited<ReturnType<typeof preparer>>;
+beforeAll(async () => { env = await preparer(); });
+afterAll(async () => { await env?.fermer(); });
+
+// Routes accessibles à toute personne connectée, sans permission particulière.
+const SESSION_SEULE = new Set(['GET /api/v1/auth/moi', 'POST /api/v1/auth/deconnexion']);
+
+describe('Déclaration des permissions', () => {
+  it('chaque route /api/v1 est publique, de session seule, ou déclare une permission connue', () => {
+    const fautives: string[] = [];
+    for (const r of env.app.inventaireRoutes) {
+      if (!r.url.startsWith('/api/v1') || r.methode === 'HEAD') continue;
+      const cle = `${r.methode} ${r.url}`;
+      const c = r.config as { public?: boolean; permission?: string; unePermissionParmi?: string[] };
+      const perms = [c.permission, ...(c.unePermissionParmi ?? [])].filter(Boolean) as string[];
+      if (c.public || SESSION_SEULE.has(cle)) continue;
+      if (!perms.length || perms.some((p) => !estPermission(p))) fautives.push(cle);
+    }
+    expect(fautives).toEqual([]);
+  });
+  it('les routes publiques se limitent à la connexion', () => {
+    const publiques = env.app.inventaireRoutes.filter((r) => (r.config as { public?: boolean }).public && r.methode !== 'HEAD').map((r) => `${r.methode} ${r.url}`).sort();
+    expect(publiques).toEqual(['GET /api/v1/auth/accueil', 'POST /api/v1/auth/connexion', 'POST /api/v1/auth/connexion-parent']);
+  });
+});

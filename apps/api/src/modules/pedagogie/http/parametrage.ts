@@ -98,7 +98,7 @@ export async function routesParametrage(app: FastifyInstance) {
     const ctx = exiger(req);
     const b = req.body;
     if (b.modeEvaluation === 'competences') {
-      throw new ErreurMetier('PED_MODE_NON_DISPONIBLE', 422, 'L\'évaluation par compétences n\'est pas encore disponible (ECARTS E-26).', 'modeEvaluation');
+      throw new ErreurMetier('PED_MODE_NON_DISPONIBLE', 422, 'L\'évaluation par compétences n\'est pas encore disponible pour ce niveau.', 'modeEvaluation');
     }
     const annee = await exigerAnneeOuverte(app.bd, ctx.etablissementId);
     return app.bd.transaction(ctx.compteId, async (tx) => {

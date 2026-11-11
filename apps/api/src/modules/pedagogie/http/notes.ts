@@ -160,7 +160,7 @@ export async function routesNotes(app: FastifyInstance) {
       const appreciations = await lignes<{ inscription_id: string; texte: string }>(tx, sql`
         SELECT inscription_id, texte FROM pedagogie.appreciation WHERE periode_id = ${seq.periode_id} AND matiere_id = ${matiereId}`);
       // Avancement de toutes les matières de la classe pour cette séquence (le principal suit tout, RG-34).
-      const avancement = (await titulairesClasse(tx, classeId)).map((m) => ({ matiereId: m.matiere_id, matiere: m.abrege, saisiePar: m.principal ? 'Principal' : m.nom }));
+      const avancement = (await titulairesClasse(tx, classeId)).map((m) => ({ matiereId: m.matiere_id, matiere: m.abrege, libelle: m.libelle_fr, saisiePar: m.principal ? 'Principal' : m.nom }));
       const comptes = await lignes<{ matiere_id: string; n: number }>(tx, sql`
         SELECT e.matiere_id, count(n.*) FILTER (WHERE n.statut <> 'present' OR n.valeur IS NOT NULL)::int AS n
           FROM pedagogie.evaluation e LEFT JOIN pedagogie.note n ON n.evaluation_id = e.id

@@ -12,6 +12,7 @@ import { perimetreEnseignant } from '../../../core/perimetre.ts';
 import { calculerResultats, distinctionProposee, type Distinction } from '../domain/calcul.ts';
 import { visibiliteBulletin } from '../../finances/domain/solvabilite.ts';
 import { reglesDe, titulaire, titulairesClasse } from '../index.ts';
+import { dateFr, pdfBulletins, pdfProcesVerbal } from '@gs/print';
 import { exigerAnneeOuverte } from '../../structure/index.ts';
 
 const Uuid = z.uuid();
@@ -311,6 +312,43 @@ export async function routesResultats(app: FastifyInstance) {
     });
   });
 
+  // Bulletins de la classe en PDF (maquette Bulletins, « Imprimer la classe en PDF »).
+  r.get('/pedagogie/bulletins/document', {
+    config: { unePermissionParmi: ['pedagogie.bulletin.calculer', 'pedagogie.bulletin.publier', 'pedagogie.bulletin.apprecier', 'pedagogie.bulletin.lever_blocage'] },
+    schema: { tags: ['pedagogie'], querystring: Classe },
+  }, async (req, rep) => {
+    const ctx = exiger(req);
+    const { classeId } = req.query;
+    const periodeId = req.query.periodeId ?? null;
+    if (ctx.portee('pedagogie.note.lire') !== 'etablissement' && !ctx.a('pedagogie.bulletin.lever_blocage')) {
+      await exigerClasseLisible(ctx, classeId, 'pedagogie.bulletin.apprecier');
+    }
+    const pdf = await app.bd.transaction(ctx.compteId, async (tx) => {
+      const resultats = await calculerClasse(tx, ctx.etablissementId, classeId, periodeId);
+      const stockes = await lignes<{ inscription_id: string; statut: string; version: number }>(tx, sql`
+        SELECT DISTINCT ON (inscription_id) inscription_id, statut, version FROM pedagogie.bulletin
+         WHERE inscription_id = ANY(${tableau(resultats.map((x) => x.eleve.inscriptionId))}::uuid[]) AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid
+           AND statut <> 'remplace' ORDER BY inscription_id, (statut = 'brouillon') DESC, version DESC`);
+      const etab = await ligne<{ nom_fr: string }>(tx, sql`SELECT nom_fr FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      await journaliser(tx, ctx, { action: 'Export', objetType: 'Bulletin', objetLibelle: `Bulletins · ${resultats[0]?.classe.nom ?? ''} · ${resultats[0]?.periode.libelleFr ?? ''}`,
+        avant: '–', apres: `PDF · ${resultats.length} bulletins` });
+      return pdfBulletins([...resultats].sort((a, b) => a.eleve.nom.localeCompare(b.eleve.nom)).map((x) => {
+        const st = stockes.find((s) => s.inscription_id === x.eleve.inscriptionId);
+        return {
+          etablissement: etab!.nom_fr, periodeFr: x.periode.libelleFr, periodeEn: x.periode.libelleEn, annee: x.annee,
+          version: st?.version ?? 1, statut: st?.statut === 'publie' ? 'publie' : 'brouillon',
+          eleve: x.eleve.nom, matricule: x.eleve.matricule, classe: x.classe.nom, effectif: x.effectif, naissance: dateFr(x.eleve.dateNaissance),
+          matieres: x.matieres.map((m) => ({ libelle: m.libelle, coefficient: m.coefficient, moyenne: m.moyenne, points: m.points, moyenneClasse: m.moyenneClasse, appreciation: m.appreciation })),
+          totalCoefficients: x.totalCoefficients, totalPoints: x.totalPoints, moyenne: x.moyenne, rang: x.rang,
+          moyenneClasse: x.classe.moyenne, min: x.classe.min, max: x.classe.max,
+          absences: `${heures(x.absences.minutes)} dont ${heures(x.absences.justifiees)} justifiées`, distinction: DISTINCTIONS[x.distinction],
+          appreciationGenerale: x.appreciationGenerale,
+        };
+      }));
+    });
+    return rep.type('application/pdf').header('content-disposition', 'inline; filename="bulletins.pdf"').send(Buffer.from(pdf));
+  });
+
   r.post('/pedagogie/bulletins/calcul', {
     config: { permission: 'pedagogie.bulletin.calculer' }, schema: { tags: ['pedagogie'], body: Classe },
   }, async (req) => {
@@ -463,6 +501,34 @@ export async function routesResultats(app: FastifyInstance) {
         avant: '–', apres: `${req.body.items.length} élèves` });
       return { ok: true };
     });
+  });
+
+  // Procès-verbal du conseil de classe (maquette Conseil, bouton « Procès-verbal »).
+  r.get('/pedagogie/conseil/document', {
+    config: { unePermissionParmi: ['pedagogie.conseil.gerer', 'pedagogie.conseil.decider'] },
+    schema: { tags: ['pedagogie'], querystring: z.object({ classeId: Uuid, periodeId: Uuid }) },
+  }, async (req, rep) => {
+    const ctx = exiger(req);
+    const { classeId, periodeId } = req.query;
+    const pdf = await app.bd.transaction(ctx.compteId, async (tx) => {
+      const resultats = await calculerClasse(tx, ctx.etablissementId, classeId, periodeId);
+      const etab = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire: string | null }>(tx, sql`
+        SELECT nom_fr, nom_en, ville_bp, telephone, signataire FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      const pv = await ligne<{ contenu: string }>(tx, sql`SELECT contenu FROM pedagogie.proces_verbal WHERE classe_id = ${classeId} AND periode_id = ${periodeId}`);
+      const moyennes = resultats.filter((x) => x.moyenne !== null);
+      const reussis = moyennes.filter((x) => x.moyenne! >= 10).length;
+      const note = (n: number | null) => (n === null ? '–' : n.toFixed(2).replace('.', ','));
+      await journaliser(tx, ctx, { action: 'Export', objetType: 'Bulletin', objetLibelle: `Procès-verbal · ${resultats[0]?.classe.nom ?? ''} · ${resultats[0]?.periode.libelleFr ?? ''}`, avant: '–', apres: 'PDF' });
+      return pdfProcesVerbal({ etablissement: etab!, classe: resultats[0]?.classe.nom ?? '', periode: resultats[0]?.periode.libelleFr ?? '', annee: resultats[0]?.annee ?? '',
+        stats: [['Moyenne de la classe', `${note(resultats[0]?.classe.moyenne ?? null)} sur 20`],
+          ['Taux de réussite', moyennes.length ? `${Math.round((reussis * 100) / moyennes.length)} % (${reussis} élèves sur ${resultats.length} à 10 ou plus)` : '–'],
+          ['Absences', `${heures(resultats.reduce((s, x) => s + x.absences.minutes, 0))} sur la période`],
+          ['Sanctions', String(resultats.reduce((s, x) => s + x.sanctions, 0))]],
+        lignes: [...resultats].sort((a, b) => (a.rang ?? 999) - (b.rang ?? 999))
+          .map((x) => [String(x.rang ?? '–'), x.eleve.nom, note(x.moyenne), heures(x.absences.minutes), DISTINCTIONS[x.distinction]]),
+        contenu: pv?.contenu ?? '' });
+    });
+    return rep.type('application/pdf').header('content-disposition', 'inline; filename="proces-verbal.pdf"').send(Buffer.from(pdf));
   });
 
   r.put('/pedagogie/conseil/proces-verbal', {

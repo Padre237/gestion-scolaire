@@ -30,18 +30,20 @@ Ce document déroule la démonstration, rôle par rôle, à partir d'une base vi
 
    Laissez ce terminal ouvert pendant toute la démonstration ; `Ctrl C` arrête tout.
 
-### Répétition
+### Répétition et retour à l'état de départ
 
 Pour répéter sur une école déjà remplie, avec un trimestre de notes, de paiements et d'absences, lancez `pnpm demo:fictif`. Les comptes de répétition s'affichent à la fin, avec leurs mots de passe ; ne les utilisez jamais pour la vraie démonstration.
 
-Entre deux passages, revenez à un état propre :
+Gardez l'état de départ sous un nom, puis revenez-y entre deux passages :
 
 ```
-pnpm demo:sauvegarde          (avant le passage : garde l'état de départ)
-pnpm demo:restaurer           (après : liste les sauvegardes et remet celle choisie)
+pnpm demo:sauvegarde --nom depart        (une fois, juste après demo:vide)
+pnpm demo:restaurer depart --oui         (avant chaque nouveau passage)
 ```
 
-La restauration commence toujours par une sauvegarde de l'état actuel. Le serveur peut rester allumé : il se reconnecte seul.
+Une sauvegarde nommée n'est jamais effacée par la rotation automatique. Une restauration commence toujours par sauvegarder l'état actuel ; le serveur peut rester allumé, il se reconnecte seul.
+
+Le fichier `COMPTES-DEMO.md`, à la racine, liste les comptes et mots de passe de chaque état. Il reste sur ce poste et n'entre pas dans le dépôt.
 
 ### Le téléphone du parent et celui de l'instituteur
 
@@ -69,130 +71,159 @@ Sur le PC, `http://localhost:8080` s'installe aussi : bouton d'installation dans
 
 ## Les neuf étapes
 
-Les noms, montants et téléphones ci-dessous sont des exemples : saisissez ceux de votre choix. Utilisez des téléphones de la plage 600 000 xxx si vous ne voulez pas de vrais numéros.
+Les noms, montants et téléphones ci-dessous sont ceux de la répétition jouée le 11/11/2026 : vous pouvez les reprendre tels quels. Les téléphones restent dans la plage factice 600 000 xxx.
 
 ### Étape 1 · Paramétrage de l'établissement et création des comptes
 
-La conception confie le paramétrage à la secrétaire, et le directeur valide sans saisir (ECARTS E-07). Cette étape est donc jouée par la secrétaire ; le directeur entre en scène aux étapes 3 et 9.
+La conception confie le paramétrage à la secrétaire, et le directeur valide sans saisir (ECARTS E-07). Cette étape est donc jouée par la secrétaire ; la directrice entre en scène à l'étape 9.
 
 - **Compte** : la secrétaire, créée par `demo:vide`.
-- **Écran** : Paramètres › Établissement.
 - **Gestes** :
-  1. **Identité** : complétez la devise, la ville et la boîte postale, le téléphone et le signataire des documents. Dans « Réductions sans validation jusqu'à (FCFA) », saisissez par exemple **10 000**. Enregistrez (Ctrl S).
-  2. **Années scolaires** : « Créer l'année scolaire ». Gardez 2026/2027, saisissez les dates (07/09/2026 et 25/06/2027), puis « Créer l'année ». Ensuite « Ouvrir », et confirmez avec « Ouvrir l'année ». Les trois trimestres sont créés avec elle ; vérifiez leurs dates sous « Périodes d'évaluation ».
-  3. **Cycles, niveaux et classes** : « Ajouter un cycle », par exemple Francophone · primaire. Ses niveaux, de la SIL au CM2, sont créés avec lui.
-  4. **Personnel** (menu Personnel) : « Nouvelle fiche » pour la directrice, l'économe, le préfet des études et deux instituteurs. Ouvrez chaque fiche, puis « Créer son compte ».
-  5. **Paramètres › Utilisateurs et rôles** : vérifiez les rôles et périmètres. Donnez à un instituteur le rôle « Instituteur principal » de sa classe, et à l'autre le rôle « Instituteur de matière » pour l'EPS. Notez le mot de passe de chaque compte : il ne s'affiche qu'une fois.
+  1. **Paramètres › Établissement**, section Identité :
+     - devise, ville et boîte postale, téléphone (600 000 200), signataire des documents ;
+     - « Réductions sans validation jusqu'à (FCFA) » : **10 000** ;
+     - enregistrez (Ctrl S).
+  2. **Années scolaires** : « Créer l'année scolaire ». Gardez 2026/2027, saisissez les dates (07/09/2026 et 25/06/2027), puis « Créer l'année ». Ensuite « Ouvrir », et confirmez avec « Ouvrir l'année ». Les trois trimestres sont créés avec elle.
+  3. **Cycles, niveaux et classes** : « Ajouter un cycle », Francophone, Primaire, « Ajouter le cycle ». Les niveaux de la SIL au CM2 sont créés avec lui.
+  4. **Personnel** : « Nouvelle fiche » pour chacun, avec nom, fonction, statut et téléphone, puis « Créer la fiche ». Sur la fiche, « Créer son compte » : vérifiez l'identifiant, le rôle est déjà coché d'après la fonction, puis « Créer le compte ». Le mot de passe s'affiche une seule fois : notez-le, puis « J'ai noté le mot de passe ».
+
+     | Nom | Fonction | Identifiant |
+     |---|---|---|
+     | Mme ATEBA Marie-Claire | Directeur | `directrice` |
+     | M. MBIDA Paul | Économe | `econome` |
+     | M. NKOULOU Gérard | Préfet des études | `prefet` |
+     | M. ONANA Bertrand | Instituteur principal | `onana.b` |
+     | M. ESSAMA Luc (vacataire) | Instituteur de matière | `essama.l` |
+
+     La classe et la matière des instituteurs viennent de l'affectation par le préfet, à l'étape 4.
 - **Ce qui doit apparaître** :
   - le nom de l'établissement dans la barre latérale et sur la page de connexion ;
-  - l'année 2026/2027 « Ouverte » en haut de chaque écran ;
-  - les comptes dans la liste, avec leurs rôles ;
+  - « 2026/2027 » en haut de chaque écran ;
+  - les comptes et leurs rôles dans Paramètres › Utilisateurs et rôles ;
   - chaque création au Journal d'audit.
 
-**Préparation des frais** (économe, avant l'étape 2) : Frais et caisse › Grille des frais. Pour chaque niveau, saisissez l'inscription et les trois tranches, en tarif « nouveau » et en tarif « ancien », puis enregistrez. Sans grille, une inscription ne crée pas d'échéancier.
+**Préparation des frais** (économe, avant l'étape 2) : Frais et caisse › Grille des frais. Saisissez les dates limites (07/09/2026, 30/09/2026, 30/11/2026, 31/01/2027), puis l'inscription et les trois tranches de chaque niveau. Exemple pour le CM2 : 12 000, 30 000, 25 000, 18 000. Enregistrez, puis faites de même sous « Anciens élèves ». Sans grille, une inscription ne crée pas d'échéancier.
 
 ### Étape 2 · Secrétaire : classes, inscriptions, annonce
 
 - **Compte** : la secrétaire.
 - **Gestes** :
-  1. **Paramètres › Établissement › Ajouter une classe** : CE2 B, SIL A, CM2 A, avec leur effectif maximal.
-  2. **Élèves › Nouvelle inscription** : élève (nom, prénoms, sexe, date et lieu de naissance), responsable payeur avec son téléphone, classe CE2 B, type Nouvelle. Enregistrez avec « Enregistrer l'inscription ».
-  3. Une fenêtre affiche le **compte famille** : l'identifiant est le téléphone du payeur, et le mot de passe s'affiche une seule fois. Imprimez la fiche d'inscription, qui porte ce mot de passe ; elle servira à l'étape 8.
-  4. Inscrivez un second enfant avec **le même téléphone** de payeur. L'application reconnaît la famille, et le même compte sert aux deux enfants.
-  5. Inscrivez deux ou trois élèves en CM2 A (classe de l'instituteur principal).
-  6. **Messages › Annonces › Nouvelle annonce** : destinataires, titre et texte en français et en anglais, puis « Publier ».
+  1. **Paramètres › Établissement › Ajouter une classe** : choisissez le niveau SIL ; le nom « SIL A » est proposé. Faites de même pour CE2 A et CM2 A.
+  2. **Élèves › Nouvelle inscription**, avec le type « Nouvelle inscription » :
+     - FOUDA Junior, garçon, né le 14/03/2015 à Yaoundé, en CM2 A ;
+     - responsable : Mme FOUDA Brigitte, mère, 600 000 301.
+
+     Puis « Enregistrer l'inscription ».
+  3. La fenêtre « Élève inscrit » donne le matricule et le **compte famille** : le téléphone et un mot de passe affiché une seule fois. « Imprimer la fiche d'inscription » produit la fiche à remettre au parent ; elle servira à l'étape 8.
+  4. Inscrivez FOUDA Grâce en SIL A, **avec le même téléphone** : la famille est reconnue, et le même compte sert aux deux enfants.
+  5. Inscrivez aussi deux élèves en CM2 A :
+     - NGONO Esther (M. NGONO Paul, 600 000 302) ;
+     - BELINGA Kevin (Mme BELINGA Rose, 600 000 303).
+  6. **Messages › Annonces** : titre « Réunion des parents », texte en français et en anglais, puis « Publier ».
 - **Ce qui doit apparaître** :
   - le matricule attribué automatiquement (26FR0001…) ;
-  - l'échéancier copié de la grille sur la fiche de l'élève ;
-  - l'annonce sous « Annonces publiées » ;
-  - si une classe est pleine, une demande de dérogation qui part à la directrice.
+  - les frais dus copiés de la grille ;
+  - l'annonce sous « Annonces publiées ».
 
 ### Étape 3 · Économe : encaissement, reçu, réduction, impayés
 
 - **Compte** : l'économe.
 - **Gestes** :
-  1. **Frais et caisse › Caisse du jour** : saisissez le fonds initial, puis « Ouvrir la session ».
-  2. « Encaisser un élève » (ou Ctrl K), choisissez l'élève inscrit à l'étape 2, saisissez un montant, espèces, puis « Valider et imprimer ».
-  3. Le **reçu bilingue** s'affiche, en français et en anglais, avec le montant en lettres. Le PDF s'ouvre pour l'impression ; une réimpression porte la mention « Duplicata ».
-  4. **Fiche de l'élève › Accorder une réduction** : un montant **au-delà du seuil** de l'étape 1, par exemple 15 000 FCFA, avec un motif. La réduction devient une demande, à valider par la directrice.
-  5. **Frais et caisse › Impayés** : la liste des échéances dépassées, avec les filtres et l'export.
+  1. **Frais et caisse › Caisse du jour** : fonds initial 20 000, puis « Ouvrir la session ».
+  2. « Encaisser un élève » : tapez « FOUDA Junior » et choisissez-le. Saisissez **17 000**, espèces, puis « Valider et imprimer ».
+  3. Le **reçu bilingue** s'affiche, avec le montant en lettres en français et en anglais. Le PDF s'ouvre dans un nouvel onglet pour l'impression ; une réimpression porte « Duplicata ».
+  4. Encaissez de même :
+     - 42 000 pour NGONO Esther (tranche 1 soldée) ;
+     - 12 000 pour BELINGA Kevin ;
+     - 10 000 pour FOUDA Grâce.
+  5. **Élèves › FOUDA Junior › Accorder une réduction** : tranche 1, **15 000** FCFA, motif « Cas social ». Au-delà du seuil de 10 000, elle devient une demande : « Demande envoyée au directeur ».
+  6. **Frais et caisse › Impayés** : les restes dus, avec les filtres et l'export.
 - **Ce qui doit apparaître** :
-  - le versement dans les « Opérations de la session » ;
-  - l'inscription qui passe de « en attente » à « validée » dès le premier versement suffisant ;
-  - la demande de réduction « en attente de validation ».
-
-Pour montrer la règle des droits, connectez-vous en directrice et cherchez un bouton d'encaissement : il n'y en a pas, et le serveur refuserait l'appel (403).
+  - l'inscription validée dès le premier versement ;
+  - « Réduction de 15 000 FCFA demandée au directeur » sur la fiche de Junior ;
+  - chaque versement dans l'historique.
 
 ### Étape 4 · Préfet des études : matières, affectations, emploi du temps
 
-- **Compte** : le préfet des études.
+- **Comptes** : le préfet, puis l'instituteur principal pour placer les cours.
 - **Gestes** :
-  1. **Notes et bulletins › Matières** : « Ajouter une matière » (Mathématiques, Français, EPS…), avec le coefficient et le barème. « Affecter un instituteur » : le principal pour sa classe CM2 A, l'instituteur de matière pour l'EPS.
-  2. **Saisie des notes** : choisissez la classe et la séquence 1, puis « Ouvrir la saisie ».
-  3. **Emploi du temps** : choisissez la classe CM2 A et placez les cours d'un clic sur la grille. Ajoutez l'EPS avec l'instituteur de matière, puis « Valider et publier ».
+  1. **Préfet › Notes et bulletins › Matières**, niveau CM2 : « Ajouter une matière » pour Mathématiques (coefficient 4), Français (4) et Éducation physique et sportive (abrégé EPS, coefficient 1).
+  2. Pour chaque affectation, ouvrez « Affecter un instituteur » :
+     - classe CM2 A, « Toutes les matières : instituteur principal », M. ONANA Bertrand ;
+     - classe CM2 A, Éducation physique et sportive, M. ESSAMA Luc.
+  3. **Saisie des notes**, classe CM2 A : « Ouvrir la saisie » de la séquence 1 (jusqu'au jour proposé), puis confirmez.
+  4. **Instituteur principal › Emploi du temps** : la grille horaire de l'école est déjà fixée. Touchez une case, choisissez la matière, puis « Placer ». Placez quelques cours, dont au moins un **aujourd'hui** pour l'appel de l'étape 5, puis « Soumettre au préfet ».
+  5. **Préfet › Emploi du temps**, classe CM2 A : « Valider et publier ».
 - **Ce qui doit apparaître** :
-  - « Équipe de la classe » avec les deux instituteurs ;
-  - l'emploi du temps publié ;
-  - côté parent, l'agenda qui le reprendra.
+  - l'équipe de la classe (principal et EPS) ;
+  - le circuit Grille horaire, Cours de la classe, Validation, Publication, coché de bout en bout ;
+  - l'emploi du temps publié aux parents.
 
-### Étape 5 · Instituteur principal : appel et notes sur le téléphone
+### Étape 5 · Instituteur principal : notes et appel sur le téléphone
 
-- **Compte** : l'instituteur principal, sur le téléphone, à l'adresse `/instituteur/connexion`.
+- **Compte** : `onana.b`, sur le téléphone, à l'adresse `/instituteur/connexion`.
 - **Gestes** :
-  1. **Appel** : chaque élève est présent par défaut. Touchez A pour un absent, R pour un retard, puis « Enregistrer l'appel ».
-  2. **Notes** : sous « Mes classes », choisissez CM2 A et une matière. Saisissez les notes au pavé numérique ; Entrée passe à l'élève suivant. Touchez le nom d'un élève pour le marquer absent ou dispensé. Puis « Enregistrer sur le téléphone ».
-  3. **Hors connexion** : passez le téléphone en mode avion, saisissez une note et enregistrez. Le bandeau affiche « Hors ligne · notes gardées sur le téléphone ». Rétablissez le réseau : les notes partent seules et le bandeau confirme la synchronisation.
+  1. **Notes** : « Mes classes » montre CM2 A avec ses matières. Choisissez Mathématiques et saisissez les notes au pavé numérique ; Entrée passe à l'élève suivant. Puis « Enregistrer sur le téléphone ».
+  2. **Hors connexion** : avec le bouton Retour, revenez à « Mes classes » et choisissez Français. Passez le téléphone en mode avion, saisissez les notes et enregistrez. Le bandeau affiche « Hors ligne · 3 notes gardées sur le téléphone ». Rétablissez le réseau : le bandeau passe à « Wi-Fi de l'école · synchronisation faite à HH:MM ».
+  3. **Appel** : chaque élève est présent par défaut. Touchez A pour un absent, puis « Enregistrer l'appel ».
 - **Ce qui doit apparaître** :
-  - sur le PC, l'absent dans Vie scolaire › Absences et discipline ;
-  - les notes dans Saisie des notes, avec l'avancement de la classe.
+  - sur le PC, les notes dans Saisie des notes ;
+  - l'absent dans Vie scolaire › Absences et discipline ;
+  - l'appel au Journal d'audit.
 
 ### Étape 6 · Instituteur de matière : sa seule matière
 
-- **Compte** : l'instituteur de matière, sur un poste de bureau.
+- **Compte** : `essama.l`, sur un poste de bureau.
 - **Gestes** :
-  1. **Notes et bulletins › Saisie des notes** : il ne voit que ses classes et l'EPS. Saisissez les notes ; A, J et D posent absent, absent justifié et dispensé ; Ctrl S enregistre.
-  2. Montrez ce qu'il ne voit pas : le menu ne propose ni les frais, ni les autres matières, ni les bulletins. En tapant l'adresse d'un autre écran, par exemple `/finances/caisse`, on revient à son écran, et le serveur refuse l'appel direct (403).
-- **Ce qui doit apparaître** : la colonne EPS remplie, en lecture seule pour le principal.
+  1. **Notes et bulletins** : il ne voit que « Mes classes · EPS ». Saisissez les notes de CM2 A, puis « Enregistrer » (Ctrl S). L'écran dit : « Vous ne voyez et ne saisissez que l'EPS. »
+  2. Montrez ce qu'il ne voit pas :
+     - le menu n'a ni frais, ni personnel, ni paramètres ;
+     - en tapant `/finances/caisse` dans la barre d'adresse, on revient à son tableau de bord, limité à sa classe ;
+     - le serveur refuse l'appel direct (403).
+- **Ce qui doit apparaître** : les notes d'EPS, que le principal voit sans pouvoir les modifier.
 
 ### Étape 7 · Préfet des études : fusion et bulletins
 
-- **Comptes** : d'abord l'instituteur principal sur un poste de bureau, puis le préfet.
+- **Comptes** : l'instituteur principal sur un poste de bureau, puis le préfet.
 - **Gestes** :
-  1. **Instituteur principal** › Notes et bulletins › Fusion des notes : « Calculer les notes finales », puis « Transmettre au préfet ». S'il manque des notes, l'écran le dit et la transmission attend.
-  2. **Préfet** › Fusion des notes : les notes transmises de CM2 A.
-  3. **Préfet** › Bulletins : choisissez CM2 A et le 1er trimestre, « Recalculer », puis « Publier les N bulletins ».
+  1. **Instituteur principal › Notes et bulletins › Fusion des notes** : « Calculer les notes finales », puis « Transmettre au préfet ». S'il manque des notes, l'écran le dit et la transmission attend.
+  2. **Préfet › Bulletins**, classe CM2 A, 1er trimestre : « Publier les 3 bulletins », puis confirmez avec « Publier ».
 - **Ce qui doit apparaître** :
-  - moyennes, rangs et appréciations calculés par l'application ;
-  - le bulletin de chaque élève ;
-  - le PDF de la classe (« Imprimer la classe en PDF ») ;
-  - une correction après publication, qui crée une version 2.
+  - moyennes et rangs calculés par l'application (NGONO Esther 1re, FOUDA Junior 2e, BELINGA Kevin 3e) ;
+  - le bandeau « 1 bulletin visible, 2 en attente de paiement » ;
+  - « Imprimer la classe en PDF ».
 
 ### Étape 8 · Parent : bulletin bloqué, message à l'économe
 
-- **Compte** : le compte famille de l'étape 2 (téléphone du payeur et mot de passe de la fiche), sur le téléphone, à l'adresse `/parent/connexion`.
+- **Compte** : la famille FOUDA, sur le téléphone, à l'adresse `/parent/connexion` : téléphone 600 000 301 et mot de passe de la fiche d'inscription.
 - **Gestes** :
-  1. **Accueil** : les enfants, le reste dû, la prochaine échéance et les dernières nouvelles, dont l'annonce de l'étape 2.
-  2. **Notes** : pour l'enfant dont la tranche 1 est payée à moins de 90 %, le bulletin est **bloqué**, avec le message qui l'explique. Le parent ne le voit pas.
-  3. **Paiements** : versements et reçus. Un reçu s'affiche à l'écran, sans téléchargement.
-  4. **Écrire à l'école** : choisissez « Économe », l'enfant concerné, écrivez le message, puis « Envoyer ».
+  1. **Accueil** : les deux enfants, le reste dû, la prochaine échéance, l'annonce de l'étape 2.
+  2. **Notes** : pour Junior, « Le bulletin du 1er trimestre de Junior sera visible quand la tranche 1 sera payée à 90 % (aujourd'hui 16 %) ».
+  3. **Paiements** : versements et reçus ; un reçu s'affiche à l'écran, sans téléchargement.
+  4. **Écrire à l'école** : choisissez « Économe » et l'enfant, écrivez le message, puis « Envoyer ».
 - **Ce qui doit apparaître** :
-  - le message chez l'économe (Messages › Messagerie des parents), et chez lui seul ;
+  - le message chez l'économe seul (Messages › Messagerie des parents) ;
   - aucune donnée d'une autre famille.
 
 ### Étape 9 · Directrice : validation, levée du blocage, journal, pilotage
 
-- **Compte** : la directrice.
+- **Compte** : `directrice`.
 - **Gestes** :
-  1. **Frais et caisse › À valider** : la réduction demandée à l'étape 3. « Valider » ; l'échéancier de l'élève se met à jour.
-  2. **Notes et bulletins › Bulletins** : l'élève dont le bulletin est bloqué. « Lever le blocage », avec un motif. Sur le téléphone du parent, le bulletin apparaît.
-  3. **Paramètres › Journal d'audit** : qui a fait quoi, quand, avant et après. Filtrez par utilisateur ou par action : on y retrouve l'encaissement, la réduction, la publication et la levée du blocage. Le journal ne se modifie pas.
-  4. **Pilotage** et **Tableau de bord** : effectifs, encaissements, recouvrement par classe, échéances dépassées.
-- **Ce qui doit apparaître** : la décision de la directrice tracée dans le journal, et les chiffres du tableau de bord cohérents avec les étapes 2 et 3.
+  1. **Frais et caisse › À valider** : la réduction de l'étape 3, puis « Valider ».
+  2. **Notes et bulletins › Bulletins**, CM2 A : dans le bandeau, « Voir les 2 élèves ». Choisissez FOUDA Junior, « Lever le blocage », un motif, puis « Lever le blocage ».
+  3. Sur le téléphone du parent, le bulletin de Junior apparaît : 14,00 sur 20, 2e sur 3.
+  4. **Paramètres › Journal d'audit** : qui a fait quoi, quand, avant et après. On y voit la levée du blocage, la validation de la réduction, la publication, la transmission, l'appel et l'emploi du temps. Le journal ne se modifie pas.
+  5. **Pilotage** et **Tableau de bord** : effectifs, encaissements, recouvrement par classe.
+- **Ce qui doit apparaître** : chaque décision de la directrice au journal, et des chiffres cohérents avec les étapes 2 et 3.
+
+### Vérification automatique
+
+`pnpm --filter @gs/controle exec tsx src/procedure.ts --secretaire <mot de passe>` rejoue ces neuf étapes dans un navigateur, sur une base sortie de `demo:vide`. Elle prend une capture à chaque geste et écrit les comptes créés dans `COMPTES-DEMO.md`.
 
 ## Après la démonstration
 
-- `pnpm demo:sauvegarde` garde l'état obtenu.
-- `pnpm demo:restaurer` revient à l'état de départ pour un nouveau passage.
+- `pnpm demo:sauvegarde --nom apres-demo` garde l'état obtenu.
+- `pnpm demo:restaurer depart --oui` revient à l'état de départ pour un nouveau passage.
 
 Les sauvegardes sont chiffrées et rangées dans `var/sauvegardes`. Elles ne quittent pas le PC.
 

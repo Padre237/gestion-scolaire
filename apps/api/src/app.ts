@@ -119,7 +119,8 @@ export async function construireApp(o: OptionsApp): Promise<FastifyInstance> {
 
   const web = o.dossierWeb ?? resolve(RACINE, 'apps/web/dist');
   if (existsSync(web)) {
-    await app.register(fastifyStatic, { root: web, wildcard: false });
+    // wildcard : un fichier ajouté par une nouvelle construction est servi sans redémarrer le serveur.
+    await app.register(fastifyStatic, { root: web, wildcard: true });
     // Navigation côté client : toute adresse inconnue hors /api renvoie l'application.
     app.setNotFoundHandler((req, rep) => {
       if (req.url.startsWith('/api/')) return rep.status(404).type('application/problem+json')

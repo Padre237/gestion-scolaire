@@ -24,7 +24,7 @@ const COMPTES: Compte[] = [
 ];
 
 const INTERDITS = [/prototype/i, /\bdémo\b/i, /démonstration/i, /fictiv?e?s?\b/i, /\bfictif/i, /\bE-\d{2}\b/, /en construction/i, /\bTODO\b/,
-  /\bundefined\b/, /\bNaN\b/, /\[object Object\]/, /Invalid Date/, /\bnull\b/];
+  /\[(?:à fournir|à confirmer|tarif|seuil|téléphone|signature)[^\]]*\]/i, /\bundefined\b/, /\bNaN\b/, /\[object Object\]/, /Invalid Date/, /\bnull\b/];
 
 interface Constat { compte: string; route: string; problemes: string[] }
 

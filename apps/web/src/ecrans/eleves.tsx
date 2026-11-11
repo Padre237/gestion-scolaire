@@ -43,6 +43,32 @@ const active = (statut: unknown) => statut === 'attente' || statut === 'validee'
 const sousSysteme = (s: unknown) => (s === 'anglophone' ? 'Anglophone' : 'Francophone');
 const chiffres = (s: string) => s.replace(/\D/g, '');
 
+/* Styles propres au module sur téléphone (préfixe elv-) : le CSS global reste celui de la coque ; rien ne change au-dessus de 640 px. */
+const CSS_ELV = `
+@media (max-width: 639px) {
+  .elv-reste { align-items: flex-start !important; }
+  .elv-entete-fiche h2 { font-size: 19px !important; }
+}`;
+const StyleElv = () => <style>{CSS_ELV}</style>;
+
+/** Rangée d'actions : même rendu que Rangee, mais les boutons s'empilent pleine largeur sous 640 px (classe utilitaire pile-mobile). */
+const RangeePile = ({ children, fin, centre, ecart = 10 }: { children: ReactNode; fin?: boolean; centre?: boolean; ecart?: number }) =>
+  <div className={`rangee ${fin ? 'fin' : ''} ${centre ? 'centre' : ''} pile-mobile`} style={{ gap: ecart }}>{children}</div>;
+
+/** Actions d'une barre de filtres : transparent au-dessus de 640 px (display: contents, les boutons restent des enfants directs de la barre) ;
+ *  sous 640 px, les boutons s'empilent pleine largeur au lieu d'être coupés par la grille à deux colonnes. */
+const ActionsFiltres = ({ children }: { children: ReactNode }) =>
+  <div className="pile-mobile" style={{ display: 'contents', gridColumn: '1 / -1' }}>{children}</div>;
+
+/** Saisie d'une date au clavier numérique (téléphone) : les barres de JJ/MM/AAAA se placent d'elles-mêmes, la touche « / » reste acceptée. */
+function dateSaisie(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 8);
+  let s = d.slice(0, 2);
+  if (d.length > 2) s += `/${d.slice(2, 4)}`;
+  if (d.length > 4) s += `/${d.slice(4, 8)}`;
+  return s;
+}
+
 /** Rangée de champs qui passent à la ligne ; chaque case garde la base des maquettes (« flex: 1 1 180px »). */
 const Champs = ({ children, bas }: { children: ReactNode; bas?: boolean }) =>
   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: bas ? 'flex-end' : 'flex-start' }}>{children}</div>;
@@ -90,6 +116,7 @@ function EcranEleves() {
 
   return (
     <Coque module="eleves" titre="Élèves">
+      <StyleElv />
       <Filtres
         champs={<>
           <div ref={zoneRecherche} style={{ flex: '2 1 300px', minWidth: 0 }}>
@@ -98,20 +125,20 @@ function EcranEleves() {
           <Case flex="1 1 170px"><Liste libelle="Classe" value={classe} options={classes} onChange={(v) => { setClasse(v); setPage(1); }} /></Case>
           <Case flex="1 1 150px"><Liste libelle="Situation" value={situation} options={FILTRE_SITUATION} onChange={(v) => { setSituation(v); setPage(1); }} /></Case>
         </>}
-        actions={<>
+        actions={<ActionsFiltres>
           {moi.a('scolarite.import.executer') && <Bouton icone="sortie" onClick={() => naviguer('/parametres/donnees')}>Importer</Bouton>}
           {moi.a('scolarite.eleve.exporter') && <Bouton icone="exporter" onClick={() => telecharger(`/scolarite/eleves/export${requete(filtres)}`)}>Exporter</Bouton>}
           {moi.a('scolarite.eleve.exporter') && (
             <Bouton icone="imprimer" onClick={() => ouvrirDocument(`/scolarite/eleves/export${requete({ ...filtres, format: 'pdf' })}`)}>Imprimer la liste</Bouton>
           )}
           {moi.a('scolarite.inscription.creer') && <Bouton variante="principal" icone="ajouterEleve" onClick={() => naviguer('/scolarite/inscription')}>Nouvelle inscription</Bouton>}
-        </>}
+        </ActionsFiltres>}
       />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <Panneau>
           <TitrePanneau titre={`Élèves inscrits en ${d.annee}`} sous="Réponse en moins d’une seconde, même sans réseau" />
           <Tableau
-            colonnes={[{ titre: 'Matricule' }, { titre: 'Nom et prénoms' }, { titre: 'Classe' }, { titre: 'Sexe' }, { titre: 'Né(e) le' },
+            colonnes={[{ titre: 'Matricule', mobile: 'cachee' }, { titre: 'Nom et prénoms', mobile: 'entete' }, { titre: 'Classe' }, { titre: 'Sexe', mobile: 'cachee' }, { titre: 'Né(e) le' },
               { titre: 'Responsable payeur' }, { titre: 'Situation' }, { titre: 'Reste dû', droite: true }]}
             vide={filtre ? 'Aucun élève ne correspond à ces critères' : 'Aucun élève inscrit pour l’instant'}
             cles={lignes.map((e) => e.inscriptionId)}
@@ -178,7 +205,8 @@ function EcranFicheEleve() {
 
   return (
     <Coque module="eleves" titre="Fiche élève">
-      <Panneau reperes marge={22}>
+      <StyleElv />
+      <Panneau reperes marge={22} className="elv-entete-fiche">
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center', minWidth: 0 }}>
             {e.aPhoto
@@ -189,9 +217,9 @@ function EcranFicheEleve() {
               <span className="doux">{ligne}</span>
             </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center' }}>
+          <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center' }}>
             {reste !== null && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
+              <div className="elv-reste" style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
                 <Etiquette>Reste dû</Etiquette>
                 <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1, color: reste > 0 ? 'var(--attention)' : 'var(--succes)' }}>
                   {montant(reste)}<span style={{ fontSize: 13, fontWeight: 600, color: 'var(--doux)' }}> FCFA</span>
@@ -297,7 +325,7 @@ function Echeancier({ ech, enCours, recharger }: { ech: any; enCours: boolean; r
         </div>
       )}
       <Tableau
-        colonnes={[{ titre: 'Rubrique' }, { titre: 'Prix', droite: true }, { titre: 'Réduction', droite: true }, { titre: 'À payer', droite: true },
+        colonnes={[{ titre: 'Rubrique', mobile: 'entete' }, { titre: 'Prix', droite: true, mobile: 'cachee' }, { titre: 'Réduction', droite: true }, { titre: 'À payer', droite: true },
           { titre: 'Versé', droite: true }, { titre: 'Reste', droite: true }, { titre: 'Date limite' }]}
         cles={lignes.map((l) => l.id)}
         lignes={lignes.map((l) => [
@@ -322,10 +350,10 @@ function Echeancier({ ech, enCours, recharger }: { ech: any; enCours: boolean; r
         </Note>
       ))}
       {(reduction || avis) && (
-        <Rangee centre ecart={10}>
+        <RangeePile centre>
           {reduction && <Bouton icone="colonnes" onClick={accorder}>Accorder une réduction</Bouton>}
           {avis && <Bouton icone="lire" onClick={emettreAvis}>Avis de paiement</Bouton>}
-        </Rangee>
+        </RangeePile>
       )}
     </Panneau>
   );
@@ -375,7 +403,7 @@ function Versements({ ech, enCours, recharger }: { ech: any; enCours: boolean; r
     <Panneau>
       <TitrePanneau titre="Versements" />
       <Tableau
-        colonnes={[{ titre: 'Reçu' }, { titre: 'Date' }, { titre: 'Montant', droite: true }, { titre: 'Mode' }, { titre: 'Encaissé par' }, { titre: 'Actions' }]}
+        colonnes={[{ titre: 'Reçu', mobile: 'entete' }, { titre: 'Date' }, { titre: 'Montant', droite: true }, { titre: 'Mode' }, { titre: 'Encaissé par', mobile: 'cachee' }, { titre: 'Actions' }]}
         vide="Aucun versement"
         cles={versements.map((v) => v.id)}
         lignes={versements.map((v) => {
@@ -764,6 +792,7 @@ function EcranInscription() {
   if (liste.erreur) return <Coque module="eleves" titre="Nouvelle inscription"><Erreur message={liste.erreur} recharger={liste.recharger} /></Coque>;
   return (
     <Coque module="eleves" titre="Nouvelle inscription">
+      <StyleElv />
       <Colonnes colonnes={[
         { flex: 2, min: 600, enfants: <>
           <Panneau>
@@ -775,7 +804,7 @@ function EcranInscription() {
             </Champs>
             <Champs>
               <Case flex="1 1 150px">
-                <Champ libelle="Date de naissance" value={naissance} onChange={setNaissance} placeholder="JJ/MM/AAAA" inputMode="numeric" erreur={erreurs['naissance']} />
+                <Champ libelle="Date de naissance" value={naissance} onChange={(v) => setNaissance(dateSaisie(v))} placeholder="JJ/MM/AAAA" inputMode="numeric" erreur={erreurs['naissance']} />
               </Case>
               <Case flex="1 1 180px"><Champ libelle="Lieu de naissance" value={lieu} onChange={setLieu} /></Case>
               <Case flex="1 1 180px">
@@ -864,7 +893,7 @@ function EcranInscription() {
               : !montants ? <Note ton="attention">Aucune grille des frais pour ce niveau et ce tarif : l’inscription sera refusée.</Note>
               : (
                 <Tableau
-                  colonnes={[{ titre: 'Rubrique' }, { titre: 'Montant', droite: true }, { titre: 'Date limite' }]}
+                  colonnes={[{ titre: 'Rubrique', mobile: 'entete' }, { titre: 'Montant', droite: true }, { titre: 'Date limite' }]}
                   lignes={RUBRIQUES.map((l, i) => [l, montant(montants[i] ?? 0), jjmmaaaa(dates[i])])}
                   total={['Total', montant(montants.reduce<number>((s, m) => s + (m ?? 0), 0)), '']}
                 />
@@ -880,11 +909,11 @@ function EcranInscription() {
           </Panneau>
         </> },
       ]} />
-      <Rangee fin centre ecart={10}>
+      <RangeePile fin centre>
         <Bouton touches={['Échap']} onClick={() => naviguer('/scolarite/eleves')}>Annuler</Bouton>
         <Bouton charge={charge} onClick={() => enregistrer(false)}>Enregistrer l'inscription</Bouton>
         <Bouton variante="principal" icone="fraisCaisse" touches={['Ctrl', 'Entrée']} charge={charge} onClick={() => enregistrer(peutEncaisser)}>Enregistrer et encaisser</Bouton>
-      </Rangee>
+      </RangeePile>
     </Coque>
   );
 }
@@ -950,12 +979,12 @@ function EcranClasses() {
             <h2 style={{ fontSize: 20, fontWeight: 700 }}>{d.nom}</h2>
             <span className="doux">{sousSysteme(d.sousSysteme)} · cycle {d.ordreEnseignement}{d.principal ? ` · instituteur principal : ${d.principal}` : ''}</span>
           </div>
-          <Rangee centre ecart={8}>
+          <RangeePile centre ecart={8}>
             <Bouton icone="imprimer" onClick={() => ouvrirDocument(doc('liste'))}>Liste de classe</Bouton>
             {moi.a('scolarite.document.imprimer') && <Bouton icone="lire" onClick={() => ouvrirDocument(doc('certificats'))}>Certificats de scolarité</Bouton>}
             {moi.a('scolarite.document.imprimer') && <Bouton icone="personnel" onClick={() => ouvrirDocument(doc('cartes'))}>Cartes scolaires</Bouton>}
             {moi.a('scolarite.eleve.exporter') && <Bouton icone="exporter" onClick={() => telecharger(doc('csv'))}>Exporter</Bouton>}
-          </Rangee>
+          </RangeePile>
         </div>
         <Grille min={110} ecart={14}>
           <InfoCaps libelle="Effectif" valeur={`${d.effectif} sur ${d.effectifMax}`} />
@@ -974,7 +1003,7 @@ function EcranClasses() {
           }}>Changer un élève de classe</Bouton>
         ) : undefined} />
         <Tableau
-          colonnes={[{ titre: 'N°' }, { titre: 'Matricule' }, { titre: 'Nom et prénoms' }, { titre: 'Sexe' }, { titre: 'Statut' }]}
+          colonnes={[{ titre: 'N°', mobile: 'cachee' }, { titre: 'Matricule', mobile: 'cachee' }, { titre: 'Nom et prénoms', mobile: 'entete' }, { titre: 'Sexe' }, { titre: 'Statut' }]}
           vide="Aucun élève dans cette classe"
           cles={(d.eleves as any[]).map((e) => e.inscriptionId)}
           lignes={(d.eleves as any[]).map((e) => {
@@ -998,7 +1027,7 @@ function EcranClasses() {
           }}>Enregistrer un départ</Bouton>
         ) : undefined} />
         <Tableau
-          colonnes={[{ titre: 'Date' }, { titre: 'Élève' }, { titre: 'Mouvement' }, { titre: 'Pièce' }, { titre: 'Auteur' }]}
+          colonnes={[{ titre: 'Date' }, { titre: 'Élève', mobile: 'entete' }, { titre: 'Mouvement' }, { titre: 'Pièce' }, { titre: 'Auteur' }]}
           vide="Aucun mouvement cette année"
           lignes={(d.mouvements as any[]).map((m) => [
             jjmmaaaa(m.date),
@@ -1014,6 +1043,7 @@ function EcranClasses() {
 
   return (
     <Coque module="eleves" titre="Classes">
+      <StyleElv />
       {liste.erreur ? <Erreur message={liste.erreur} recharger={liste.recharger} /> : !liste.d ? <Chargement /> : (
         <Colonnes colonnes={[{ flex: 1, min: 280, enfants: gauche }, { flex: 3, min: 620, enfants: droite }]} />
       )}

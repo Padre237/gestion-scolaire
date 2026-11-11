@@ -1,5 +1,5 @@
 // Module Frais et caisse : maquettes Caisse, Encaissement, Recu, Impayes, Depenses, Comptes, Frais, Validations, Releve.
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { api, ErreurApi, requete } from '../core/api.ts';
@@ -14,6 +14,76 @@ import {
   Grille, InfoCaps, Jauge, Lien, LigneListe, Liste, Note, ouvrirFormulaire, Panneau, Pastille, PiedFenetre, Rangee, signaler, Tableau,
   TitrePanneau, useDonnees, useRaccourci, type Ton,
 } from '../core/ui.tsx';
+
+/* Styles propres au module sur petits écrans (préfixe fin-) : le CSS global reste celui de la coque. Rien ne change au-dessus de 640 px,
+   sauf le reçu dont les styles de cellules passent d'inline à ces classes (rendu identique à l'écran et à l'impression). */
+const CSS_FIN = `
+.fin-recu-table { width: 100%; border-collapse: collapse; }
+.fin-recu-table th { padding: 6px 8px; text-align: left; font-size: 11px; font-weight: 700; border-bottom: 1.5px solid var(--texte); white-space: nowrap; }
+.fin-recu-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--bord-fort); white-space: nowrap; font-weight: 400; }
+.fin-recu-table .droite { text-align: right; }
+.fin-recu-table .gras { font-weight: 700; }
+.fin-recu-entete, .fin-recu-pied { display: flex; justify-content: space-between; gap: 12px; }
+.fin-recu-entete { align-items: flex-start; }
+.fin-recu-pied { align-items: flex-end; gap: 24px; }
+.fin-recu-numero { display: flex; flex-direction: column; gap: 1px; align-items: flex-end; }
+.fin-recu-signature { flex: none; width: 230px; height: 70px; border: 1px dashed var(--doux); border-radius: 6px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 10px; color: var(--doux); padding: 4px; }
+.fin-recu-tampon { position: absolute; right: 34px; top: 120px; transform: rotate(-7deg); padding: 4px 12px; border-radius: 6px; font-size: 16px; font-weight: 700; border: 2px solid var(--danger); color: var(--danger); }
+@media (max-width: 639px) {
+  .fin-page { padding: 12px !important; }
+  .fin-caisse-choix { max-width: none !important; width: 100%; }
+  .fin-recu-corps { padding: 16px !important; }
+  .fin-recu-entete, .fin-recu-pied { flex-direction: column; align-items: stretch; }
+  .fin-recu-entete > div:first-child { flex-wrap: wrap; }
+  .fin-recu-numero { align-items: flex-start; }
+  .fin-recu-table thead { display: none; }
+  .fin-recu-table, .fin-recu-table tbody, .fin-recu-table tr { display: block; width: 100%; }
+  .fin-recu-table tr { border-bottom: 1px solid var(--bord-fort); padding: 6px 0; }
+  .fin-recu-table td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 2px 0; white-space: normal; text-align: right; }
+  .fin-recu-table td::before { content: attr(data-titre); font-weight: 600; color: var(--doux); text-align: left; }
+  .fin-recu-table td.fin-recu-titre { font-weight: 700; justify-content: flex-start; text-align: left; }
+  .fin-recu-table td.fin-recu-titre::before { display: none; }
+  .fin-recu-table td:empty { display: none; }
+  .fin-recu-signature { width: 100%; }
+  .fin-recu-tampon { position: static; transform: none; align-self: flex-start; margin: 0 16px; }
+  .fin-recu-actions { padding: 8px 16px 24px !important; }
+}
+@media print {
+  .fin-recu-table { display: table; } .fin-recu-table thead { display: table-header-group; } .fin-recu-table tbody { display: table-row-group; }
+  .fin-recu-table tr { display: table-row; padding: 0; } .fin-recu-table td { display: table-cell; white-space: nowrap; padding: 6px 8px; border-bottom: 1px solid var(--bord-fort); }
+  .fin-recu-table td::before { content: none; } .fin-recu-table td:empty { display: table-cell; }
+  .fin-recu-table td.droite { text-align: right; } .fin-recu-table td:not(.droite) { text-align: left; }
+  .fin-recu-entete, .fin-recu-pied { flex-direction: row; } .fin-recu-entete { align-items: flex-start; } .fin-recu-pied { align-items: flex-end; }
+  .fin-recu-numero { align-items: flex-end; } .fin-recu-signature { width: 230px; }
+  .fin-recu-tampon { position: absolute; transform: rotate(-7deg); margin: 0; }
+}`;
+const StyleFin = () => <style>{CSS_FIN}</style>;
+
+/** Rangée d'actions : même rendu que Rangee, mais les boutons s'empilent pleine largeur sous 640 px (classe utilitaire pile-mobile). */
+const RangeePile = ({ children, fin, centre, ecart = 10 }: { children: ReactNode; fin?: boolean; centre?: boolean; ecart?: number }) =>
+  <div className={`rangee ${fin ? 'fin' : ''} ${centre ? 'centre' : ''} pile-mobile`} style={{ gap: ecart }}>{children}</div>;
+
+/** Case de sélection d'une ligne de tableau : cible tactile de 44 px (markup de CaseACocher) sans changer la hauteur des lignes. */
+const CaseLigne = ({ libelle, valeur, onChange }: { libelle: string; valeur: boolean; onChange: (v: boolean) => void }) => (
+  <span className="case-zone" style={{ verticalAlign: 'middle' }}>
+    <input type="checkbox" aria-label={libelle} checked={valeur} onChange={(e) => onChange(e.target.checked)} />
+    <span className="case-boite" aria-hidden="true" />
+  </span>
+);
+
+/** Actions d'une barre de filtres : transparent au-dessus de 640 px (display: contents, les boutons restent des enfants directs de la barre) ;
+ *  sous 640 px, les boutons s'empilent pleine largeur au lieu d'être coupés par la grille à deux colonnes. */
+const ActionsFiltres = ({ children }: { children: ReactNode }) =>
+  <div className="pile-mobile" style={{ display: 'contents', gridColumn: '1 / -1' }}>{children}</div>;
+
+/** Saisie d'une date au clavier numérique (téléphone) : les barres de JJ/MM/AAAA se placent d'elles-mêmes, la touche « / » reste acceptée. */
+function dateSaisie(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 8);
+  let s = d.slice(0, 2);
+  if (d.length > 2) s += `/${d.slice(2, 4)}`;
+  if (d.length > 4) s += `/${d.slice(4, 8)}`;
+  return s;
+}
 
 const libelleCaisse = (c: string | null | undefined) => (c === 'ape' ? 'Caisse APE' : 'Caisse principale');
 const moisCourant = () => aujourdhuiIso().slice(0, 7);
@@ -98,10 +168,12 @@ function FenetreVerserBanque({ fermer }: { fermer: (v?: boolean) => void }) {
   const [banque, setBanque] = useState('');
   const [bordereau, setBordereau] = useState('');
   const [date, setDate] = useState(jjmmaaaa(aujourdhuiIso()));
+  const [erreurDate, setErreurDate] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
   const valider = async () => {
     const le = versIso(date);
-    if (!le) { signaler('Date du bordereau au format JJ/MM/AAAA.', true); return; }
+    if (!le) { setErreurDate('Date au format JJ/MM/AAAA.'); return; }
+    setErreurDate(null);
     setCharge(true);
     const r = await agir(() => api.post('/caisse/depots', { montant: versEntier(m) ?? 0, banque: banque.trim(), bordereau: bordereau.trim(), deposeLe: le }),
       'Versement à la banque enregistré.');
@@ -114,7 +186,7 @@ function FenetreVerserBanque({ fermer }: { fermer: (v?: boolean) => void }) {
       <Champ libelle="Banque" value={banque} onChange={setBanque} />
       <Rangee>
         <div style={{ flex: '1 1 180px' }}><Champ libelle="N° du bordereau" value={bordereau} onChange={setBordereau} /></div>
-        <div style={{ flex: '1 1 150px' }}><Champ libelle="Date du bordereau" value={date} onChange={setDate} placeholder="JJ/MM/AAAA" /></div>
+        <div style={{ flex: '1 1 150px' }}><Champ libelle="Date du bordereau" value={date} onChange={(v) => { setDate(dateSaisie(v)); setErreurDate(null); }} placeholder="JJ/MM/AAAA" inputMode="numeric" erreur={erreurDate} /></div>
       </Rangee>
       <Note>Le montant sort des espèces de votre session ; le bordereau sert au rapprochement du relevé bancaire.</Note>
       <PiedFenetre fermer={() => fermer()} action="Enregistrer le versement" onAction={valider} charge={charge} />
@@ -211,7 +283,7 @@ function EcranCaisse() {
   const s = sansSession ? null : d?.session;
   const ouvertes = (d?.sessionsOuvertes ?? []) as any[];
   const listeCaisse = (
-    <div style={{ flex: '1 1 190px', maxWidth: 240 }}>
+    <div className="fin-caisse-choix" style={{ flex: '1 1 190px', maxWidth: 240 }}>
       <Liste<string> libelle="Caisse" value={caisse} options={[['principale', 'Caisse principale'], ['ape', 'Caisse APE']]} onChange={choisirCaisse} />
     </div>
   );
@@ -229,14 +301,14 @@ function EcranCaisse() {
             <h2 style={{ fontSize: 20, fontWeight: 700 }}>{libelleCaisse(caisse)}</h2>
             <span className="doux">Aucune session ouverte</span>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>{listeCaisse}</div>
+          <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>{listeCaisse}</div>
         </div>
         {ouvrable && !dejaOuverte && (
           <>
-            <Rangee>
+            <RangeePile ecart={12}>
               <Champ libelle="Fonds initial (FCFA)" value={fonds} onChange={setFonds} droite inputMode="numeric" largeur={220} />
               <Bouton icone="coche" variante="principal" charge={charge} onClick={ouvrir}>Ouvrir la session</Bouton>
-            </Rangee>
+            </RangeePile>
             <Doux>Chaque personne qui encaisse ouvre sa session le matin et la clôture le jour même.</Doux>
           </>
         )}
@@ -255,7 +327,7 @@ function EcranCaisse() {
                 ? `Session clôturée le ${jjmmaaaa(s.clotureeLe)} à ${heure(s.clotureeLe)} · ${s.caissier}`
                 : `Session ouverte le ${jjmmaaaa(s.ouverteLe)} à ${heure(s.ouverteLe)} par ${s.caissier}`}</span>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
+            <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
               {/* Le matin, la dernière session affichée est celle de la veille, clôturée : on en ouvre une nouvelle. */}
               {s.clotureeLe && moi.a('caisse.session.gerer') && !ouvertes.some((x) => x.caissier === moi.nom) && (
                 <Bouton icone="coche" onClick={() => setSansSession(true)}>Ouvrir une nouvelle session</Bouton>
@@ -279,10 +351,11 @@ function EcranCaisse() {
   }
   return (
     <Coque module="frais">
+      <StyleFin />
       {moi.a('finances.versement.encaisser') && (
-        <Rangee fin centre ecart={10}>
+        <RangeePile fin centre>
           <Bouton icone="fraisCaisse" variante="principal" touches={['Ctrl', 'K']} onClick={encaisser}>Encaisser un élève</Bouton>
-        </Rangee>
+        </RangeePile>
       )}
       {contenu}
     </Coque>
@@ -297,7 +370,7 @@ function Operations({ d, recharger, naviguer }: { d: any; recharger: () => Promi
   return (
     <Panneau>
       <TitrePanneau titre="Opérations de la session" sous={pluriel(ops.length, 'opération')} action={
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+        <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
           {mienne && moi.a('caisse.entree.enregistrer') && (
             <Bouton icone="ajouter" onClick={async () => { if (await ouvrirFormulaire<boolean>('Entrée diverse', FenetreEntreeDiverse)) await recharger(); }}>Entrée diverse</Bouton>
           )}
@@ -305,7 +378,8 @@ function Operations({ d, recharger, naviguer }: { d: any; recharger: () => Promi
         </div>
       } />
       <Tableau
-        colonnes={[{ titre: 'Heure' }, { titre: 'Opération' }, { titre: 'Libellé' }, { titre: 'Mode' }, { titre: 'Montant', droite: true }]}
+        colonnes={[{ titre: 'Heure' }, { titre: 'Opération' }, { titre: 'Libellé', mobile: 'entete' }, { titre: 'Mode' }, { titre: 'Montant', droite: true }]}
+        vide="Aucune opération dans cette session"
         lignes={ops.map((o) => [
           <span className="doux">{heure(o.horodatage)}</span>,
           <Pastille ton={tonOperation(o.operation)}>{o.operation}</Pastille>,
@@ -334,7 +408,7 @@ function ClotureSession({ d, compte, setCompte, motif, setMotif, cloturer, recha
     <Panneau reperes>
       <TitrePanneau titre="Clôture de la session" />
       <Tableau
-        colonnes={[{ titre: 'Mode' }, { titre: 'Attendu', droite: true }, { titre: 'Compté', droite: true }]}
+        colonnes={[{ titre: 'Mode', mobile: 'entete' }, { titre: 'Attendu', droite: true }, { titre: 'Compté', droite: true }]}
         lignes={[
           ['Espèces', <span className="gras">{montant(attendues)}</span>, close
             ? <span className="gras">{montant(compteN)}</span>
@@ -354,12 +428,12 @@ function ClotureSession({ d, compte, setCompte, motif, setMotif, cloturer, recha
       {!close && ecart !== null && ecart !== 0 && <Champ libelle="Motif de l'écart" value={motif} onChange={setMotif} />}
       <Doux>Espèces attendues = fonds initial + versements et entrées en espèces − sorties.</Doux>
       {!close && (
-        <Rangee fin centre ecart={10}>
+        <RangeePile fin centre>
           {s.estMienne && moi.a('caisse.banque.verser') && (
             <Bouton icone="banque" onClick={async () => { if (await ouvrirFormulaire<boolean>('Verser à la banque', FenetreVerserBanque)) await recharger(); }}>Verser à la banque</Bouton>
           )}
           {peutClore && <Bouton icone="bouclier" variante="principal" onClick={cloturer}>Clôturer la session</Bouton>}
-        </Rangee>
+        </RangeePile>
       )}
       <Doux>Une session clôturée ne se modifie plus. Chaque personne qui encaisse clôture la sienne le jour même.</Doux>
     </Panneau>
@@ -381,6 +455,7 @@ function EcranEncaissement() {
   const [bordereau, setBordereau] = useState('');
   const [dateBordereau, setDateBordereau] = useState(jjmmaaaa(aujourdhuiIso()));
   const [noteBordereau, setNoteBordereau] = useState<string | null>(null);
+  const [erreursBordereau, setErreursBordereau] = useState<Record<string, string | null>>({});
   const [charge, setCharge] = useState(false);
   // Une clé par chargement de l'écran : un double envoi ne crée qu'un versement.
   const cle = useMemo(cleIdempotence, []);
@@ -406,9 +481,10 @@ function EcranEncaissement() {
   };
   const valider = async () => {
     if (!d || saisi <= 0 || trop || envoi.current) return;
-    if (mode === 'versement_bancaire' && (!banque.trim() || !bordereau.trim() || !versIso(dateBordereau))) {
-      signaler('Banque, numéro et date du bordereau (JJ/MM/AAAA) sont exigés.', true);
-      return;
+    if (mode === 'versement_bancaire') {
+      const e = { banque: banque.trim() ? null : 'Obligatoire', bordereau: bordereau.trim() ? null : 'Obligatoire', date: versIso(dateBordereau) ? null : 'Date au format JJ/MM/AAAA' };
+      setErreursBordereau(e);
+      if (e.banque || e.bordereau || e.date) { signaler('Banque, numéro et date du bordereau (JJ/MM/AAAA) sont exigés.', true); return; }
     }
     envoi.current = true;
     setCharge(true);
@@ -474,21 +550,22 @@ function EcranEncaissement() {
               style={{ height: 56, fontSize: 24, fontWeight: 700 }} onChange={(e) => setSaisie(e.target.value.replace(/[^\d\s  ]/g, ''))} />
             {trop && <span className="erreur-champ">Le montant dépasse le reste dû.</span>}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="pile-mobile" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {enCours && <Bouton onClick={() => setSaisie(montant(enCours.reste))}>Solder la tranche en cours · {montant(enCours.reste)}</Bouton>}
             {reste > 0 && <Bouton onClick={() => setSaisie(montant(reste))}>Tout solder · {montant(reste)}</Bouton>}
           </div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <Etiquette>Mode de paiement</Etiquette>
-          <Bascules<string> options={[['especes', 'Espèces'], ['versement_bancaire', 'Versement bancaire'], ['virement', 'Virement'], ['cheque', 'Chèque']]} valeur={mode} onChange={setMode} />
+          <Bascules<string> options={[['especes', 'Espèces'], ['versement_bancaire', 'Versement bancaire'], ['virement', 'Virement'], ['cheque', 'Chèque']]} valeur={mode}
+            onChange={(v) => { setMode(v); setErreursBordereau({}); }} />
         </div>
         {mode === 'versement_bancaire' && (
           <div className="bloc-assistant">
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              <div style={{ flex: '1 1 180px' }}><Champ libelle="Banque" value={banque} onChange={setBanque} /></div>
-              <div style={{ flex: '1 1 130px' }}><Champ libelle="N° du bordereau" value={bordereau} onChange={setBordereau} /></div>
-              <div style={{ flex: '1 1 130px' }}><Champ libelle="Date du bordereau" value={dateBordereau} onChange={setDateBordereau} placeholder="JJ/MM/AAAA" /></div>
+              <div style={{ flex: '1 1 180px' }}><Champ libelle="Banque" value={banque} onChange={setBanque} erreur={erreursBordereau['banque']} /></div>
+              <div style={{ flex: '1 1 130px' }}><Champ libelle="N° du bordereau" value={bordereau} onChange={setBordereau} erreur={erreursBordereau['bordereau']} /></div>
+              <div style={{ flex: '1 1 130px' }}><Champ libelle="Date du bordereau" value={dateBordereau} onChange={(v) => setDateBordereau(dateSaisie(v))} placeholder="JJ/MM/AAAA" inputMode="numeric" erreur={erreursBordereau['date']} /></div>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
               {moi.a('assistant.proposition.bordereau') && <Bouton icone="photo" onClick={lirePhoto}>Lire une photo du bordereau</Bouton>}
@@ -499,7 +576,7 @@ function EcranEncaissement() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <Etiquette>Répartition · toujours dans l’ordre des tranches</Etiquette>
           <Tableau
-            colonnes={[{ titre: 'Rubrique' }, { titre: 'Reste avant', droite: true }, { titre: 'Ce versement', droite: true }, { titre: 'Reste après', droite: true }]}
+            colonnes={[{ titre: 'Rubrique', mobile: 'entete' }, { titre: 'Reste avant', droite: true }, { titre: 'Ce versement', droite: true }, { titre: 'Reste après', droite: true }]}
             lignes={repartition.map(({ l, part }) => [
               l.libelleFr,
               <span className={l.reste === 0 ? 'doux' : ''}>{montant(l.reste)}</span>,
@@ -509,15 +586,16 @@ function EcranEncaissement() {
           />
         </div>
         <Doux>Reçu {d.numero ?? '–'} · imprimante de caisse, en 2 exemplaires</Doux>
-        <Rangee fin centre ecart={10}>
+        <RangeePile fin centre>
           <Bouton touches={['Échap']} onClick={annuler}>Annuler</Bouton>
           <Bouton icone="imprimer" variante="principal" touches={['Entrée']} charge={charge} disabled={saisi <= 0 || trop} onClick={valider}>Valider et imprimer</Bouton>
-        </Rangee>
+        </RangeePile>
       </>
     );
   }
   return (
-    <div style={{ minHeight: '100vh', padding: 20 }}>
+    <div className="fin-page" style={{ minHeight: '100vh', padding: 20 }}>
+      <StyleFin />
       <div style={{ maxWidth: 600 }}>
         <Panneau marge={24} ecart={18}>{contenu}</Panneau>
       </div>
@@ -545,20 +623,25 @@ function EcranRecu() {
   if (erreur) return <div style={{ padding: 20 }}><Erreur message={erreur} recharger={recharger} /></div>;
   if (!r) return <Chargement />;
   const e = r.etablissement;
+  // Le tampon « Annulé » reste positionné en absolu sur grand écran ; sur téléphone il prend sa place sous le reçu (classe fin-recu-tampon).
   const lignes = r.lignes as any[];
   const aPayer = lignes.reduce((s, l) => s + l.aPayer, 0);
   const verse = lignes.reduce((s, l) => s + l.verse, 0);
   const reste = lignes.reduce((s, l) => s + l.reste, 0);
-  const th = (droite = false): CSSProperties => ({ padding: '6px 8px', textAlign: droite ? 'right' : 'left', fontSize: 11, fontWeight: 700, borderBottom: '1.5px solid var(--texte)', whiteSpace: 'nowrap' });
-  const td = (droite = false, gras = false): CSSProperties => ({ padding: '6px 8px', textAlign: droite ? 'right' : 'left', borderBottom: '1px solid var(--bord-fort)', whiteSpace: 'nowrap', fontWeight: gras ? 700 : 400 });
+  // Colonnes du reçu : le titre bilingue sert de libellé de ligne quand le tableau s'empile sur téléphone (data-titre).
+  const COLS = ['Rubrique / Item', 'Prix / Price', 'Réduction / Discount', 'À payer / To pay', 'Versé / Paid', 'Reste / Balance', 'Date limite / Deadline'];
+  const td = (i: number, v: ReactNode, opts: { droite?: boolean; gras?: boolean; titre?: boolean } = {}) => (
+    <td className={`${opts.droite ? 'droite' : ''} ${opts.gras ? 'gras' : ''} ${opts.titre ? 'fin-recu-titre' : ''}`} data-titre={COLS[i]}>{v}</td>
+  );
   const adresse = [e.ville_bp, e.telephone ? `Tél. ${e.telephone}` : null].filter(Boolean).join(' · ');
   const champ = (l: string, v: string) => <span>{l} : <span style={{ fontWeight: 700 }}>{v}</span></span>;
   return (
     <div style={{ minHeight: '100vh', background: 'var(--panneau)' }}>
+      <StyleFin />
       <div style={{ maxWidth: 1130, fontSize: 13, position: 'relative' }}>
         <div style={{ height: 8, background: 'var(--accent)' }} />
-        <div style={{ padding: '22px 34px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, justifyContent: 'space-between' }}>
+        <div className="fin-recu-corps" style={{ padding: '22px 34px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="fin-recu-entete">
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <Logo present={r.aLogo !== false} />
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
@@ -566,7 +649,7 @@ function EcranRecu() {
                 <span className="doux">{adresse}</span>
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end' }}>
+            <div className="fin-recu-numero">
               <span style={{ fontSize: 15, fontWeight: 700 }}>REÇU DE PAIEMENT · PAYMENT RECEIPT</span>
               <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>N° {r.numero}</span>
               <span className="doux">{r.date} à {r.heure}</span>
@@ -575,27 +658,24 @@ function EcranRecu() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 28px', padding: '8px 12px', border: '1px solid var(--bord-fort)', borderRadius: 6 }}>
             {champ('Élève / Student', r.eleve)}{champ('Matricule / Reg. no.', r.matricule)}{champ('Classe / Class', r.classe)}{champ('Année / Year', r.annee)}
           </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="fin-recu-table">
             <thead>
-              <tr>
-                <th style={th()}>Rubrique / Item</th><th style={th(true)}>Prix / Price</th><th style={th(true)}>Réduction / Discount</th><th style={th(true)}>À payer / To pay</th>
-                <th style={th(true)}>Versé / Paid</th><th style={th(true)}>Reste / Balance</th><th style={th()}>Date limite / Deadline</th>
-              </tr>
+              <tr>{COLS.map((c, i) => <th key={c} className={i >= 1 && i <= 5 ? 'droite' : ''}>{c}</th>)}</tr>
             </thead>
             <tbody>
               {lignes.map((l, i) => (
                 <tr key={i}>
-                  <td style={td()}>{l.libelleFr} / {l.libelleEn}</td><td style={td(true)}>{montant(l.prix)}</td><td style={td(true)}>{l.reduction > 0 ? montant(l.reduction) : '–'}</td>
-                  <td style={td(true)}>{montant(l.aPayer)}</td><td style={td(true)}>{montant(l.verse)}</td><td style={td(true)}>{montant(l.reste)}</td><td style={td()}>{l.dateLimite}</td>
+                  {td(0, `${l.libelleFr} / ${l.libelleEn}`, { titre: true })}{td(1, montant(l.prix), { droite: true })}{td(2, l.reduction > 0 ? montant(l.reduction) : '–', { droite: true })}
+                  {td(3, montant(l.aPayer), { droite: true })}{td(4, montant(l.verse), { droite: true })}{td(5, montant(l.reste), { droite: true })}{td(6, l.dateLimite)}
                 </tr>
               ))}
               <tr>
-                <td style={td(false, true)}>Total</td><td style={td()} /><td style={td()} /><td style={td(true, true)}>{montant(aPayer)}</td>
-                <td style={td(true, true)}>{montant(verse)}</td><td style={td(true, true)}>{montant(reste)}</td><td style={td()} />
+                {td(0, 'Total', { gras: true, titre: true })}{td(1, null)}{td(2, null)}{td(3, montant(aPayer), { droite: true, gras: true })}
+                {td(4, montant(verse), { droite: true, gras: true })}{td(5, montant(reste), { droite: true, gras: true })}{td(6, null)}
               </tr>
             </tbody>
           </table>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 24, justifyContent: 'space-between' }}>
+          <div className="fin-recu-pied">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, flex: 1 }}>
               <span>Montant versé / Amount paid : <span style={{ fontSize: 18, fontWeight: 700 }}>{fcfa(r.montant)}</span></span>
               <span>{r.montantLettresFr} · {r.montantLettresEn}</span>
@@ -603,20 +683,15 @@ function EcranRecu() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
               {champ('Encaissé par / Received by', r.caissier)}
-              <div style={{ flex: 'none', width: 230, height: 70, border: '1px dashed var(--doux)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 10, color: 'var(--doux)', padding: 4 }}>
-                Signature et cachet · Signature and stamp
-              </div>
+              <div className="fin-recu-signature">Signature et cachet · Signature and stamp</div>
             </div>
           </div>
         </div>
-        {r.annule && (
-          <div style={{ position: 'absolute', right: 34, top: 120, transform: 'rotate(-7deg)', padding: '4px 12px', borderRadius: 6, fontSize: 16, fontWeight: 700,
-            border: '2px solid var(--danger)', color: 'var(--danger)' }}>ANNULÉ · CANCELLED</div>
-        )}
+        {r.annule && <div className="fin-recu-tampon">ANNULÉ · CANCELLED</div>}
       </div>
-      <div className="pas-imprime" style={{ maxWidth: 1130, padding: '8px 34px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="pas-imprime fin-recu-actions" style={{ maxWidth: 1130, padding: '8px 34px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {r.duplicata && !r.annule && <Doux>Reçu déjà imprimé : une nouvelle impression porte la mention « Duplicata ».</Doux>}
-        <Rangee centre>
+        <RangeePile centre>
           {moi.a('finances.recu.imprimer') && (
             <Bouton icone="imprimer" variante="principal" onClick={() => {
               imprimerDocument(`/finances/versements/${id}/recu?format=pdf`);
@@ -627,7 +702,7 @@ function EcranRecu() {
           {moi.a('finances.recu.imprimer') && <Bouton icone="exporter" onClick={() => telecharger(`/finances/versements/${id}/recu?format=escp`)}>Imprimante de caisse (ESC/P)</Bouton>}
           {moi.a('scolarite.eleve.consulter') && r.eleveId && <Bouton icone="eleves" onClick={() => naviguer(`/scolarite/eleves/${r.eleveId}`)}>Fiche de l’élève</Bouton>}
           {moi.a('finances.versement.encaisser') && <Bouton icone="fraisCaisse" onClick={() => naviguer('/finances/caisse')}>Caisse du jour</Bouton>}
-        </Rangee>
+        </RangeePile>
       </div>
     </div>
   );
@@ -677,6 +752,7 @@ function EcranImpayes() {
   const classes = ((d?.classes ?? []) as any[]).filter((c) => !niveau || c.niveauId === niveau);
   return (
     <Coque module="frais">
+      <StyleFin />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <>
           <Grille min={220} ecart={16}>
@@ -704,40 +780,45 @@ function EcranImpayes() {
                 <Liste<number> libelle="Retard" value={retard} options={[[7, 'Plus de 7 jours'], [30, 'Plus de 30 jours'], [0, 'Tous les retards']]} onChange={(v) => filtrer(() => setRetard(v))} />
               </div>
             </>}
-            actions={<>
+            actions={<ActionsFiltres>
               <Bouton icone="exporter" onClick={() => telecharger(`/finances/impayes/export${requete(filtres)}`)}>Exporter</Bouton>
               {moi.a('finances.avis.emettre') && <Bouton icone="lire" onClick={avis}>Avis de paiement</Bouton>}
               {moi.a('assistant.proposition.relance') && <Bouton icone="assistant" onClick={assistant}>Préparer avec l'assistant</Bouton>}
               {moi.a('communication.sms.envoyer') && (
                 <Bouton icone="envoyer" variante="principal" disabled={coches.size === 0} onClick={relancer}>Relancer par SMS · {coches.size}</Bouton>
               )}
-            </>}
+            </ActionsFiltres>}
           />
           <Panneau>
             <TitrePanneau titre="Impayés à la date du jour" sous="Seules les échéances dont la date limite est passée" />
             <Tableau
-              colonnes={[{ titre: '' }, { titre: 'Élève' }, { titre: 'Classe' }, { titre: 'Échéances dépassées' }, { titre: 'En retard', droite: true }, { titre: 'Depuis' },
+              colonnes={[{ titre: '', mobile: 'cachee' }, { titre: 'Élève', mobile: 'entete' }, { titre: 'Classe' }, { titre: 'Échéances dépassées' }, { titre: 'En retard', droite: true }, { titre: 'Depuis' },
                 { titre: 'Responsable payeur' }, { titre: 'Dernière relance' }]}
               vide="Aucun impayé à cette date"
               cles={(d.lignes as any[]).map((l) => l.inscriptionId)}
               lignes={(d.lignes as any[]).map((l) => [
-                <input type="checkbox" aria-label={l.eleve} checked={coches.has(l.inscriptionId)} style={{ width: 18, height: 18, accentColor: 'var(--accent)' }}
-                  onChange={(e) => basculer(l.inscriptionId, e.target.checked)} />,
-                <Lien onClick={() => naviguer(`/scolarite/eleves/${l.eleveId}`)}>{l.eleve}</Lien>,
+                // Sur téléphone, la case de sélection rejoint le nom dans le titre de la carte ; la colonne vide est masquée.
+                <CaseLigne libelle={`Sélectionner ${l.eleve}`} valeur={coches.has(l.inscriptionId)} onChange={(v) => basculer(l.inscriptionId, v)} />,
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+                  <span className="cache-bureau" style={{ display: 'inline-flex' }}>
+                    <CaseLigne libelle={`Sélectionner ${l.eleve}`} valeur={coches.has(l.inscriptionId)} onChange={(v) => basculer(l.inscriptionId, v)} />
+                  </span>
+                  <Lien onClick={() => naviguer(`/scolarite/eleves/${l.eleveId}`)}>{l.eleve}</Lien>
+                </span>,
                 l.classe,
                 premieresMinuscules(`${l.echeances}`),
                 <span className="gras">{montant(l.montant)}</span>,
-                <Pastille ton={l.jours >= 60 ? 'danger' : 'attention'}>{l.jours} jours</Pastille>,
+                l.jours >= 60 ? <Pastille ton="danger" icone="alerte">{l.jours} jours</Pastille> : <Pastille ton="attention">{l.jours} jours</Pastille>,
                 l.payeur ? <Cel2 haut={l.payeur} bas={l.telephone} /> : <span className="doux">–</span>,
                 l.relanceCanal ? `${l.relanceCanal === 'sms' ? 'SMS' : l.relanceCanal === 'avis' ? 'Avis' : 'Appel'} le ${jjmm(l.relanceLe)}` : <span className="doux">Aucune</span>,
               ])}
             />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
               <Doux>{pluriel(d.total, 'élève')} · {fcfa(kpi.montant)} · lignes {d.total === 0 ? 0 : (page - 1) * 10 + 1} à {(page - 1) * 10 + (d.lignes as any[]).length}</Doux>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <Rangee centre ecart={8}>
                 <Bouton disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Précédent</Bouton>
                 <Bouton disabled={page * 10 >= d.total} onClick={() => setPage((p) => p + 1)}>Suivant</Bouton>
-              </div>
+              </Rangee>
             </div>
           </Panneau>
         </>
@@ -802,10 +883,11 @@ function EcranDepenses() {
   };
   return (
     <Coque module="frais">
+      <StyleFin />
       {moi.a('caisse.sortie.demander') && (
-        <Rangee fin centre ecart={10}>
+        <RangeePile fin centre>
           <Bouton icone="ajouter" variante="principal" onClick={async () => { if (await demanderSortie()) await recharger(); }}>Nouvelle demande de sortie</Bouton>
-        </Rangee>
+        </RangeePile>
       )}
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <Colonnes colonnes={[
@@ -814,7 +896,7 @@ function EcranDepenses() {
               <TitrePanneau titre="Demandes de sortie de caisse" sous={libelleMois(moisCourant())} />
               <Etapes etapes={[['Demande', 'faite'], ['Validation', 'faite'], ['Décaissement', 'faite'], ['Pièce justificative', 'faite']]} />
               <Tableau
-                colonnes={[{ titre: 'Demande' }, { titre: 'Objet et demandeur' }, { titre: 'Catégorie' }, { titre: 'Montant', droite: true }, { titre: 'État' }, { titre: 'Pièce' }]}
+                colonnes={[{ titre: 'Demande' }, { titre: 'Objet et demandeur', mobile: 'entete' }, { titre: 'Catégorie' }, { titre: 'Montant', droite: true }, { titre: 'État' }, { titre: 'Pièce' }]}
                 vide="Aucune demande de sortie pour l’instant"
                 cles={(d.sorties as any[]).map((s) => s.id)}
                 lignes={(d.sorties as any[]).map((s) => {
@@ -878,19 +960,20 @@ function EcranComptes() {
   const maxC = Math.max(0, ...cats.map((x) => x.montant));
   return (
     <Coque module="frais">
+      <StyleFin />
       <Filtres
         champs={<>
-          <div style={{ flex: '1 1 130px' }}><Champ libelle="Du" value={du} onChange={setDu} placeholder="JJ/MM/AAAA" erreur={du.trim() && !versIso(du) ? 'Date au format JJ/MM/AAAA.' : null} /></div>
-          <div style={{ flex: '1 1 130px' }}><Champ libelle="Au" value={au} onChange={setAu} placeholder="JJ/MM/AAAA" erreur={au.trim() && !versIso(au) ? 'Date au format JJ/MM/AAAA.' : null} /></div>
+          <div style={{ flex: '1 1 130px' }}><Champ libelle="Du" value={du} onChange={(v) => setDu(dateSaisie(v))} placeholder="JJ/MM/AAAA" inputMode="numeric" erreur={du.trim() && !versIso(du) ? 'Date au format JJ/MM/AAAA.' : null} /></div>
+          <div style={{ flex: '1 1 130px' }}><Champ libelle="Au" value={au} onChange={(v) => setAu(dateSaisie(v))} placeholder="JJ/MM/AAAA" inputMode="numeric" erreur={au.trim() && !versIso(au) ? 'Date au format JJ/MM/AAAA.' : null} /></div>
           <div style={{ flex: '1 1 190px' }}>
             <Liste<string | null> libelle="Caisse" value={caisse} options={[[null, 'Toutes les caisses'], ['principale', 'Caisse principale'], ['ape', 'Caisse APE']]} onChange={setCaisse} />
           </div>
         </>}
-        actions={<>
+        actions={<ActionsFiltres>
           <Bouton icone="exporter" onClick={() => telecharger(`/finances/comptes/document${requete({ ...filtres(), format: 'csv' })}`)}>Exporter</Bouton>
           <Bouton icone="lire" onClick={() => telecharger(`/finances/comptes/document${requete({ ...filtres(), format: 'ecritures' })}`)}>Export comptable</Bouton>
           <Bouton icone="imprimer" onClick={() => imprimerDocument(`/finances/comptes/document${requete({ ...filtres(), format: 'pdf' })}`)}>Imprimer</Bouton>
-        </>}
+        </ActionsFiltres>}
       />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <>
@@ -903,7 +986,7 @@ function EcranComptes() {
           <Panneau>
             <TitrePanneau titre="Par caisse" />
             <Tableau
-              colonnes={[{ titre: 'Caisse' }, { titre: 'Solde initial', droite: true }, { titre: 'Recettes', droite: true }, { titre: 'Dépenses', droite: true },
+              colonnes={[{ titre: 'Caisse', mobile: 'entete' }, { titre: 'Solde initial', droite: true }, { titre: 'Recettes', droite: true }, { titre: 'Dépenses', droite: true },
                 { titre: 'Versé à la banque', droite: true }, { titre: 'Solde', droite: true }]}
               lignes={(d.parCaisse as any[]).map((c) => [
                 <span className="gras">{libelleCaisse(c.caisse)}</span>, montant(c.initial), montant(c.recettes),
@@ -987,6 +1070,7 @@ function EcranGrille() {
   const [anneeId, setAnneeId] = useState<string | null>(null);
   const [tarif, setTarif] = useState<string>('nouveau');
   const [dates, setDates] = useState<string[]>(['', '', '', '']);
+  const [datesEnErreur, setDatesEnErreur] = useState<boolean[]>([false, false, false, false]);
   const [montants, setMontants] = useState<Record<string, string[]>>({});
   const [charge, setCharge] = useState(false);
   const { d, erreur, recharger } = useDonnees(() => api.get(`/finances/grille${requete({ anneeId, tarif })}`), [anneeId, tarif]);
@@ -1000,6 +1084,7 @@ function EcranGrille() {
   const enregistrer = async () => {
     if (!modif || !d?.anneeId) return;
     const iso = dates.map((x) => versIso(x));
+    setDatesEnErreur(iso.map((x) => !x));
     if (iso.some((x) => !x)) { signaler('Dates limites au format JJ/MM/AAAA.', true); return; }
     setCharge(true);
     await agir(() => api.put('/finances/grille', {
@@ -1016,15 +1101,16 @@ function EcranGrille() {
     if (!(await confirmer(`Copier vers ${s.libelle}`, `Les grilles de ${libelleAnnee} sont copiées vers ${s.libelle}, dates limites décalées d’un an. Les montants existants de ${s.libelle} sont remplacés.`, 'Copier'))) return;
     await agir(() => api.post('/finances/grille/copie', { deAnneeId: d.anneeId, versAnneeId: s.id }), 'Grille copiée.');
   };
-  const saisie = (valeur: string, maj: (v: string) => void, etiquette: string, date = false) => (
-    <Champ value={valeur} onChange={maj} petit droite={!date} readOnly={!modif} inputMode={date ? 'text' : 'numeric'} largeur={date ? 112 : 96} ariaLabel={etiquette} />
+  const saisie = (valeur: string, maj: (v: string) => void, etiquette: string, date = false, erreur: string | null = null) => (
+    <Champ value={valeur} onChange={date ? (v) => maj(dateSaisie(v)) : maj} petit droite={!date} readOnly={!modif} inputMode="numeric" largeur={date ? 112 : 96} ariaLabel={etiquette} erreur={erreur} />
   );
   const TRANCHES = ['Inscription', 'Tranche 1', 'Tranche 2', 'Tranche 3'];
   return (
     <Coque module="frais">
+      <StyleFin />
       <Filtres
         champs={<>
-          <div style={{ flex: '1 1 200px', maxWidth: 260 }}>
+          <div style={{ flex: '0 1 260px' }}>
             <Liste<string | null> libelle="Année scolaire" value={anneeId ?? d?.anneeId ?? null}
               options={((d?.annees ?? []) as any[]).map((a) => [a.id, a.statut === 'ouverte' ? a.libelle : `${a.libelle} · en préparation`] as [string, string])}
               onChange={(v) => setAnneeId(v)} />
@@ -1034,10 +1120,10 @@ function EcranGrille() {
             <Bascules<string> options={[['nouveau', 'Nouveaux élèves'], ['ancien', 'Anciens élèves']]} valeur={tarif} onChange={setTarif} />
           </div>
         </>}
-        actions={modif ? <>
+        actions={modif ? <ActionsFiltres>
           {d?.suivante && <Bouton onClick={copier}>Copier vers {d.suivante.libelle}</Bouton>}
           <Bouton variante="principal" touches={['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer</Bouton>
-        </> : undefined}
+        </ActionsFiltres> : undefined}
       />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <>
@@ -1047,9 +1133,10 @@ function EcranGrille() {
               <Panneau>
                 <TitrePanneau titre={`Grille ${libelleAnnee} · ${tarif === 'nouveau' ? 'nouveaux élèves' : 'anciens élèves'}`} sous="Montants en FCFA" />
                 <Tableau serre
-                  colonnes={[{ titre: 'Niveau' }, ...TRANCHES.map((t) => ({ titre: t, droite: true })), { titre: 'Total', droite: true }]}
+                  colonnes={[{ titre: 'Niveau', mobile: 'entete' }, ...TRANCHES.map((t): { titre: string; droite: boolean } => ({ titre: t, droite: true })), { titre: 'Total', droite: true }]}
                   lignes={[
-                    [<span className="gras">Date limite</span>, ...dates.map((v, i) => saisie(v, (x) => setDates((ds) => ds.map((y, k) => (k === i ? x : y))), `Date limite ${i + 1}`, true)),
+                    [<span className="gras">Date limite</span>, ...dates.map((v, i) => saisie(v, (x) => { setDates((ds) => ds.map((y, k) => (k === i ? x : y))); setDatesEnErreur((e) => e.map((y, k) => (k === i ? false : y))); },
+                      `Date limite ${i + 1}`, true, datesEnErreur[i] ? 'JJ/MM/AAAA' : null)),
                       <span className="doux">–</span>],
                     ...(d.niveaux as any[]).map((n) => {
                       const v = montants[n.niveauId] ?? ['', '', '', ''];
@@ -1186,6 +1273,7 @@ function EcranValidations() {
       : `${enLettres(aDecider, true)} ${aDecider > 1 ? 'demandes attendent' : 'demande attend'} votre décision : ${genres.length > 1 ? `${genres.slice(0, -1).join(', ')} et ${genres.at(-1)}` : genres.join('')}. Vous validez ; vous ne saisissez pas à la place des autres.`;
     contenu = (
       <>
+        <StyleFin />
         <Bandeau icone="vieScolaire">{bandeau}</Bandeau>
         <Colonnes colonnes={[
           { flex: 3, min: 600, enfants: (
@@ -1213,7 +1301,7 @@ function EcranValidations() {
             <Panneau>
               <TitrePanneau titre="Vos décisions récentes" />
               <Tableau
-                colonnes={[{ titre: 'Demande' }, { titre: 'Décision' }]}
+                colonnes={[{ titre: 'Demande', mobile: 'entete' }, { titre: 'Décision' }]}
                 vide="Aucune décision pour l’instant"
                 lignes={(d.decisions as any[]).map((x) => [
                   <Cel2 gras haut={x.type === 'sortie' ? `Sortie ${x.numero} · ${montant(x.montant)}` : x.type === 'reduction' ? `Réduction ${x.eleve} · ${montant(x.montant)}` : `Dérogation ${x.eleve}`}
@@ -1253,15 +1341,16 @@ function EcranReleve() {
   const compte = [d?.banque ?? 'Banque à renseigner', d?.numeroCompte ?? 'numéro de compte à renseigner'].join(' · ');
   return (
     <Coque module="frais">
+      <StyleFin />
       <Filtres
         champs={<>
           <div style={{ flex: '1 1 320px' }}><Liste<string> libelle="Compte" value="c" options={[['c', compte]]} onChange={() => undefined} /></div>
           <div style={{ flex: '1 1 170px' }}><Liste<string> libelle="Mois" value={moisChoisi} options={liste.map((m) => [m, libelleMois(m)] as [string, string])} onChange={setMois} /></div>
         </>}
-        actions={<>
+        actions={<ActionsFiltres>
           <Bouton icone="sortie" onClick={importer}>Importer un relevé</Bouton>
           <Bouton icone="exporter" onClick={() => telecharger(`/finances/releve/export?mois=${moisChoisi}`)}>Exporter</Bouton>
-        </>}
+        </ActionsFiltres>}
       />
       {erreur ? <Erreur message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <Colonnes colonnes={[
@@ -1272,7 +1361,7 @@ function EcranReleve() {
                   ? `${d.banque ?? ''} · ${pluriel((d.lignes as any[]).length, 'ligne importée', 'lignes importées')} le ${jjmmaaaa(d.importeLe)}`
                   : 'Aucun relevé importé pour ce mois'} />
               <Tableau
-                colonnes={[{ titre: 'Ligne du relevé' }, { titre: 'Montant', droite: true }, { titre: 'Bordereau et reçu' }, { titre: 'État' }]}
+                colonnes={[{ titre: 'Ligne du relevé', mobile: 'entete' }, { titre: 'Montant', droite: true }, { titre: 'Bordereau et reçu' }, { titre: 'État' }]}
                 vide="Importez le relevé du mois : fichier CSV « date;libellé;montant;référence »."
                 cles={(d.lignes as any[]).map((l) => l.id)}
                 lignes={(d.lignes as any[]).map((l) => [

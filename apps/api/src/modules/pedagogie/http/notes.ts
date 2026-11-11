@@ -11,6 +11,9 @@ import { perimetreEnseignant } from '../../../core/perimetre.ts';
 import { exigerAnneeOuverte } from '../../structure/index.ts';
 import { titulaire, titulairesClasse } from '../index.ts';
 
+/** Date du journal d'audit au format de l'écran : 21/11/2026. */
+const jourFr = (iso: string | null | undefined) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '–');
+
 const Uuid = z.uuid();
 const JOURS = ['', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
@@ -94,8 +97,8 @@ export async function routesNotes(app: FastifyInstance) {
       }
       await journaliser(tx, ctx, { action: 'Modification', objetType: 'Note',
         objetLibelle: `Saisie · ${s.libelle_fr}${action === 'deverrouillage' ? ` · déverrouillage : ${req.body.motif}` : ''}`,
-        avant: avant === 'ouverte' ? `Ouverte jusqu'au ${s.saisie_jusqua}` : avant === 'fermee' ? 'Fermée' : 'À venir',
-        apres: action === 'fermeture' ? 'Fermée' : `Ouverte jusqu'au ${req.body.jusqua}`, ligneId: req.params.id, table: 'pedagogie.sequence' });
+        avant: avant === 'ouverte' ? `Ouverte jusqu'au ${jourFr(s.saisie_jusqua)}` : avant === 'fermee' ? 'Fermée' : 'À venir',
+        apres: action === 'fermeture' ? 'Fermée' : `Ouverte jusqu'au ${jourFr(req.body.jusqua)}`, ligneId: req.params.id, table: 'pedagogie.sequence' });
       return { ok: true };
     });
   };

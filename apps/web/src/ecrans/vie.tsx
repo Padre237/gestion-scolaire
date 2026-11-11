@@ -731,7 +731,7 @@ export function EcranSms() {
                 <InfoCaps libelle="En français" valeur={estimation?.fr ?? '–'} />
                 <InfoCaps libelle="In English" valeur={estimation?.en ?? '–'} />
                 <InfoCaps libelle="SMS par message" valeur={estimation?.smsParMessage ?? '–'} />
-                <InfoCaps libelle="Coût estimé" valeur={estimation ? `${estimation.destinataires} × [tarif du prestataire]` : '–'} />
+                <InfoCaps libelle="Coût estimé" valeur={estimation ? `${pluriel(estimation.destinataires * (Number(estimation.smsParMessage) || 1), 'SMS')} au tarif du prestataire` : '–'} />
               </Grille>
               <Rangee fin centre>
                 <Bouton onClick={apercu}>Aperçu par famille</Bouton>

@@ -4,6 +4,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { sql, tableau } from '../../../core/bd.ts';
 import { exiger } from '../../../core/session.ts';
+import { ErreurMetier } from '../../../core/erreurs.ts';
 import { journaliser } from '../../../core/audit.ts';
 import { versCsv } from '../../../core/csv.ts';
 import { anneeOuverte } from '../../structure/index.ts';
@@ -155,5 +156,85 @@ export async function routesPilotage(app: FastifyInstance) {
       colonnes: ['Niveau', 'Classes', 'Garçons', 'Filles', 'Total', 'Nouveaux', 'Redoublants'].map((t, i) => ({ titre: t, largeur: i ? 65 : 90, droite: i > 0 })),
       lignes: s.effectifs.map((e) => [e.niveau, e.classes, e.garcons, e.filles, e.total, e.nouveaux, e.redoublants].map(String)) });
     return rep.type('application/pdf').send(Buffer.from(pdf));
+  });
+
+  // Rapports pour la tutelle (maquette Statistiques) : en l'absence du modèle officiel, des tableaux A4 aux rubriques usuelles
+  // (effectifs par classe, sexe et âge ; instituteurs par statut et par classe ; résultats, absences et recouvrement par classe).
+  const RAPPORTS = { rentree: 'FICHE STATISTIQUE DE RENTRÉE', instituteurs: 'ÉTAT DES INSTITUTEURS', trimestre: 'RAPPORT DE FIN DE TRIMESTRE' } as const;
+  r.get('/pilotage/rapports/:type', {
+    config: { permission: 'pilotage.statistiques.consulter' },
+    schema: { tags: ['pilotage'], params: z.object({ type: z.enum(['rentree', 'instituteurs', 'trimestre']) }) },
+  }, async (req, rep) => {
+    const ctx = exiger(req);
+    const etab = ctx.etablissementId;
+    const annee = await anneeOuverte(app.bd, etab);
+    if (!annee) throw new ErreurMetier('STR_AUCUNE_ANNEE_OUVERTE', 422, 'Aucune année scolaire n\'est ouverte.');
+    const identite = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`
+      SELECT nom_fr, nom_en, ville_bp, telephone FROM structure.etablissement WHERE id = ${etab}`);
+    const debut = await app.bd.lireUn<{ d: string }>(sql`SELECT date_debut::text AS d FROM structure.annee_scolaire WHERE id = ${annee.id}`);
+    let sousTitre = `Année scolaire ${annee.libelle}`;
+    let colonnes: { titre: string; largeur: number; droite?: boolean }[] = [];
+    let lignes: string[][] = [];
+    const n = (x: number | null | undefined) => (x === null || x === undefined ? '–' : String(x));
+    if (req.params.type === 'rentree') {
+      const AGES = [5, 6, 7, 8, 9, 10, 11, 12];
+      const rows = await app.bd.lire<{ classe: string; garcons: number; filles: number; total: number }>(sql`
+        SELECT i.classe, count(*) FILTER (WHERE i.sexe = 'M')::int AS garcons, count(*) FILTER (WHERE i.sexe = 'F')::int AS filles, count(*)::int AS total
+          FROM reporting.v_inscription i
+         WHERE i.etablissement_id = ${etab} AND i.annee_id = ${annee.id} AND i.statut IN ('attente', 'validee')
+         GROUP BY i.classe, i.sous_systeme, i.niveau_rang ORDER BY i.sous_systeme DESC, i.niveau_rang, i.classe`);
+      const parAge = await app.bd.lire<{ classe: string; age: number; n: number }>(sql`
+        SELECT i.classe, LEAST(12, GREATEST(5, date_part('year', age(${debut!.d}::date, i.date_naissance))::int)) AS age, count(*)::int AS n
+          FROM reporting.v_inscription i
+         WHERE i.etablissement_id = ${etab} AND i.annee_id = ${annee.id} AND i.statut IN ('attente', 'validee') GROUP BY 1, 2`);
+      colonnes = [{ titre: 'Classe', largeur: 62 }, { titre: 'G', largeur: 32, droite: true }, { titre: 'F', largeur: 32, droite: true }, { titre: 'Total', largeur: 40, droite: true },
+        ...AGES.map((a) => ({ titre: a === 5 ? '5 ans et -' : a === 12 ? '12 ans et +' : `${a} ans`, largeur: a === 5 || a === 12 ? 52 : 40, droite: true }))];
+      const totaux = new Array(3 + AGES.length).fill(0) as number[];
+      lignes = rows.map((r) => {
+        const ages = AGES.map((a) => parAge.find((x) => x.classe === r.classe && x.age === a)?.n ?? 0);
+        [r.garcons, r.filles, r.total, ...ages].forEach((v, i) => { totaux[i]! += v; });
+        return [r.classe, n(r.garcons), n(r.filles), n(r.total), ...ages.map(n)];
+      });
+      lignes.push(['Total', ...totaux.map(n)]);
+      sousTitre += ` · effectifs par classe, sexe et âge au ${debut!.d.split('-').reverse().join('/')}`;
+    } else if (req.params.type === 'instituteurs') {
+      const rows = await app.bd.lire<{ nom: string; fonction: string; statut: string; diplome: string | null; affectations: string | null }>(sql`
+        SELECT f.nom_affiche AS nom, f.fonction, f.statut, f.diplome,
+               string_agg(c.nom || CASE WHEN a.principal THEN ' (principal)' ELSE ' · ' || COALESCE(m.abrege_fr, m.libelle_fr) END, ', ' ORDER BY c.nom) AS affectations
+          FROM personnel.fiche f
+          LEFT JOIN pedagogie.affectation a ON a.personnel_id = f.id AND a.annee_id = ${annee.id}
+          LEFT JOIN structure.classe c ON c.id = a.classe_id LEFT JOIN pedagogie.matiere m ON m.id = a.matiere_id
+         WHERE f.etablissement_id = ${etab} AND f.actif AND (f.fonction IN ('instituteur_principal', 'instituteur_matiere') OR a.id IS NOT NULL)
+         GROUP BY f.id ORDER BY f.statut, f.nom_affiche`);
+      colonnes = [{ titre: 'Nom', largeur: 130 }, { titre: 'Fonction', largeur: 85 }, { titre: 'Statut', largeur: 60 }, { titre: 'Diplôme', largeur: 60 }, { titre: 'Classes et matières', largeur: 180 }];
+      const FONCTIONS: Record<string, string> = { instituteur_principal: 'Principal', instituteur_matiere: 'De matière' };
+      lignes = rows.map((r) => [r.nom, FONCTIONS[r.fonction] ?? r.fonction, r.statut === 'vacataire' ? 'Vacataire' : 'Permanent', r.diplome ?? '–', r.affectations ?? '–']);
+      const perm = rows.filter((r) => r.statut !== 'vacataire').length;
+      sousTitre += ` · ${rows.length} instituteurs, dont ${perm} permanents et ${rows.length - perm} vacataires`;
+    } else {
+      const periode = await app.bd.lireUn<{ id: string; libelle: string }>(sql`
+        SELECT p.id, p.libelle_fr AS libelle FROM structure.periode p WHERE p.annee_id = ${annee.id}
+         ORDER BY (p.date_debut <= current_date) DESC, p.date_debut DESC LIMIT 1`);
+      const rows = await app.bd.lire<{ classe: string; effectif: number; moyenne: number | null; reussite: number | null; heures: number; recouvrement: number | null }>(sql`
+        WITH ins AS (SELECT id, classe_id, classe, sous_systeme, niveau_rang FROM reporting.v_inscription
+                      WHERE etablissement_id = ${etab} AND annee_id = ${annee.id} AND statut IN ('attente', 'validee'))
+        SELECT i.classe, count(DISTINCT i.id)::int AS effectif,
+               (SELECT round(avg(b.moyenne), 2) FROM reporting.v_bulletin b JOIN ins j ON j.id = b.inscription_id WHERE j.classe_id = i.classe_id AND b.periode_id = ${periode?.id ?? null}) AS moyenne,
+               (SELECT round(100.0 * count(*) FILTER (WHERE b.moyenne >= 10) / NULLIF(count(*), 0))::int FROM reporting.v_bulletin b JOIN ins j ON j.id = b.inscription_id
+                 WHERE j.classe_id = i.classe_id AND b.periode_id = ${periode?.id ?? null}) AS reussite,
+               COALESCE((SELECT round(sum(a.duree_minutes) / 60.0)::int FROM reporting.v_absence a JOIN structure.periode p ON p.id = ${periode?.id ?? null}
+                 WHERE a.classe_id = i.classe_id AND a.jour BETWEEN p.date_debut AND p.date_fin), 0) AS heures,
+               (SELECT round(100.0 * sum(e.verse) / NULLIF(sum(e.a_payer), 0))::int FROM reporting.v_echeance e WHERE e.classe_id = i.classe_id AND e.annee_id = ${annee.id}) AS recouvrement
+          FROM ins i GROUP BY i.classe_id, i.classe, i.sous_systeme, i.niveau_rang ORDER BY i.sous_systeme DESC, i.niveau_rang, i.classe`);
+      colonnes = [{ titre: 'Classe', largeur: 80 }, { titre: 'Effectif', largeur: 60, droite: true }, { titre: 'Moyenne', largeur: 70, droite: true },
+        { titre: 'Réussite', largeur: 70, droite: true }, { titre: 'Absences (h)', largeur: 80, droite: true }, { titre: 'Recouvrement', largeur: 85, droite: true }];
+      const virgule = (x: number | null) => (x === null ? '–' : x.toFixed(2).replace('.', ','));
+      lignes = rows.map((r) => [r.classe, n(r.effectif), virgule(r.moyenne === null ? null : Number(r.moyenne)), r.reussite === null ? '–' : `${r.reussite} %`, n(r.heures),
+        r.recouvrement === null ? '–' : `${r.recouvrement} %`]);
+      sousTitre += periode ? ` · ${periode.libelle}` : '';
+    }
+    await app.bd.transaction(ctx.compteId, (tx) => journaliser(tx, ctx, { action: 'Export', objetType: 'Pilotage', objetLibelle: `Rapport · ${RAPPORTS[req.params.type]}`, avant: '–', apres: 'PDF' }));
+    const pdf = await pdfTableau({ etablissement: identite!, titre: RAPPORTS[req.params.type], sousTitre, colonnes, lignes });
+    return rep.type('application/pdf').header('content-disposition', `inline; filename="rapport-${req.params.type}.pdf"`).send(Buffer.from(pdf));
   });
 }

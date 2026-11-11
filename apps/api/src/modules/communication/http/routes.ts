@@ -13,7 +13,7 @@ import { exigerAnneeOuverte } from '../../structure/index.ts';
 
 const Uuid = z.uuid();
 export const CIBLES_ANNONCE: Record<string, string> = { ecole: 'Toute l’école', niveau: 'Un niveau', classe: 'Une classe', parent: 'Un parent', debiteurs: 'Familles débitrices' };
-const CIBLES_SMS = ['classe', 'niveau', 'ecole', 'debiteurs'] as const;
+const CIBLES_SMS = ['classe', 'niveau', 'ecole', 'debiteurs', 'selection'] as const;
 
 // Modèles de SMS (maquette Messages) ; variables remplacées par destinataire.
 export const MODELES: Record<string, { libelle: string; fr: string; en: string }> = {
@@ -41,7 +41,7 @@ export const smsParMessage = (texte: string) => (texte.length <= 160 ? 1 : Math.
 interface Destinataire { responsable_id: string; responsable: string; telephone: string; langue: 'fr' | 'en'; eleve: string; classe: string; inscription_id: string; montant: number; date_limite: string | null }
 
 /** Responsables qui acceptent les SMS (RG-28), selon la cible. */
-async function destinataires(tx: Tx, etab: string, cible: string, cibleId: string | null, payeursSeulement = false): Promise<Destinataire[]> {
+async function destinataires(tx: Tx, etab: string, cible: string, cibleId: string | null, payeursSeulement = false, inscriptionIds: string[] = []): Promise<Destinataire[]> {
   return lignes<Destinataire>(tx, sql`
     SELECT DISTINCT ON (r.id, i.id) r.id AS responsable_id, r.nom AS responsable, r.telephone, r.langue, i.prenoms || ' ' || i.nom AS eleve, i.classe,
            i.id AS inscription_id, COALESCE(s.echu, s.reste, 0)::bigint AS montant,
@@ -58,7 +58,8 @@ async function destinataires(tx: Tx, etab: string, cible: string, cibleId: strin
             OR (${cible} = 'niveau' AND c.niveau_id = ${cibleId}::uuid)
             OR (${cible} = 'parent' AND r.famille_id = ${cibleId}::uuid)
             OR (${cible} = 'inscription' AND i.id = ${cibleId}::uuid)
-            OR (${cible} = 'debiteurs' AND s.echu > 0))`);
+            OR (${cible} = 'debiteurs' AND s.echu > 0)
+            OR (${cible} = 'selection' AND i.id = ANY(${tableau(inscriptionIds)}::uuid[])))`);
 }
 
 const fmt = (n: number) => n.toLocaleString('fr-FR').replace(/[  ]/g, ' ');
@@ -171,7 +172,7 @@ export async function routesCommunication(app: FastifyInstance) {
                                                      WHERE n.etablissement_id = ${ctx.etablissementId} ORDER BY cy.sous_systeme DESC, n.rang`) : [];
     const familles = large ? await app.bd.lire(sql`SELECT id, 'Famille ' || nom AS nom FROM scolarite.famille WHERE etablissement_id = ${ctx.etablissementId} ORDER BY nom`) : [];
     const publiees = await app.bd.lire(sql`
-      SELECT a.id, a.titre, a.cible_libelle AS cible, a.nb_familles AS "nbFamilles", a.cible, a.statut, a.publiee_le AS "publieeLe", a.cree_le AS "creeLe",
+      SELECT a.id, a.titre, a.cible_libelle AS "cibleLibelle", a.nb_familles AS "nbFamilles", a.cible, a.statut, a.publiee_le AS "publieeLe", a.cree_le AS "creeLe",
              c.nom_affiche AS auteur
         FROM communication.annonce a JOIN core.compte c ON c.id = a.auteur
        WHERE a.etablissement_id = ${ctx.etablissementId} AND (a.statut = 'publiee' OR a.auteur = ${ctx.compteId})
@@ -251,7 +252,9 @@ export async function routesCommunication(app: FastifyInstance) {
   });
 
   const NouveauSms = z.object({ cible: z.enum(CIBLES_SMS), cibleId: Uuid.nullish(), modele: z.enum(['relance', 'absence', 'bulletin', 'reunion']),
-    texteFr: z.string().trim().min(3).max(612), texteEn: z.string().trim().max(612).nullish() });
+    texteFr: z.string().trim().min(3).max(612), texteEn: z.string().trim().max(612).nullish(),
+    // Élèves cochés dans « Impayés » (Relancer par SMS · n).
+    inscriptionIds: z.array(Uuid).max(500).nullish() });
 
   /** E-20 : l'économe met en file les seules relances de paiement. */
   function smsPermis(ctx: Contexte, modele: string) {
@@ -262,7 +265,7 @@ export async function routesCommunication(app: FastifyInstance) {
   r.post('/communication/sms/estimation', { config: { permission: 'communication.sms.envoyer' }, schema: { tags: ['communication'], body: NouveauSms } }, async (req) => {
     const ctx = exiger(req);
     const b = req.body;
-    const d = await app.bd.transaction(null, (tx) => destinataires(tx, ctx.etablissementId, b.cible, b.cibleId ?? null, b.modele === 'relance'));
+    const d = await app.bd.transaction(null, (tx) => destinataires(tx, ctx.etablissementId, b.cible, b.cibleId ?? null, b.modele === 'relance', b.inscriptionIds ?? []));
     const tel = new Map(d.map((x) => [x.telephone, x.langue]));
     const fr = [...tel.values()].filter((l) => l === 'fr').length;
     const exemple = d[0];
@@ -277,9 +280,10 @@ export async function routesCommunication(app: FastifyInstance) {
     smsPermis(ctx, b.modele);
     if ((b.cible === 'classe' || b.cible === 'niveau') && !b.cibleId) throw new ErreurMetier('COM_CIBLE_REQUISE', 422, 'Choisissez la classe ou le niveau.', 'cibleId');
     return app.bd.transaction(ctx.compteId, async (tx) => {
-      const dest = await destinataires(tx, ctx.etablissementId, b.cible, b.cibleId ?? null, b.modele === 'relance');
+      const dest = await destinataires(tx, ctx.etablissementId, b.cible, b.cibleId ?? null, b.modele === 'relance', b.inscriptionIds ?? []);
       if (!dest.length) throw new ErreurMetier('COM_AUCUN_DESTINATAIRE', 422, 'Aucun responsable n\'accepte les SMS dans cette cible (RG-28).');
-      const cibleLibelle = b.cible === 'debiteurs' ? 'Familles en retard' : await libelleCible(tx, b.cible, b.cibleId);
+      const cibleLibelle = b.cible === 'debiteurs' ? 'Familles en retard'
+        : b.cible === 'selection' ? `${new Set(dest.map((x) => x.inscription_id)).size} élèves en retard` : await libelleCible(tx, b.cible, b.cibleId);
       const id = await mettreEnFile(tx, ctx.etablissementId, { modele: MODELES[b.modele]!.libelle, cibleLibelle, texteFr: b.texteFr, texteEn: b.texteEn ?? null,
         destinataires: dest, auteur: ctx.compteId });
       if (b.modele === 'relance') await emettre(tx, ctx, 'relance.sms', { inscriptionIds: [...new Set(dest.map((x) => x.inscription_id))], compteId: ctx.compteId });

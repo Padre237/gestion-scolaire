@@ -232,6 +232,15 @@ export async function routesFinances(app: FastifyInstance) {
     });
   });
 
+  // Numéro du prochain reçu, affiché sous l'encaissement (maquette Encaissement) ; attribué seulement à l'enregistrement.
+  r.get('/finances/recu-suivant', { config: { permission: 'finances.versement.encaisser' }, schema: { tags: ['finances'] } }, async (req) => {
+    const ctx = exiger(req);
+    const annee = await exigerAnneeOuverte(app.bd, ctx.etablissementId);
+    const v = await app.bd.lireUn<{ valeur: number }>(sql`SELECT valeur FROM core.compteur WHERE etablissement_id = ${ctx.etablissementId}
+                                                         AND cle = ${cleCompteur.recu(annee.annee_civile)}`);
+    return { numero: FORMATS.recu(annee.annee_civile, (v?.valeur ?? 0) + 1) };
+  });
+
   // RG-21 : toute réimpression porte la mention « Duplicata ».
   r.get('/finances/versements/:id/recu', {
     config: { unePermissionParmi: ['finances.recu.consulter', 'finances.recu.imprimer'] },
@@ -346,7 +355,8 @@ export async function routesFinances(app: FastifyInstance) {
     const seuil = await app.bd.lireUn<{ seuil: number | null }>(sql`SELECT seuil_reduction AS seuil FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
     const demandes = await app.bd.lire(sql`
       SELECT d.id, d.type, d.statut, d.montant, d.objet, d.motif, d.demande_le AS "demandeLe", c.nom_affiche AS demandeur, d.demandeur AS "demandeurId",
-             e.nom || ' ' || e.prenoms AS eleve, cl.nom AS classe, i.id AS "inscriptionId", e.id AS "eleveId"
+             e.nom || ' ' || e.prenoms AS eleve, cl.nom AS classe, i.id AS "inscriptionId", e.id AS "eleveId", cl.effectif_max AS "effectifMax",
+             (SELECT (l.prix_unitaire - l.reduction)::int FROM finances.ligne_echeance l WHERE l.inscription_id = i.id AND l.ordre = 1) AS "versementMinimal"
         FROM finances.demande d JOIN core.compte c ON c.id = d.demandeur
         LEFT JOIN scolarite.inscription i ON i.id = d.inscription_id LEFT JOIN scolarite.eleve e ON e.id = i.eleve_id
         LEFT JOIN structure.classe cl ON cl.id = i.classe_id
@@ -419,7 +429,7 @@ export async function routesFinances(app: FastifyInstance) {
           await emettre(tx, ctx, 'reduction.appliquee', { inscriptionId: d.inscription_id });
         }
         await journaliser(tx, ctx, { action: decision === 'validee' ? 'Validation' : 'Refus', objetType: 'Réduction',
-          objetLibelle: `Réduction · ${eleve} · ${d.objet}`, avant: 'Demandée', apres: decision === 'validee' ? `${Number(d.montant).toLocaleString('fr-FR')} FCFA` : `Refusée${motif ? ` : ${motif}` : ''}`,
+          objetLibelle: `Réduction · ${eleve} · ${d.objet}`, avant: 'Demandée', apres: decision === 'validee' ? `${Number(d.montant).toLocaleString('fr-FR')} FCFA · ${d.motif.toLowerCase()}` : `Refusée${motif ? ` : ${motif}` : ''}`,
           eleveId: i!.eleve_id, ligneId: req.params.id, table: 'finances.demande' });
       } else if (d.type === 'derogation') {
         if (decision === 'validee') await validerInscription(tx, d.inscription_id, 'dérogation du directeur', ctx);
@@ -658,6 +668,20 @@ export async function routesFinances(app: FastifyInstance) {
       pointage: { rapprochees: cpt('rapproche').length, sansBordereau: cpt('sans_bordereau').length,
         montantSansBordereau: cpt('sans_bordereau').reduce((s, l) => s + l.montant, 0), ecarts: cpt('ecart').length,
         montantEcarts: cpt('ecart').reduce((s, l) => s + Math.abs(l.ecart ?? 0), 0) } };
+  });
+
+  r.get('/finances/releve/export', {
+    config: { permission: 'finances.releve.gerer' }, schema: { tags: ['finances'], querystring: z.object({ mois: z.string().regex(/^\d{4}-\d{2}$/) }) },
+  }, async (req, rep) => {
+    const ctx = exiger(req);
+    const rows = await app.bd.lire<Record<string, unknown>>(sql`
+      SELECT to_char(l.opere_le, 'DD/MM/YYYY') AS "Date", l.libelle AS "Libellé", l.montant AS "Montant", COALESCE(l.reference, '') AS "Référence",
+             COALESCE(v.numero_recu, '') AS "Reçu"
+        FROM finances.ligne_releve l JOIN finances.releve r ON r.id = l.releve_id
+        LEFT JOIN finances.versement v ON v.id = l.versement_id
+       WHERE r.etablissement_id = ${ctx.etablissementId} AND to_char(r.mois, 'YYYY-MM') = ${req.query.mois} ORDER BY l.ordre`);
+    await app.bd.transaction(ctx.compteId, (tx) => journaliser(tx, ctx, { action: 'Export', objetType: 'Relevé bancaire', objetLibelle: `Relevé de ${req.query.mois}`, avant: '–', apres: 'CSV' }));
+    return rep.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', `attachment; filename="releve-${req.query.mois}.csv"`).send(versCsv(rows));
   });
 
   // Format du relevé importé : CSV « date;libellé;montant;référence » (décision D-19).

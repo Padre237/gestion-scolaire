@@ -9,7 +9,7 @@ import { dateFr, type RecuData } from '@gs/print';
 const heureCm = (iso: string) => new Date(new Date(iso).getTime() + 3600_000).toISOString().slice(11, 16);
 const jourCm = (iso: string) => new Date(new Date(iso).getTime() + 3600_000).toISOString().slice(0, 10);
 
-export async function donneesRecu(tx: Tx, etab: string, versementId: string): Promise<RecuData & { nbImpressions: number; inscriptionId: string; familleId: string }> {
+export async function donneesRecu(tx: Tx, etab: string, versementId: string): Promise<RecuData & { nbImpressions: number; inscriptionId: string; familleId: string; eleveId: string }> {
   const v = await ligne<{ inscription_id: string; numero_recu: string; encaisse_le: string; montant: number; mode: string; banque: string | null;
     bordereau: string | null; date_bordereau: string | null; statut: string; caissier: string }>(tx, sql`
     SELECT v.inscription_id, v.numero_recu, v.encaisse_le, v.montant, v.mode, v.banque, v.bordereau, v.date_bordereau, v.statut, c.nom_affiche AS caissier
@@ -41,7 +41,7 @@ export async function donneesRecu(tx: Tx, etab: string, versementId: string): Pr
     modeFr: mode.fr.toLowerCase(), modeEn: mode.en.toLowerCase(),
     bordereau: v.bordereau ? `${v.bordereau}${v.date_bordereau ? ` du ${dateFr(v.date_bordereau)}` : ''}` : null,
     caissier: v.caissier, duplicata: impressions!.n > 0, annule: v.statut === 'annule',
-    nbImpressions: impressions!.n, inscriptionId: v.inscription_id, familleId: i!.famille_id,
+    nbImpressions: impressions!.n, inscriptionId: v.inscription_id, familleId: i!.famille_id, eleveId: i!.eleve_id,
   };
 }
 

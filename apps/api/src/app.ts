@@ -6,7 +6,8 @@ import helmet from '@fastify/helmet';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import fastifyStatic from '@fastify/static';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
 import { resolve } from 'node:path';
 import {
   jsonSchemaTransform, serializerCompiler, validatorCompiler, type ZodTypeProvider,
@@ -17,11 +18,13 @@ import { gestionnaireErreurs } from './core/erreurs.ts';
 import { pluginSession } from './core/session.ts';
 import { routesAuth } from './core/http/auth.ts';
 import { routesAdministration } from './core/http/administration.ts';
+import { routesDonnees } from './core/http/donnees.ts';
 import { routesStructure } from './modules/structure/http/routes.ts';
 import { routesPersonnel } from './modules/personnel/http/routes.ts';
 import { routesPedagogie } from './modules/pedagogie/http/routes.ts';
 import { routesFinances } from './modules/finances/http/routes.ts';
 import { routesScolarite } from './modules/scolarite/http/routes.ts';
+import { routesCloture } from './modules/scolarite/http/cloture.ts';
 import { routesPilotage } from './modules/pilotage/http/routes.ts';
 import { routesCaisse } from './modules/caisse/http/routes.ts';
 import { routesVieScolaire } from './modules/vie-scolaire/http/routes.ts';
@@ -35,14 +38,17 @@ import './modules/pedagogie/index.ts';
 export interface OptionsApp {
   bd: Bd;
   journal?: boolean;
-  /** Dossier de la version web Flutter compilée, servie par le même serveur (§ 10). */
+  /** Dossier de l'application web compilée (React, installable), servie par le même serveur (§ 10). */
   dossierWeb?: string;
   /** Origines admises pour les écritures (contrôle de l'en-tête Origin, § 8). */
   originesAdmises?: string[];
+  /** Certificat local : HTTPS sur le réseau de l'école (conception § 8). */
+  https?: { key: Buffer; cert: Buffer };
 }
 
 export async function construireApp(o: OptionsApp): Promise<FastifyInstance> {
-  const app = Fastify({ logger: o.journal ?? false, trustProxy: false }).withTypeProvider<ZodTypeProvider>();
+  const app = (o.https ? Fastify({ logger: o.journal ?? false, https: o.https }) : Fastify({ logger: o.journal ?? false }))
+    .withTypeProvider<ZodTypeProvider>() as unknown as FastifyInstance;
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   app.setErrorHandler(gestionnaireErreurs);
@@ -55,7 +61,8 @@ export async function construireApp(o: OptionsApp): Promise<FastifyInstance> {
     for (const m of methodes) inventaire.push({ methode: m, url: route.url, config: (route.config ?? {}) as Record<string, unknown> });
   });
 
-  await app.register(helmet, { contentSecurityPolicy: false, crossOriginEmbedderPolicy: false });
+  // Pas de HSTS : le poste sert aussi http://localhost (application installable sans certificat sur ce poste).
+  await app.register(helmet, { contentSecurityPolicy: false, crossOriginEmbedderPolicy: false, strictTransportSecurity: false });
   await app.register(cookie);
 
   // Contrôle de l'en-tête Origin contre la falsification de requêtes (conception § 8).
@@ -87,11 +94,13 @@ export async function construireApp(o: OptionsApp): Promise<FastifyInstance> {
   await app.register(async (api) => {
     await api.register(routesAuth);
     await api.register(routesAdministration);
+    await api.register(routesDonnees);
     await api.register(routesStructure);
     await api.register(routesPersonnel);
     await api.register(routesPedagogie);
     await api.register(routesFinances);
     await api.register(routesScolarite);
+    await api.register(routesCloture);
     await api.register(routesPilotage);
     await api.register(routesCaisse);
     await api.register(routesVieScolaire);
@@ -100,10 +109,18 @@ export async function construireApp(o: OptionsApp): Promise<FastifyInstance> {
     await api.register(routesPortail);
   }, { prefix: '/api/v1' });
 
-  const web = o.dossierWeb ?? resolve(RACINE, 'apps/client/build/web');
+  // Certificat de l'autorité locale (var/tls), à installer sur les téléphones pour l'application installable (DEMO.md).
+  const autorite = resolve(RACINE, 'var/tls/autorite.pem');
+  app.get('/autorite.crt', async (_req, rep) => {
+    if (!existsSync(autorite)) return rep.status(404).send();
+    const der = new X509Certificate(readFileSync(autorite)).raw;
+    return rep.type('application/x-x509-ca-cert').header('content-disposition', 'attachment; filename="autorite-ecole.crt"').send(der);
+  });
+
+  const web = o.dossierWeb ?? resolve(RACINE, 'apps/web/dist');
   if (existsSync(web)) {
     await app.register(fastifyStatic, { root: web, wildcard: false });
-    // Navigation go_router : toute adresse inconnue hors /api renvoie l'application.
+    // Navigation côté client : toute adresse inconnue hors /api renvoie l'application.
     app.setNotFoundHandler((req, rep) => {
       if (req.url.startsWith('/api/')) return rep.status(404).type('application/problem+json')
         .send({ type: 'urn:gestion-scolaire:erreur:CORE_INTROUVABLE', title: 'CORE_INTROUVABLE', status: 404, detail: 'Route inconnue.', code: 'CORE_INTROUVABLE' });

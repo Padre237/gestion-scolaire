@@ -81,7 +81,7 @@ export async function routesAuth(app: FastifyInstance) {
     await app.bd.lire(sql`UPDATE core.compte SET echecs = 0, verrouille_jusqua = NULL WHERE id = ${c.id}`);
     const jeton = await ouvrirSession(app.bd, c.id, appareil ?? client);
     if (client === 'web') {
-      rep.setCookie(COOKIE, jeton, { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: DUREE_MAX_MS / 1000 });
+      rep.setCookie(COOKIE, jeton, { httpOnly: true, secure: req.protocol === 'https', sameSite: 'strict', path: '/', maxAge: DUREE_MAX_MS / 1000 });
     }
     req.headers.authorization = `Bearer ${jeton}`;
     req.ctx = await chargerContexte(app.bd, jeton);
@@ -110,7 +110,7 @@ export async function routesAuth(app: FastifyInstance) {
     await app.bd.lire(sql`UPDATE core.compte SET echecs = 0, verrouille_jusqua = NULL WHERE id = ${c.id}`);
     const jeton = await ouvrirSession(app.bd, c.id, req.body.client === 'web' ? 'parent-web' : 'parent-application');
     if (req.body.client === 'web') {
-      rep.setCookie(COOKIE, jeton, { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: DUREE_MAX_MS / 1000 });
+      rep.setCookie(COOKIE, jeton, { httpOnly: true, secure: req.protocol === 'https', sameSite: 'strict', path: '/', maxAge: DUREE_MAX_MS / 1000 });
     }
     req.ctx = await chargerContexte(app.bd, jeton);
     const moi = await decrireMoi(app, req);

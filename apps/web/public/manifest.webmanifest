@@ -1,0 +1,20 @@
+{
+  "name": "Gestion scolaire",
+  "short_name": "Gestion scolaire",
+  "description": "Élèves, frais et caisse, notes et bulletins, vie scolaire, messages ; espace des parents et des instituteurs.",
+  "lang": "fr",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F8FC",
+  "theme_color": "#1D4ED8",
+  "icons": [
+    { "src": "/icone-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icone-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Application du parent", "url": "/parent/accueil" },
+    { "name": "Application de l’instituteur", "url": "/instituteur/notes" }
+  ]
+}

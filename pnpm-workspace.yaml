@@ -1,6 +1,9 @@
 packages:
   - apps/api
+  - apps/web
   - packages/*
   - tools/demo
+  - tools/controle
 allowBuilds:
   esbuild: true
+  puppeteer: true

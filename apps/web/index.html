@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F6F8FC" />
+    <meta name="description" content="Gestion scolaire : élèves, frais et caisse, notes et bulletins, vie scolaire, messages." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icone.svg" />
+    <link rel="apple-touch-icon" href="/icone-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Gestion scolaire" />
+    <title>Gestion scolaire</title>
+    <script>try { document.documentElement.dataset.theme = localStorage.getItem('gs.mode') === 'nuit' ? 'nuit' : 'jour'; } catch (e) {}</script>
+  </head>
+  <body>
+    <div id="racine"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

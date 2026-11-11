@@ -460,5 +460,64 @@ describe('Pilotage, journal d\'audit (CU-04, CU-26)', () => {
   });
 });
 
+describe('Données et clôture : import, sauvegardes, accès en lecture, clôture d\'année (écrans Données et Clôture)', () => {
+  const lignes = [
+    { ligne: 2, nom: 'MBARGA', prenoms: 'Inès', sexe: 'F', dateNaissance: '03/04/2015', classe: 'cm2 a', type: 'Nouvelle', responsable: 'MBARGA Odile', lien: 'Mère', telephone: '600 000 171' },
+    { ligne: 3, nom: 'FOTSO Junior', sexe: 'M', dateNaissance: '31/02/2018', classe: 'CM2 A', responsable: 'FOTSO Bertrand', telephone: '600 000 172' },
+    { ligne: 4, nom: 'ESSOMBA', prenoms: 'Brice', sexe: 'M', dateNaissance: '14/09/2019', classe: 'CP B', responsable: 'ESSOMBA Jean', telephone: '600 000 173' },
+    { ligne: 5, nom: 'KENFACK', prenoms: 'Steve', sexe: 'M', dateNaissance: '05/01/2017', classe: 'CE2 B', responsable: 'KENFACK Pauline', telephone: '600 000 055' },
+    { ligne: 6, nom: 'MBARGA', prenoms: 'Inès', sexe: 'F', dateNaissance: '2015-04-03', classe: 'CM2 A', responsable: 'MBARGA Odile', telephone: '600 000 171' },
+    { ligne: 7, nom: 'NGUEMA', prenoms: 'Prisca', sexe: 'F', dateNaissance: '05/07/2015', classe: 'CM2 A', responsable: 'NGUEMA Alice', telephone: '60000' },
+  ];
+  const compter = async () => (await env.bd.lire<{ n: number }>(sqlBrut('SELECT count(*)::int AS n FROM scolarite.eleve')))[0]!.n;
+  it('403 : seuls les comptes autorisés importent, même en appelant l\'API directement', async () => {
+    for (const c of [pre, eco, dir, ip]) expect((await c.post('/scolarite/import', { essai: true, lignes })).status).toBe(403);
+  });
+  it('l\'essai contrôle chaque ligne sans rien écrire', async () => {
+    const avant = await compter();
+    const r = await sec.post('/scolarite/import', { essai: true, lignes });
+    expect(r.status).toBe(200);
+    expect(r.corps).toMatchObject({ essai: true, lues: 6, valides: 1, importes: 0 });
+    expect(r.corps.erreurs.map((e: { ligne: number; probleme: string }) => [e.ligne, e.probleme])).toEqual([
+      [3, 'Date impossible'], [4, 'Classe inconnue en 2026/2027'], [5, 'Doublon probable avec 26FR0001'],
+      [6, 'Doublon dans le fichier (ligne 2)'], [7, 'Numéro incomplet'],
+    ]);
+    expect(await compter()).toBe(avant);
+  });
+  it('l\'import enregistre les lignes valides, avec compte famille, et s\'inscrit au journal', async () => {
+    const avant = await compter();
+    const r = await sec.post('/scolarite/import', { essai: false, lignes });
+    expect(r.corps).toMatchObject({ essai: false, valides: 1, importes: 1 });
+    expect(await compter()).toBe(avant + 1);
+    const e = await env.bd.lire<{ nom: string; prenoms: string; classe: string }>(sqlBrut(`SELECT e.nom, e.prenoms, c.nom AS classe FROM scolarite.eleve e
+      JOIN scolarite.inscription i ON i.eleve_id = e.id JOIN structure.classe c ON c.id = i.classe_id WHERE e.nom = 'MBARGA'`));
+    expect(e).toEqual([{ nom: 'MBARGA', prenoms: 'Inès', classe: 'CM2 A' }]);
+    const compte = await env.bd.lire(sqlBrut(`SELECT 1 FROM core.compte WHERE identifiant = '600000171' AND type = 'famille'`));
+    expect(compte).toHaveLength(1);
+    const j = await env.bd.lire<{ n: number }>(sqlBrut(`SELECT count(*)::int AS n FROM core.journal_audit WHERE action = 'Import'`));
+    expect(j[0]!.n).toBe(1);
+    // Relancer le même fichier ne crée pas de doublon.
+    const encore = await sec.post('/scolarite/import', { essai: false, lignes });
+    expect(encore.corps.importes).toBe(0);
+  });
+  it('403 : sauvegarde, restauration et accès en lecture restent à la secrétaire', async () => {
+    expect((await eco.get('/core/sauvegardes')).status).toBe(403);
+    expect((await pre.post('/core/sauvegardes', {})).status).toBe(403);
+    expect((await dir.post('/core/sauvegardes/restauration', { nom: 'gs-20261111-180000-quotidienne.sauvegarde' })).status).toBe(403);
+    expect((await dir.get('/core/base')).status).toBe(403);
+    expect((await eco.post('/core/base/lecture', {})).status).toBe(403);
+    expect((await sec.get('/core/sauvegardes')).status).toBe(200);
+  });
+  it('403 : la clôture d\'année n\'est lancée que par un compte autorisé ; elle se prépare par des vérifications', async () => {
+    expect((await new Client(env.app).get('/scolarite/cloture')).status).toBe(401);
+    expect((await eco.get('/scolarite/cloture')).status).toBe(403);
+    for (const c of [dir, pre, eco, ip]) expect((await c.post('/scolarite/cloture', { passages: [] })).status).toBe(403);
+    const r = await sec.get('/scolarite/cloture');
+    expect(r.status).toBe(200);
+    expect(r.corps.verifications.length).toBeGreaterThan(0);
+    expect(typeof r.corps.pret).toBe('boolean');
+  });
+});
+
 import { sql } from 'drizzle-orm';
 const sqlBrut = (s: string) => sql.raw(s);

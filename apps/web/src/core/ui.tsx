@@ -69,7 +69,7 @@ export function Champ({ libelle, value, onChange, placeholder, type = 'text', dr
     ? <textarea id={id} className={classe} rows={lignes} value={value} placeholder={placeholder} readOnly={readOnly} aria-label={ariaLabel} onChange={(e) => onChange?.(e.target.value)} />
     : <input id={id} className={classe} type={type} value={value} placeholder={placeholder} readOnly={readOnly} autoFocus={autoFocus} inputMode={inputMode} aria-label={ariaLabel}
         style={style} onChange={(e) => onChange?.(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && onEnter) { e.preventDefault(); onEnter(); } }} />;
-  if (!libelle && !erreur) return largeur ? <div style={{ width: largeur }}>{champ}</div> : champ;
+  if (!libelle && !erreur) return largeur ? <div className="champ-cadre" style={{ width: largeur }}>{champ}</div> : champ;
   return (
     <div className="champ-groupe" style={{ width: largeur }}>
       {libelle && <label htmlFor={id} className="libelle">{libelle}</label>}
@@ -91,15 +91,22 @@ export function Liste<T extends string | number | null>({ libelle, value, option
       {options.map(([, l], i) => <option key={i} value={String(i)}>{l}</option>)}
     </select>
   );
-  if (!libelle) return largeur ? <div style={{ width: largeur }}>{select}</div> : select;
+  if (!libelle) return largeur ? <div className="champ-cadre" style={{ width: largeur }}>{select}</div> : select;
   return <div className="champ-groupe" style={{ width: largeur }}><label htmlFor={id} className="libelle">{libelle}</label>{select}</div>;
 }
 
+/* La case native reste la cible réelle (44 × 44 px, invisible) ; la boîte dessinée (.case-boite) reprend le rendu natif des maquettes. */
 export const CaseACocher = ({ libelle, valeur, onChange, disabled }: { libelle?: ReactNode; valeur: boolean; onChange?: (v: boolean) => void; disabled?: boolean }) => (
-  <label className="case"><input type="checkbox" checked={valeur} disabled={disabled || !onChange} onChange={(e) => onChange?.(e.target.checked)} />{libelle}</label>
+  <label className={`case ${disabled || !onChange ? 'inactive' : ''}`}>
+    <span className="case-zone"><input type="checkbox" checked={valeur} disabled={disabled || !onChange} onChange={(e) => onChange?.(e.target.checked)} /><span className="case-boite" aria-hidden="true" /></span>
+    {libelle !== undefined && libelle !== null && <span>{libelle}</span>}
+  </label>
 );
 export const Radio = ({ libelle, actif, onChange, nom }: { libelle: ReactNode; actif: boolean; onChange: () => void; nom: string }) => (
-  <label className="case"><input type="radio" name={nom} checked={actif} onChange={onChange} />{libelle}</label>
+  <label className="case">
+    <span className="case-zone"><input type="radio" name={nom} checked={actif} onChange={onChange} /><span className="case-boite ronde" aria-hidden="true" /></span>
+    <span>{libelle}</span>
+  </label>
 );
 
 export function Bascules<T extends string>({ options, valeur, onChange, petites }: { options: [T, string][]; valeur: T; onChange?: (v: T) => void; petites?: boolean }) {
@@ -134,7 +141,7 @@ export const Grille = ({ children, min = 220, ecart = 16 }: { children: ReactNod
 export function Colonnes({ colonnes, ecart = 20 }: { colonnes: { flex: number; min: number; enfants: ReactNode }[]; ecart?: number }) {
   return (
     <div className="colonnes" style={{ gap: ecart }}>
-      {colonnes.map((c, i) => <div key={i} className="colonne" style={{ flex: `${c.flex} 1 ${c.min}px`, gap: ecart }}>{c.enfants}</div>)}
+      {colonnes.map((c, i) => <div key={i} className="colonne" style={{ flex: `${c.flex} 1 min(${c.min}px, 100%)`, gap: ecart }}>{c.enfants}</div>)}
     </div>
   );
 }
@@ -157,13 +164,15 @@ export function Tableau({ colonnes, lignes, total, vide, onLigne, serre, cles }:
         <thead><tr>{colonnes.map((c, i) => <th key={i} scope="col" className={c.droite ? 'droite' : ''} style={c.largeur ? { width: c.largeur } : undefined}>{c.titre}</th>)}</tr></thead>
         <tbody>
           {lignes.map((l, r) => (
-            <tr key={cles?.[r] ?? r} className={onLigne ? 'cliquable' : ''} onClick={onLigne ? () => onLigne(r) : undefined}>
+            <tr key={cles?.[r] ?? r} className={onLigne ? 'cliquable' : ''} onClick={onLigne ? () => onLigne(r) : undefined} tabIndex={onLigne ? 0 : undefined}
+              onKeyDown={onLigne ? (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onLigne(r); } } : undefined}>
               {l.map((c, i) => <td key={i} className={`${colonnes[i]?.droite ? 'droite' : ''} ${colonnes[i]?.mobile === 'entete' || (i === 0 && !colonnes.some((x) => x.mobile === 'entete')) ? 'carte-titre' : ''} ${colonnes[i]?.mobile === 'cachee' ? 'cache-mobile' : ''}`}
                 data-titre={typeof colonnes[i]?.titre === 'string' ? (colonnes[i]!.titre as string) : undefined}>{c}</td>)}
             </tr>
           ))}
         </tbody>
-        {total && <tfoot><tr>{total.map((c, i) => <td key={i} className={colonnes[i]?.droite ? 'droite' : ''}>{c}</td>)}</tr></tfoot>}
+        {total && <tfoot><tr>{total.map((c, i) => <td key={i} className={`${colonnes[i]?.droite ? 'droite' : ''} ${i === 0 ? 'carte-titre' : ''} ${colonnes[i]?.mobile === 'cachee' ? 'cache-mobile' : ''}`}
+          data-titre={i > 0 && typeof colonnes[i]?.titre === 'string' ? (colonnes[i]!.titre as string) : undefined}>{c}</td>)}</tr></tfoot>}
       </table>
       {lignes.length === 0 && vide && <p className="doux" style={{ padding: 12, fontSize: 13 }}>{vide}</p>}
     </div>
@@ -205,7 +214,8 @@ export const Etapes = ({ etapes }: { etapes: [string, EtatEtape][] }) => (
 );
 
 export const LigneListe = ({ children, onClick, style }: { children: ReactNode; onClick?: () => void; style?: CSSProperties }) =>
-  <div className={`ligne-liste ${onClick ? 'cliquable' : ''}`} onClick={onClick} style={style}>{children}</div>;
+  <div className={`ligne-liste ${onClick ? 'cliquable' : ''}`} onClick={onClick} style={style} tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onClick(); } } : undefined}>{children}</div>;
 
 export const Choix = ({ children, actif, onClick, style }: { children: ReactNode; actif: boolean; onClick: () => void; style?: CSSProperties }) =>
   <button type="button" className={`choix ${actif ? 'actif' : ''}`} aria-current={actif ? 'true' : undefined} onClick={onClick} style={style}>{children}</button>;
@@ -269,23 +279,79 @@ export async function agir<T>(action: () => Promise<T>, succes?: string): Promis
 
 // ---------------------------------------------------------------- fenêtres
 
-/** Ouvre une fenêtre de saisie ; `fermer(valeur)` la ferme et résout la promesse. */
+const SELECTEUR_FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+export const focusables = (racine: HTMLElement) =>
+  [...racine.querySelectorAll<HTMLElement>(SELECTEUR_FOCUSABLE)].filter((e) => e.offsetParent !== null || e === document.activeElement);
+
+/** Piège le focus clavier dans `ref` (fenêtres, tiroir) : Tab et Maj+Tab bouclent ; le focus initial va au premier élément de saisie,
+ *  sinon au premier bouton, sinon au conteneur. À la fermeture, le focus revient à l'élément qui avait le focus à l'ouverture. */
+export function useFocusPiege(ref: { current: HTMLElement | null }, actif = true, retour?: HTMLElement | null) {
+  useEffect(() => {
+    if (!actif) return;
+    const el = ref.current;
+    if (!el) return;
+    const precedent = retour ?? (document.activeElement as HTMLElement | null);
+    const t = setTimeout(() => {
+      if (el.contains(document.activeElement) && document.activeElement !== el) return;
+      const liste = focusables(el);
+      const cible = liste.find((e) => e.matches('input, select, textarea') && !e.matches('[readonly]')) ?? liste.find((e) => !e.matches('.pied *')) ?? liste[0] ?? el;
+      cible.focus({ preventScroll: true });
+    }, 0);
+    const clavier = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const liste = focusables(el);
+      if (liste.length === 0) { e.preventDefault(); el.focus(); return; }
+      const premier = liste[0]!; const dernier = liste[liste.length - 1]!;
+      if (e.shiftKey && (document.activeElement === premier || document.activeElement === el)) { e.preventDefault(); dernier.focus(); }
+      else if (!e.shiftKey && document.activeElement === dernier) { e.preventDefault(); premier.focus(); }
+    };
+    el.addEventListener('keydown', clavier);
+    return () => {
+      clearTimeout(t);
+      el.removeEventListener('keydown', clavier);
+      if (precedent && document.contains(precedent) && !el.contains(precedent)) precedent.focus({ preventScroll: true });
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ref, actif]);
+}
+
+let compteurFenetres = 0;
+/** Ouvre une fenêtre de saisie ; `fermer(valeur)` la ferme et résout la promesse.
+ *  Accessibilité : role="dialog", aria-modal, titre relié par aria-labelledby, focus piégé puis rendu à l'élément déclencheur, Échap ferme. */
 export function ouvrirFenetre<T = void>(titre: string, contenu: (fermer: (v?: T) => void) => ReactNode, largeur = 520): Promise<T | undefined> {
   return new Promise((ok) => {
     const hote = document.createElement('div');
     document.body.append(hote);
     const racine = createRoot(hote);
-    const fermer = (v?: T) => { racine.unmount(); hote.remove(); ok(v); };
+    const idTitre = `fenetre-titre-${++compteurFenetres}`;
+    const declencheur = document.activeElement as HTMLElement | null;
+    let fermee = false;
+    const fermer = (v?: T) => {
+      if (fermee) return;
+      fermee = true;
+      racine.unmount();
+      hote.remove();
+      if (!document.querySelector('.voile')) document.body.classList.remove('fenetre-ouverte');
+      ok(v);
+    };
     const Fenetre = () => {
+      const ref = useRef<HTMLDivElement>(null);
+      useFocusPiege(ref, true, declencheur);
       useEffect(() => {
-        const echap = (e: KeyboardEvent) => { if (e.key === 'Escape') fermer(); };
+        document.body.classList.add('fenetre-ouverte');
+        // Échap ne ferme que la fenêtre du dessus (une confirmation peut s'ouvrir par-dessus un formulaire).
+        const echap = (e: KeyboardEvent) => {
+          if (e.key !== 'Escape' || e.defaultPrevented) return;
+          const voiles = document.querySelectorAll('.voile');
+          if (hote.contains(voiles[voiles.length - 1] ?? null)) { e.preventDefault(); fermer(); }
+        };
         window.addEventListener('keydown', echap);
         return () => window.removeEventListener('keydown', echap);
       }, []);
       return (
         <div className="voile" onMouseDown={(e) => { if (e.target === e.currentTarget) fermer(); }}>
-          <div className="fenetre" role="dialog" aria-modal="true" aria-label={titre} style={{ maxWidth: largeur }}>
-            <h2>{titre}</h2>
+          <div ref={ref} className="fenetre" role="dialog" aria-modal="true" aria-labelledby={idTitre} tabIndex={-1} style={{ maxWidth: largeur }}>
+            <h2 id={idTitre}>{titre}</h2>
             {contenu(fermer)}
           </div>
         </div>

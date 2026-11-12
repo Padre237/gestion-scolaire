@@ -480,3 +480,15 @@ body.tiroir-ouvert { overflow: hidden; }
 .tableau-points td { padding: 9px 8px; border-bottom: 1px solid var(--bord); }
 .tableau-points .droite { text-align: right; }
 .tableau-points tfoot td { font-weight: 700; border-bottom: 0; }
+
+/* ---------------------------------------------------------------- formulaire d'inscription configurable (D-42) */
+.questions { display: flex; flex-direction: column; }
+.question { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0; border-top: 1px solid var(--bord); }
+.question:first-child { border-top: 0; }
+.question.inactive .question-texte { opacity: 0.55; }
+.question-ordre { display: inline-flex; flex-direction: column; }
+.question-ordre button { width: 32px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: none; color: var(--doux); cursor: pointer; border-radius: 6px; }
+.question-ordre button:hover:not(:disabled) { background: var(--neutre-fond); color: var(--texte); }
+.question-ordre button:disabled { opacity: 0.3; cursor: default; }
+.question-texte { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
+.question-reglages { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }

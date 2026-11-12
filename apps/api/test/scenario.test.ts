@@ -2,6 +2,7 @@
 // de gestion et les refus de droits (403) vérifiés côté serveur. Les étapes s'appuient les unes sur les autres.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, connecter, connecterParent, preparer, auj, jourSemaine } from './aide.ts';
+import { FORMULAIRE_PAR_DEFAUT } from '@gs/shared';
 
 type Env = Awaited<ReturnType<typeof preparer>>;
 let env: Env;
@@ -162,13 +163,38 @@ describe('Étape 2 · inscriptions et compte famille (CU-06, CU-07, RG-04 à RG-
     expect(ech.corps.lignes.map((l: { prix: number }) => l.prix)).toEqual([10000, 25000, 20000, 15000]);
     expect(ech.corps.inscription.statut).toBe('attente');
   });
-  it('rattache le second enfant à la même famille et au même compte', async () => {
-    const r = await sec.post('/scolarite/inscriptions', { eleve: eleve('KENFACK', 'Loïc', 'M', '2021-04-11'), responsables: [resp('KENFACK Pauline', '600000055')],
+  const bus = { code: 'perso_bus', bloc: 'vie', libelle: 'Arrêt du bus', type: 'choix_unique', options: ['Mvan', 'Biyem-Assi'], obligatoire: true, actif: true, ordre: 50, modele: null };
+  it('formulaire d’inscription configurable : champ obligatoire exigé, réponses contrôlées (D-42)', async () => {
+    expect((await sec.put('/scolarite/formulaire', { champs: [...FORMULAIRE_PAR_DEFAUT, bus] })).status).toBe(200);
+    const f = await sec.get('/scolarite/formulaire');
+    expect(f.corps.regle).toBe(true);
+    expect(f.corps.champs.find((c: { code: string }) => c.code === 'perso_bus').obligatoire).toBe(true);
+    const sans = await sec.post('/scolarite/inscriptions', { eleve: eleve('KENFACK', 'Loïc', 'M', '2021-04-11'), responsables: [resp('KENFACK Pauline', '600000055')],
       classeId: ids['classe:SIL A'], type: 'nouvelle', tarif: 'nouveau' });
+    expect(sans.status).toBe(422);
+    expect(sans.corps.code).toBe('SCO_RENSEIGNEMENT_REQUIS');
+    const hors = await sec.post('/scolarite/inscriptions', { eleve: eleve('KENFACK', 'Loïc', 'M', '2021-04-11'), responsables: [resp('KENFACK Pauline', '600000055')],
+      classeId: ids['classe:SIL A'], type: 'nouvelle', tarif: 'nouveau', renseignements: { perso_bus: 'Ailleurs' } });
+    expect(hors.corps.code).toBe('SCO_RENSEIGNEMENT');
+  });
+  it('rattache le second enfant à la même famille et au même compte ; renseignements et pièce jointe rangés', async () => {
+    const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+    const r = await sec.post('/scolarite/inscriptions', { eleve: eleve('KENFACK', 'Loïc', 'M', '2021-04-11'), responsables: [resp('KENFACK Pauline', '600000055')],
+      classeId: ids['classe:SIL A'], type: 'nouvelle', tarif: 'nouveau',
+      renseignements: { perso_bus: 'Mvan', groupe_sanguin: 'O+', allergies: 'Arachide', acte_naissance: { base64: png, nom: 'acte.png' } } });
     expect(r.status).toBe(200);
     expect(r.corps.compteFamille.cree).toBe(false);
     ids['insc:loic'] = r.corps.inscriptionId;
     ids['eleve:loic'] = r.corps.eleveId;
+    const e = await sec.get(`/scolarite/eleves/${ids['eleve:loic']}`);
+    const lignes = e.corps.renseignements.flatMap((b: { lignes: unknown[] }) => b.lignes);
+    expect(lignes).toEqual(expect.arrayContaining([expect.objectContaining({ libelle: 'Arrêt du bus', valeur: 'Mvan' }), expect.objectContaining({ libelle: 'Groupe sanguin', valeur: 'O+' })]));
+    const piece = lignes.find((l: { libelle: string }) => l.libelle === 'Acte de naissance');
+    const img = await sec.get(`/scolarite/eleves/${ids['eleve:loic']}/pieces/${piece.piece}`);
+    expect(img.status).toBe(200);
+    expect(img.entetes['content-type']).toBe('image/png');
+    // Retour au formulaire proposé : les inscriptions suivantes n'ont pas de champ obligatoire.
+    expect((await sec.put('/scolarite/formulaire', { champs: FORMULAIRE_PAR_DEFAUT })).status).toBe(200);
   });
   it('RG-09 : signale et refuse un doublon tant qu\'il n\'est pas écarté', async () => {
     const d = await sec.get('/scolarite/doublons?nom=KENFACK&prenoms=Steeve&dateNaissance=2017-01-05');

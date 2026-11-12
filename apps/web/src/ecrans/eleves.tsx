@@ -4,6 +4,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
+import { ChampsDuBloc, erreursFormulaire, valeursAEnvoyer, type Formulaire, type Valeurs } from './formulaire-inscription.tsx';
 import { api, ErreurApi, requete, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
@@ -33,9 +34,7 @@ const LIENS: [string, string][] = [['mere', 'Mère'], ['pere', 'Père'], ['tuteu
 const LANGUES: [string, string][] = [['fr', 'Français'], ['en', 'English']];
 const SOUS_SYSTEMES: [string, string][] = [['francophone', 'Francophone'], ['anglophone', 'Anglophone']];
 const TYPES: [string, string][] = [['nouvelle', 'Nouvelle inscription'], ['reinscription', 'Réinscription'], ['redoublement', 'Redoublement']];
-const TARIFS: [string, string][] = [['nouveau', 'Nouvel élève'], ['ancien', 'Ancien élève']];
 const MOUVEMENTS: [string, string][] = [['transfert', 'Transfert vers un autre établissement'], ['abandon', 'Abandon'], ['exclusion', 'Exclusion']];
-const RUBRIQUES = ['Inscription', 'Tranche 1', 'Tranche 2', 'Tranche 3'];
 const PERMISSIONS_FINANCES = ['finances.recu.consulter', 'finances.versement.encaisser', 'finances.impaye.consulter'];
 
 /** Inscription en cours dans l'année (en attente du premier versement, ou validée). */
@@ -235,6 +234,24 @@ function EcranFicheEleve() {
           {ech && <Echeancier ech={ech} enCours={enCours} recharger={recharger} />}
           {ech && <Versements ech={ech} enCours={enCours} recharger={recharger} />}
           {!ech && insc && <Panneau><Note>Les informations financières relèvent de l’économe et du directeur.</Note></Panneau>}
+          {(e.renseignements ?? []).length > 0 && (
+            <Panneau>
+              <TitrePanneau titre="Renseignements de l’inscription" />
+              {e.renseignements.map((b: any) => (
+                <div key={b.bloc} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <span className="etiquette">{b.libelle}</span>
+                  {b.lignes.map((l: any) => (
+                    <div key={l.code} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 16px' }}>
+                      <span className="doux" style={{ flex: '0 1 240px' }}>{l.libelle}</span>
+                      {l.piece
+                        ? <a className="gras" href={url(`/scolarite/eleves/${e.id}/pieces/${l.piece}`)} target="_blank" rel="noreferrer">{l.valeur} · voir la photo</a>
+                        : <span className="gras" style={{ flex: '1 1 200px' }}>{l.valeur}</span>}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </Panneau>
+          )}
         </> },
         { flex: 1, min: 320, enfants: <>
           <Responsables e={e} recharger={recharger} />
@@ -684,8 +701,6 @@ function EcranInscription() {
   const [niveau, setNiveau] = useState<string | null>(null);
   const [classe, setClasse] = useState<string | null>(null);
   const [type, setType] = useState('nouvelle');
-  const [tarif, setTarif] = useState('nouveau');
-  const [grille, setGrille] = useState<any>(undefined);
   const [matricule, setMatricule] = useState<string | null>(null);
   const [doublons, setDoublons] = useState<any[]>([]);
   const [doublonEcarte, setDoublonEcarte] = useState(false);
@@ -693,6 +708,13 @@ function EcranInscription() {
   const [erreurs, setErreurs] = useState<Record<string, string | null>>({});
   const [charge, setCharge] = useState(false);
   const liste = useDonnees(() => api.get('/scolarite/classes'));
+  // Formulaire réglé par l'établissement (D-42) : champs actifs, rangés par bloc.
+  const formulaire = useDonnees(() => api.get<Formulaire>('/scolarite/formulaire'));
+  const champsActifs = (formulaire.d?.champs ?? []).filter((c) => c.actif);
+  const duBloc = (b: string) => champsActifs.filter((c) => c.bloc === b);
+  const [valeurs, setValeurs] = useState<Valeurs>({});
+  const [erreursF, setErreursF] = useState<Record<string, string>>({});
+  const majValeur = (code: string, v: unknown) => setValeurs((x) => ({ ...x, [code]: v }));
   const classes: any[] = liste.d?.classes ?? [];
 
   // Niveau et classe : valeurs choisies si elles existent dans le sous-système, sinon les premières de la liste.
@@ -705,13 +727,6 @@ function EcranInscription() {
   const classesNiveau = classes.filter((c) => c.niveauId === niveauId);
   const classeId: string | null = classe && classesNiveau.some((c) => c.id === classe) ? classe : classesNiveau[0]?.id ?? null;
   const classeChoisie = classesNiveau.find((c) => c.id === classeId);
-
-  useEffect(() => {
-    let actif = true;
-    setGrille(undefined);
-    api.get(`/finances/grille${requete({ tarif })}`).then((g) => { if (actif) setGrille(g); }).catch(() => { if (actif) setGrille(null); });
-    return () => { actif = false; };
-  }, [tarif]);
 
   useEffect(() => {
     if (!classeId) { setMatricule(null); return; }
@@ -747,12 +762,11 @@ function EcranInscription() {
   const choisirPhoto = async () => {
     const f = await choisirFichier('image/png,image/jpeg');
     if (!f) return;
-    if (f.base64.length > 1_400_000) { signaler('Photo trop lourde : 1 Mo au plus.', true); return; }
+    if (f.octets.length > 5 * 1024 * 1024) { signaler('Photo trop lourde : 5 Mo au plus.', true); return; }
     setPhoto({ nom: f.nom, base64: f.base64 });
   };
 
-  const peutEncaisser = moi.a('finances.versement.encaisser');
-  const enregistrer = async (encaisser: boolean) => {
+  const enregistrer = async () => {
     if (charge) return;
     const iso = versIso(naissance);
     const e = {
@@ -762,7 +776,9 @@ function EcranInscription() {
       resp0: resps.some((r) => r.nom.trim()) ? null : 'Obligatoire',
     };
     setErreurs(e);
-    if (Object.values(e).some(Boolean)) return;
+    const ef = erreursFormulaire(champsActifs, valeurs);
+    setErreursF(ef);
+    if (Object.values(e).some(Boolean) || Object.keys(ef).length) { signaler('Complétez les champs signalés.', true); return; }
     if (!classeId) { signaler('Choisissez une classe.', true); return; }
     setCharge(true);
     try {
@@ -770,10 +786,10 @@ function EcranInscription() {
         eleve: { nom: nom.trim(), prenoms: prenoms.trim(), sexe, dateNaissance: iso, lieuNaissance: lieu.trim() || null, ...(photo ? { photo: photo.base64 } : {}) },
         responsables: resps.map((r, i) => ({ r, i })).filter(({ r }) => r.nom.trim())
           .map(({ r, i }) => ({ nom: r.nom.trim(), lien: r.lien, telephone: r.tel, langue: r.langue, payeur: i === payeur, recoitSms: r.sms })),
-        classeId, type, tarif, doublonEcarte,
+        classeId, type, tarif: type === 'nouvelle' ? 'nouveau' : 'ancien', doublonEcarte, renseignements: valeursAEnvoyer(champsActifs, valeurs),
       });
       await fenetreInscrit(r);
-      naviguer(encaisser ? `/finances/encaissement/${r.inscriptionId}` : `/scolarite/eleves/${r.eleveId}`);
+      naviguer(`/scolarite/eleves/${r.eleveId}`);
     } catch (x) {
       signaler(x instanceof ErreurApi ? x.message : String(x), true);
     } finally {
@@ -781,12 +797,9 @@ function EcranInscription() {
     }
   };
   useRaccourci('echap', () => naviguer('/scolarite/eleves'));
-  useRaccourci('ctrl+entree', () => { void enregistrer(peutEncaisser); });
+  useRaccourci('ctrl+entree', () => { void enregistrer(); });
 
   const doublon = doublons.length > 0 && !doublonEcarte ? doublons[0] : null;
-  const niveauGrille = grille?.niveaux?.find((x: any) => x.niveauId === niveauId) ?? null;
-  const montants: (number | null)[] | null = niveauGrille?.montants ?? null;
-  const dates: string[] = grille?.dates ?? [];
   const enfants: any[] = famille?.enfants ?? [];
 
   if (liste.erreur) return <Coque module="eleves" titre="Nouvelle inscription"><Erreur message={liste.erreur} recharger={liste.recharger} /></Coque>;
@@ -827,6 +840,7 @@ function EcranInscription() {
                 {doublon.classe ? `, inscrit en ${doublon.classe}` : ''} ({doublon.matricule}).
               </Bandeau>
             )}
+            <ChampsDuBloc champs={duBloc('identite')} valeurs={valeurs} maj={majValeur} erreurs={erreursF} />
           </Panneau>
           <Panneau>
             <TitrePanneau titre="Responsables" action={resps.length < 4
@@ -861,6 +875,7 @@ function EcranInscription() {
             ) : (
               <Bandeau icone="famille">Pour une nouvelle famille, le compte est créé à l’enregistrement et le mot de passe est imprimé sur la fiche d’inscription.</Bandeau>
             )}
+            <ChampsDuBloc champs={duBloc('famille')} valeurs={valeurs} maj={majValeur} erreurs={erreursF} />
           </Panneau>
           <Panneau>
             <TitrePanneau titre={`Classe · année ${moi.annee ?? ''}`} />
@@ -875,34 +890,20 @@ function EcranInscription() {
                   </Case>
                 </Champs>
                 <Champs>
-                  <Case flex="1 1 180px">
-                    <Liste libelle="Type" value={type} options={TYPES} onChange={(v) => { setType(v); setTarif(v === 'nouvelle' ? 'nouveau' : 'ancien'); }} />
-                  </Case>
-                  <Case flex="1 1 180px"><Liste libelle="Tarif" value={tarif} options={TARIFS} onChange={setTarif} /></Case>
+                  <Case flex="1 1 180px"><Liste libelle="Type" value={type} options={TYPES} onChange={setType} /></Case>
                 </Champs>
                 <Doux>Au-delà de {classeChoisie?.effectifMax ?? 40} élèves, la classe est complète : une dérogation du directeur est demandée.</Doux>
               </>
             )}
           </Panneau>
+          {(formulaire.d?.blocs ?? []).filter((b) => b.code !== 'identite' && b.code !== 'famille' && duBloc(b.code).length > 0).map((b) => (
+            <Panneau key={b.code}>
+              <TitrePanneau titre={b.libelle} sous={duBloc(b.code).some((c) => c.obligatoire) ? '* réponse obligatoire' : undefined} />
+              <ChampsDuBloc champs={duBloc(b.code)} valeurs={valeurs} maj={majValeur} erreurs={erreursF} />
+            </Panneau>
+          ))}
         </> },
         { flex: 1, min: 320, enfants: <>
-          <Panneau reperes>
-            <TitrePanneau titre="Frais dus" />
-            {grille === undefined || !liste.d ? <Chargement />
-              : grille === null ? <Note>La grille des frais n’a pas pu être chargée.</Note>
-              : !montants ? <Note ton="attention">Aucune grille des frais pour ce niveau et ce tarif : l’inscription sera refusée.</Note>
-              : (
-                <Tableau
-                  colonnes={[{ titre: 'Rubrique', mobile: 'entete' }, { titre: 'Montant', droite: true }, { titre: 'Date limite' }]}
-                  lignes={RUBRIQUES.map((l, i) => [l, montant(montants[i] ?? 0), jjmmaaaa(dates[i])])}
-                  total={['Total', montant(montants.reduce<number>((s, m) => s + (m ?? 0), 0)), '']}
-                />
-              )}
-            {niveauGrille && <Doux>Copie de la grille du niveau {niveauGrille.code}. Une réduction s’accorde ensuite depuis la fiche.</Doux>}
-            {montants && (montants[0] ?? 0) > 0 && (
-              <Bandeau icone="fraisCaisse">L’inscription sera validée après un premier versement d’au moins {montant(montants[0])} FCFA.</Bandeau>
-            )}
-          </Panneau>
           <Panneau ecart={8}>
             <InfoCaps libelle="Matricule attribué à l’enregistrement" valeur={<span className="gras">{matricule ?? '–'}</span>} />
             <Doux>Année d’entrée, code de section, numéro d’ordre : sans trou ni doublon.</Doux>
@@ -911,8 +912,7 @@ function EcranInscription() {
       ]} />
       <RangeePile fin centre>
         <Bouton touches={['Échap']} onClick={() => naviguer('/scolarite/eleves')}>Annuler</Bouton>
-        <Bouton charge={charge} onClick={() => enregistrer(false)}>Enregistrer l'inscription</Bouton>
-        <Bouton variante="principal" icone="fraisCaisse" touches={['Ctrl', 'Entrée']} charge={charge} onClick={() => enregistrer(peutEncaisser)}>Enregistrer et encaisser</Bouton>
+        <Bouton variante="principal" touches={['Ctrl', 'Entrée']} charge={charge} onClick={enregistrer}>Enregistrer l'inscription</Bouton>
       </RangeePile>
     </Coque>
   );

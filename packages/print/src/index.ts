@@ -352,25 +352,55 @@ export async function pdfCartesScolaires(d: { etablissement: Etablissement; clas
 
 // ---------------------------------------------------------------- fiche d'inscription (E-23)
 
-export async function pdfFicheInscription(d: Record<string, string> & { motDePasse: string | null; telephoneConnexion: string }) {
+export interface FicheInscriptionDetail {
+  responsables?: { nom: string; lien: string; telephone: string; payeur: boolean }[];
+  /** Réponses au formulaire d'inscription, bloc par bloc (D-42). */
+  blocs?: { libelle: string; lignes: { libelle: string; valeur: string }[] }[];
+}
+
+/** Fiche d'inscription détaillée : identité, classe, responsables, renseignements du formulaire, accès à l'espace parents. Aucun montant. */
+export async function pdfFicheInscription(d: Record<string, string> & { motDePasse: string | null; telephoneConnexion: string } & FicheInscriptionDetail) {
   const { doc, polices: p } = await nouveauDocument(`Fiche d'inscription ${d['matricule']}`);
-  const page = doc.addPage([595, 842]);
+  let page = doc.addPage([595, 842]);
   enteteA4(page, p, { nom_fr: d['nom_fr']!, nom_en: d['nom_en']!, ville_bp: d['ville_bp'] || null, telephone: d['telephone'] || null },
     "FICHE D'INSCRIPTION", `Registration form · ${d['annee']}`);
   let y = 842 - 170;
-  for (const [k, v] of [['Élève', `${d['nom']} ${d['prenoms']}`], ['Matricule', d['matricule']!], ['Né(e) le', `${d['naissance']}${d['lieu'] ? ` à ${d['lieu']}` : ''}`],
-    ['Classe', d['classe']!], ['Année scolaire', d['annee']!]] as [string, string][]) {
-    texte(page, k, 60, y, p.normal, 11, DOUX); texte(page, v, 200, y, p.gras, 11); y -= 20;
+  const place = (h: number) => { if (y - h < 60) { page = doc.addPage([595, 842]); y = 842 - 60; } };
+  const section = (titre: string) => {
+    place(40);
+    y -= 6;
+    texte(page, titre.toUpperCase(), 50, y, p.gras, 9.5, DOUX);
+    page.drawLine({ start: { x: 50, y: y - 5 }, end: { x: 545, y: y - 5 }, thickness: 0.6, color: TRAIT });
+    y -= 22;
+  };
+  const ligneInfo = (k: string, v: string) => {
+    const l = lignesDe(v || '–', p.gras, 10.5, 330);
+    place(14 * l.length + 4);
+    texte(page, k, 60, y, p.normal, 10.5, DOUX);
+    for (const [i, x] of l.entries()) texte(page, x, 215, y - i * 14, p.gras, 10.5);
+    y -= 14 * l.length + 4;
+  };
+  section('Élève');
+  for (const [k, v] of [['Nom et prénoms', `${d['nom']} ${d['prenoms']}`], ['Matricule', d['matricule']!], ['Né(e) le', `${d['naissance']}${d['lieu'] ? ` à ${d['lieu']}` : ''}`],
+    ['Sexe', d['sexe'] === 'F' ? 'Fille' : 'Garçon'], ['Classe', d['classe']!], ['Année scolaire', d['annee']!]] as [string, string][]) ligneInfo(k, v);
+  if (d.responsables?.length) {
+    section('Responsables');
+    for (const r of d.responsables) ligneInfo(`${r.lien}${r.payeur ? ' · payeur' : ''}`, `${r.nom} · ${r.telephone}`);
   }
-  y -= 20;
+  for (const b of d.blocs ?? []) {
+    section(b.libelle);
+    for (const l of b.lignes) ligneInfo(l.libelle, l.valeur);
+  }
+  place(150);
+  y -= 16;
   page.drawRectangle({ x: 50, y: y - 110, width: 495, height: 120, borderColor: TRAIT, borderWidth: 1, color: rgb(0.965, 0.973, 0.988) });
   texte(page, 'Espace parents · Parent space', 66, y - 14, p.gras, 12);
   texte(page, `Numéro de téléphone : ${d.telephoneConnexion}`, 66, y - 40, p.normal, 11);
   texte(page, `Mot de passe : ${d.motDePasse ?? 'inchangé : utilisez celui de votre fiche précédente'}`, 66, y - 60, p.normal, 11);
-  for (const [i, l] of lignesDe('Un seul compte par famille. Suivez les notes, les absences et les paiements de vos enfants. En cas d’oubli, demandez un nouveau mot de passe à l’école.', p.normal, 9, 460).entries()) {
+  for (const [i, l] of lignesDe('Un seul compte par famille. Suivez les notes, les absences et la scolarité de vos enfants. En cas d’oubli, demandez un nouveau mot de passe à l’école.', p.normal, 9, 460).entries()) {
     texte(page, l, 66, y - 84 - i * 12, p.normal, 9, DOUX);
   }
-  texteDroite(page, 'Le secrétariat', 545, 120, p.normal, 10, DOUX);
+  texteDroite(page, 'Le secrétariat', 545, 60, p.normal, 10, DOUX);
   return doc.save();
 }
 

@@ -15,6 +15,7 @@ import { classeInfo, cleCompteur, exigerAnneeOuverte, FORMATS, prochainNumero, a
 import { chiffres, formatTelephone, inscription } from '../index.ts';
 import '../index.ts';
 import { pdfCartesScolaires, pdfCertificat, pdfFicheInscription, pdfListeClasse, pdfTableau } from '@gs/print';
+import { enregistrerRenseignements, renseignementsLisibles, routesFormulaire } from './formulaire.ts';
 
 const Uuid = z.uuid();
 const LIENS: Record<string, string> = { mere: 'Mère', pere: 'Père', tuteur: 'Tuteur' };
@@ -34,11 +35,12 @@ const NouvelEleve = z.object({
   sexe: z.enum(['M', 'F']),
   dateNaissance: z.iso.date(),
   lieuNaissance: z.string().trim().max(80).nullish(),
-  photo: z.string().max(1_400_000).nullish(),
+  photo: z.string().max(7_100_000).nullish(),
 });
 
 export async function routesScolarite(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
+  await routesFormulaire(app);
 
   const filtreClasses = async (ctx: Contexte) => classesAccessibles(app.bd, ctx, 'scolarite.eleve.consulter');
 
@@ -139,9 +141,10 @@ export async function routesScolarite(app: FastifyInstance) {
     await exigerEleveAccessible(ctx, req.params.id);
     const e = await app.bd.lireUn<Record<string, unknown>>(sql`
       SELECT e.id, e.matricule, e.nom, e.prenoms, e.sexe, e.date_naissance AS "dateNaissance", e.lieu_naissance AS "lieuNaissance",
-             e.photo IS NOT NULL AS "aPhoto", e.famille_id AS "familleId"
+             e.photo IS NOT NULL AS "aPhoto", e.famille_id AS "familleId", e.renseignements
         FROM scolarite.eleve e WHERE e.id = ${req.params.id} AND e.etablissement_id = ${ctx.etablissementId}`);
     if (!e) throw introuvable('Élève');
+    e['renseignements'] = await renseignementsLisibles((q) => app.bd.lire(q), ctx.etablissementId, (e['renseignements'] ?? {}) as Record<string, unknown>);
     const insc = await app.bd.lireUn<Record<string, unknown>>(sql`
       SELECT i.id, i.classe_id AS "classeId", c.nom AS classe, cy.sous_systeme AS "sousSysteme", i.type, i.tarif, i.statut,
              i.inscrit_le AS "inscritLe", a.libelle AS annee
@@ -164,6 +167,18 @@ export async function routesScolarite(app: FastifyInstance) {
     const e = await app.bd.lireUn<{ photo: Buffer | null }>(sql`SELECT photo FROM scolarite.eleve WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
     if (!e?.photo) throw introuvable('Photo');
     return rep.type(e.photo[0] === 0x89 ? 'image/png' : 'image/jpeg').send(e.photo);
+  });
+
+  // Photos jointes au dossier (formulaire d'inscription, D-42).
+  r.get('/scolarite/eleves/:id/pieces/:piece', {
+    config: { permission: 'scolarite.eleve.consulter' }, schema: { tags: ['scolarite'], params: z.object({ id: Uuid, piece: Uuid }) },
+  }, async (req, rep) => {
+    const ctx = exiger(req);
+    await exigerEleveAccessible(ctx, req.params.id);
+    const p = await app.bd.lireUn<{ type_mime: string; contenu: Buffer }>(sql`
+      SELECT type_mime, contenu FROM scolarite.piece_eleve WHERE id = ${req.params.piece} AND eleve_id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
+    if (!p) throw introuvable('Pièce');
+    return rep.type(p.type_mime).header('cache-control', 'private, max-age=3600').send(p.contenu);
   });
 
   r.get('/scolarite/eleves/:id/historique', { config: { permission: 'scolarite.eleve.consulter' }, schema: { tags: ['scolarite'], params: z.object({ id: Uuid }) } }, async (req) => {
@@ -253,11 +268,13 @@ export async function routesScolarite(app: FastifyInstance) {
     responsables: z.array(Responsable).min(1).max(4).optional(),
     classeId: Uuid, type: z.enum(['nouvelle', 'reinscription', 'redoublement']), tarif: z.enum(['nouveau', 'ancien']),
     doublonEcarte: z.boolean().default(false),
+    /** Réponses aux champs du formulaire d'inscription (D-42) : { code: valeur } ; une photo est { base64, nom }. */
+    renseignements: z.record(z.string(), z.unknown()).default({}),
   });
-  type Inscription = z.infer<typeof CorpsInscription> & { matricule?: string | null };
+  type Inscription = Omit<z.infer<typeof CorpsInscription>, 'renseignements'> & { renseignements?: Record<string, unknown>; matricule?: string | null };
 
   /** Inscription d'un élève (CU-06, CU-07) : commune à l'écran Inscription et à l'import (écran Données, import:csv). */
-  async function inscrire(tx: Tx, ctx: Contexte, b: Inscription) {
+  async function inscrire(tx: Tx, ctx: Contexte, b: Inscription, options: { formulaire?: boolean } = {}) {
     if (!b.eleveId && (!b.eleve || !b.responsables)) throw new ErreurMetier('SCO_ELEVE_REQUIS', 422, 'Identité et responsables requis pour un nouvel élève.');
     if (b.responsables && b.responsables.filter((x) => x.payeur).length !== 1) {
       throw new ErreurMetier('SCO_UN_PAYEUR', 422, 'Il faut exactement un payeur principal (RG-08).', 'responsables');
@@ -312,6 +329,8 @@ export async function routesScolarite(app: FastifyInstance) {
         INSERT INTO scolarite.eleve (etablissement_id, matricule, nom, prenoms, sexe, date_naissance, lieu_naissance, photo, famille_id, cree_par)
         VALUES (${ctx.etablissementId}, ${matricule}, ${ev.nom}, ${ev.prenoms}, ${ev.sexe}, ${ev.dateNaissance}, ${ev.lieuNaissance ?? null},
                 ${photo}, ${familleId}, ${ctx.compteId}) RETURNING id`))!.id;
+      // Formulaire configuré par l'établissement : contrôlé et enregistré pour une inscription faite à l'écran (pas pour l'import).
+      if (options.formulaire) await enregistrerRenseignements(tx, ctx, eleveId, b.renseignements ?? {});
       let ordre = 1;
       for (const resp of b.responsables!) {
         let rid = (await ligne<{ id: string }>(tx, sql`
@@ -362,11 +381,11 @@ export async function routesScolarite(app: FastifyInstance) {
 
   r.post('/scolarite/inscriptions', {
     config: { permission: 'scolarite.inscription.creer' },
-    bodyLimit: 2_000_000,
+    bodyLimit: 40_000_000,
     schema: { tags: ['scolarite'], body: CorpsInscription },
   }, async (req) => {
     const ctx = exiger(req);
-    return app.bd.transaction(ctx.compteId, (tx) => inscrire(tx, ctx, req.body));
+    return app.bd.transaction(ctx.compteId, (tx) => inscrire(tx, ctx, req.body, { formulaire: true }));
   });
 
   // ------------------------------------------------------------- import (écran Données, commande import:csv, IMPORT.md)
@@ -483,7 +502,8 @@ export async function routesScolarite(app: FastifyInstance) {
   }, async (req, rep) => {
     const ctx = exiger(req);
     const d = await app.bd.lireUn<Record<string, string>>(sql`
-      SELECT e.nom, e.prenoms, e.matricule, to_char(e.date_naissance, 'DD/MM/YYYY') AS naissance, COALESCE(e.lieu_naissance, '') AS lieu,
+      SELECT e.id AS eleve_id, e.nom, e.prenoms, e.sexe, e.matricule, to_char(e.date_naissance, 'DD/MM/YYYY') AS naissance, COALESCE(e.lieu_naissance, '') AS lieu,
+             e.renseignements,
              c.nom AS classe, a.libelle AS annee, et.nom_fr, et.nom_en, COALESCE(et.ville_bp, '') AS ville_bp, COALESCE(et.telephone, '') AS telephone,
              COALESCE(co.identifiant, '') AS identifiant
         FROM scolarite.inscription i JOIN scolarite.eleve e ON e.id = i.eleve_id JOIN structure.classe c ON c.id = i.classe_id
@@ -491,7 +511,13 @@ export async function routesScolarite(app: FastifyInstance) {
         LEFT JOIN core.compte co ON co.famille_id = e.famille_id
        WHERE i.id = ${req.params.id} AND i.etablissement_id = ${ctx.etablissementId}`);
     if (!d) throw introuvable('Inscription');
-    const pdf = await pdfFicheInscription({ ...d, telephoneConnexion: formatTelephone(d['identifiant'] ?? ''), motDePasse: req.body.motDePasse ?? null } as never);
+    const responsables = await app.bd.lire<{ nom: string; lien: string; telephone: string; payeur: boolean }>(sql`
+      SELECT r.nom, er.lien, r.telephone, er.payeur FROM scolarite.eleve_responsable er JOIN scolarite.responsable r ON r.id = er.responsable_id
+       WHERE er.eleve_id = ${d['eleve_id']} ORDER BY er.payeur DESC, er.ordre`);
+    const blocs = await renseignementsLisibles((q) => app.bd.lire(q), ctx.etablissementId, (d['renseignements'] ?? {}) as unknown as Record<string, unknown>);
+    const pdf = await pdfFicheInscription({ ...d, telephoneConnexion: formatTelephone(d['identifiant'] ?? ''), motDePasse: req.body.motDePasse ?? null,
+      responsables: responsables.map((x) => ({ nom: x.nom, lien: LIENS[x.lien] ?? x.lien, telephone: formatTelephone(x.telephone), payeur: x.payeur })),
+      blocs: blocs.map((b) => ({ libelle: b.libelle, lignes: b.lignes.map((l) => ({ libelle: l.libelle, valeur: l.valeur })) })) } as never);
     return rep.type('application/pdf').header('content-disposition', `inline; filename="fiche-${d['matricule']}.pdf"`).send(Buffer.from(pdf));
   });
 

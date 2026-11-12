@@ -7,14 +7,6 @@ coverage/
 !.env.exemple
 config.local.json
 
-# Flutter
-apps/client/.dart_tool/
-apps/client/build/
-apps/client/.flutter-plugins
-apps/client/.flutter-plugins-dependencies
-apps/client/.packages
-apps/client/test/**/failures/
-
 # Données locales : jamais dans le dépôt
 var/
 sauvegardes/

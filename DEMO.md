@@ -32,7 +32,7 @@ Ce document déroule la démonstration, rôle par rôle, à partir d'une base vi
 
 ### Répétition et retour à l'état de départ
 
-Pour répéter sur une école déjà remplie, avec un trimestre de notes, de paiements et d'absences, lancez `pnpm demo:fictif`. Les comptes de répétition s'affichent à la fin, avec leurs mots de passe ; ne les utilisez jamais pour la vraie démonstration.
+Pour répéter sur une école déjà remplie (2025/2026 achevée et clôturée, 2026/2027 jusqu'à la veille, 25 à 30 élèves par classe, familles, paiements, notes, bulletins, absences), lancez `pnpm demo:donnees --oui` : la base est recréée en trois à quatre minutes. Les comptes de répétition s'affichent à la fin, avec leurs mots de passe ; ne les utilisez jamais pour la vraie démonstration.
 
 Gardez l'état de départ sous un nom, puis revenez-y entre deux passages :
 

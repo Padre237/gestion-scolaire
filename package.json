@@ -6,7 +6,6 @@
   "scripts": {
     "migrer": "pnpm --filter @gs/db migrer",
     "demo:vide": "pnpm --filter @gs/demo vide",
-    "demo:fictif": "pnpm --filter @gs/demo fictif",
     "import:csv": "pnpm --filter @gs/demo import-csv",
     "demo:sauvegarde": "pnpm --filter @gs/demo sauvegarde",
     "demo:restaurer": "pnpm --filter @gs/demo restaurer",
@@ -15,7 +14,6 @@
     "verifier": "pnpm -r exec tsc --noEmit",
     "web:build": "pnpm --filter @gs/web build",
     "web:dev": "pnpm --filter @gs/web dev",
-    "demo:progression": "pnpm --filter @gs/demo progression",
     "demo:donnees": "pnpm --filter @gs/demo donnees"
   },
   "engines": {

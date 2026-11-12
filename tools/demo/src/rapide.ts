@@ -18,7 +18,7 @@ import { demander, drapeau, sortir } from './commun.ts';
 import { CLASSES, anglophone, classeDe, classesSuivantes, elevesDe, genererEcole, matieresDuNiveau, matieresPar } from './fictif-ecole.ts';
 import { affectations, creerAnnee, emploiDuTemps, fondation, grille, lirePeriodes } from './fictif-annee.ts';
 import {
-  AUJ, DEBUT, choisir, dernierVendredi, entier, hasard, hhmm, jj, jourEntre, joursOuvrables, ouvrableApres, ouvrableAvant, plusJours, premierLundi,
+  AUJ, DEBUT, choisir, dernierVendredi, entier, hasard, hhmm, jourEntre, joursOuvrables, ouvrableApres, ouvrableAvant, plusJours, premierLundi,
   type Annee, type Contexte, type Eleve, type Horloge,
 } from './fictif-outils.ts';
 
@@ -88,7 +88,7 @@ async function main() {
     await creerEtablissement(bd, { nomFr: 'Groupe scolaire bilingue La Ruche d’Or', nomEn: 'La Ruche d’Or Bilingual School',
       secretaire: { identifiant: 'secretaire', nomAffiche: 'Mme NDZANA Rose', motDePasse: 'demo-secretaire' } });
     const sec = await connecter(app, 'secretaire', 'demo-secretaire');
-    const horloge = { a: async <T>(_d: Date, fn: () => Promise<T>) => fn() } as unknown as Horloge;
+    const horloge: Horloge = { a: (_d, fn) => fn() };
     const ctx = { app, horloge, proprio: db, sec, comptes: {}, niveaux: {}, personnel: {}, matieres: {}, annees: [A1, A2], eleves: ecole.eleves, parents: {}, petit: false } as unknown as Contexte;
     ctx.parNom = (n: string) => ctx.eleves.find((e) => nomDe(e) === n) ?? sortir(`Élève introuvable : ${n}`);
     await fondation(ctx, A1);

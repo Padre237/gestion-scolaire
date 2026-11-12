@@ -2,7 +2,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { sql, ligne, lignes, tableau, type Tx } from '../../../core/bd.ts';
+import { sql, ligne, tableau, type Tx } from '../../../core/bd.ts';
 import { ErreurMetier, interdit, introuvable } from '../../../core/erreurs.ts';
 import { exiger } from '../../../core/session.ts';
 import type { Contexte } from '../../../core/contexte.ts';

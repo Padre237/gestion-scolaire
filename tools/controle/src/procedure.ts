@@ -586,7 +586,7 @@ function ecrireComptes() {
     ...etat.comptes.map((c) => `| ${c.role} | ${c.nom} | \`${c.identifiant}\` | \`${c.motDePasse}\` | ${OU[c.ou] ?? c.ou} |`), '',
     '## 2. Base vierge de départ (sauvegarde « depart »)', '',
     `Un seul compte : \`secretaire\`, mot de passe \`${sec?.motDePasse ?? ''}\`. Les autres comptes se créent à l’étape 1, avec de nouveaux mots de passe.`, '',
-    '## 3. Base de répétition (sauvegarde « repetition », pnpm demo:fictif)', '',
+    '## 3. Base de répétition (sauvegarde « repetition », pnpm demo:donnees)', '',
     '| Rôle | Identifiant | Mot de passe |', '|---|---|---|',
     '| Directeur | `directrice` | `demo-directrice` |', '| Secrétaire | `secretaire` | `demo-secretaire` |', '| Économe | `econome` | `demo-econome` |',
     '| Préfet des études | `prefet` | `demo-prefet` |', '| Instituteur principal (CM2 A) | `onana.b` | `demo-onana` |', '| Instituteur principal (CE2 B) | `eyenga.s` | `demo-eyenga` |',

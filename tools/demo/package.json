@@ -4,12 +4,10 @@
   "type": "module",
   "scripts": {
     "vide": "tsx src/vide.ts",
-    "fictif": "tsx src/fictif.ts",
     "import-csv": "tsx src/import-csv.ts",
     "sauvegarde": "tsx src/sauvegarde.ts",
     "restaurer": "tsx src/restaurer.ts",
     "lancer": "tsx src/lancer.ts",
-    "progression": "tsx src/progression.ts",
     "donnees": "tsx src/rapide.ts"
   },
   "dependencies": {

@@ -12,7 +12,7 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
   - l'application du parent.
   Le passage automatique (`tools/controle/src/parcourir.ts`) ouvre 115 écrans sous les huit comptes de répétition, sans erreur ni mot interdit.
 - **Documents** : reçu bilingue (PDF et ESC/P), avis, listes, certificats, cartes scolaires, fiche d'inscription, bulletins, procès-verbal, rapports pour la tutelle, export comptable. En-tête et mentions se règlent par modèle.
-- **Commandes** : `demo:vide`, `demo:fictif`, `import:csv` (`--essai`, rapport des rejets), `demo:sauvegarde`, `demo:restaurer`, `demo:lancer` (certificat local et adresses du réseau).
+- **Commandes** : `demo:vide`, `demo:donnees`, `import:csv` (`--essai`, rapport des rejets), `demo:sauvegarde`, `demo:restaurer`, `demo:lancer` (certificat local et adresses du réseau).
 - **Documents de suivi** : `DEMO.md`, `IMPORT.md`, `../DECISIONS.md` (D-01 à D-31), `../ECARTS.md` (E-01 à E-43).
 
 ## Reste

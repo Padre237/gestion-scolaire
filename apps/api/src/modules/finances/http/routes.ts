@@ -14,14 +14,11 @@ import { formatTelephone, inscription, validerInscription } from '../../scolarit
 import { ajouterMouvement, exigerSession, sessionOuverte } from '../../caisse/index.ts';
 import { echeancier, MODES } from '../index.ts';
 import { repartir } from '../domain/repartir.ts';
-import { francsCfaEn, francsCfaFr } from '../domain/montant-lettres.ts';
 import { escpRecu, pdfAvis, pdfRecu, pdfTableau, dateFr } from '@gs/print';
 import { donneesRecu } from '../recu.ts';
 
 const Uuid = z.uuid();
 const Montant = z.number().int().positive().max(100_000_000);
-const heureCm = (iso: string) => new Date(new Date(iso).getTime() + 3600_000).toISOString().slice(11, 16);
-const jourCm = (iso: string) => new Date(new Date(iso).getTime() + 3600_000).toISOString().slice(0, 10);
 
 export async function routesFinances(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();

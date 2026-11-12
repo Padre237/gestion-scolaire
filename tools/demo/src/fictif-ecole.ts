@@ -1,4 +1,4 @@
-// demo:fictif — l'école fictive : classes, personnel, matières, grille des frais, et la génération des élèves
+// demo:donnees — l'école fictive : classes, personnel, matières, grille des frais, et la génération des élèves
 // sur trois années scolaires (les deux dernières complètes, l'année en cours jusqu'à aujourd'hui).
 // Rien ici ne touche à la base : ce sont des données en mémoire, que fictif-annee.ts fait entrer par l'API.
 import { DEBUT, choisir, entier, hasard, jj, melanger, type Eleve, type Famille, type Passage, type Profil } from './fictif-outils.ts';

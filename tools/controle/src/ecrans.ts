@@ -1,5 +1,5 @@
 // Correspondance écran de maquette → route de l'application, compte de démonstration, PNG de référence.
-// Les comptes sont ceux de demo:fictif (mots de passe de répétition, jamais ceux de la démo réelle).
+// Les comptes sont ceux de demo:donnees (mots de passe de répétition, jamais ceux de la démo réelle).
 import type { Page } from 'puppeteer';
 
 export interface Ecran {

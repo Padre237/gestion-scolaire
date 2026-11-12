@@ -56,11 +56,15 @@ export const MODULES: { code: Module; libelle: string; icone: NomIcone; onglets:
   ] },
 ];
 
+/** Instituteur sans rôle de l'administration : il travaille dans l'espace instituteur. */
+export const estInstituteur = (moi: Moi) => (moi.role('instituteur_principal') || moi.role('instituteur_matiere'))
+  && !['directeur', 'secretaire', 'econome', 'prefet'].some((r) => moi.role(r));
 const permis = (o: Onglet, moi: Moi) => o.permissions.length === 0 || moi.unParmi(o.permissions);
 export const routeDuModule = (m: Module, moi: Moi) => MODULES.find((x) => x.code === m)!.onglets.find((o) => permis(o, moi))?.route ?? null;
-/** Première page d'une personne du personnel après la connexion. */
+/** Première page après la connexion unique (D-38) : espace parent, espace instituteur ou bureau de l'administration. */
 export const accueilDe = (moi: Moi) => {
   if (moi.famille) return '/parent/accueil';
+  if (estInstituteur(moi)) return '/instituteur/notes';
   for (const m of MODULES) { const r = routeDuModule(m.code, moi); if (r) return r; }
   return '/tableau-de-bord';
 };
@@ -72,7 +76,7 @@ export function routePermise(chemin: string, moi: Moi): boolean {
 /** Icônes propres à la coque (absentes du jeu des maquettes) : hamburger du bouton Menu. */
 const IconeMenu = () => <svg aria-hidden="true" width={20} height={20} viewBox="0 0 24 24" className="icone"><path d="M4 7h16M4 12h16M4 17h16" /></svg>;
 
-/** Liste des modules et liens vers les applications mobiles : même contenu dans la barre latérale, le rail et le tiroir. */
+/** Liste des modules : même contenu dans la barre latérale, le rail et le tiroir. */
 function Modules({ module, moi, modules, onClic }: { module: Module; moi: Moi; modules: typeof MODULES; onClic?: () => void }) {
   return (
     <div className="menu">
@@ -85,13 +89,6 @@ function Modules({ module, moi, modules, onClic }: { module: Module; moi: Moi; m
     </div>
   );
 }
-const Apercu = () => (
-  <div className="apercu">
-    <span className="etiquette">Applications mobiles</span>
-    <a href="/parent/connexion" target="_blank" rel="noreferrer" aria-label="Application du parent (nouvel onglet)" title="Application du parent"><Icone nom="appParent" /><span>Application du parent</span></a>
-    <a href="/instituteur/notes" target="_blank" rel="noreferrer" aria-label="Application de l’instituteur (nouvel onglet)" title="Application de l’instituteur"><Icone nom="notes" /><span>Application de l’instituteur</span></a>
-  </div>
-);
 
 export function Coque({ module, titre, children, route, sansOnglets }: { module: Module; titre?: string; children: ReactNode; route?: string; sansOnglets?: boolean }) {
   const moi = useMoi();
@@ -162,7 +159,6 @@ export function Coque({ module, titre, children, route, sansOnglets }: { module:
           </div>
         </div>
         <Modules module={module} moi={moi} modules={modules} />
-        <Apercu />
       </nav>
       <main className="principal" id="contenu" tabIndex={-1}>
         <header className="entete">
@@ -213,8 +209,7 @@ export function Coque({ module, titre, children, route, sansOnglets }: { module:
               <button type="button" className="bouton bouton-icone" aria-label="Fermer le menu" onClick={() => setTiroir(false)}><Icone nom="fermer" /></button>
             </div>
             <Modules module={module} moi={moi} modules={modules} onClic={() => setTiroir(false)} />
-            <Apercu />
-            <div className="tiroir-pied">
+                <div className="tiroir-pied">
               <button type="button" className="bouton" onClick={basculerMode}>
                 <Icone nom={mode === 'nuit' ? 'soleil' : 'lune'} /><span>{mode === 'nuit' ? 'Passer en mode Jour' : 'Passer en mode Nuit'}</span>
               </button>

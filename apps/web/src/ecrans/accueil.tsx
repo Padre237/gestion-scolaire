@@ -14,7 +14,7 @@ const INVISIBLE: CSSProperties = { position: 'absolute', width: 1, height: 1, ma
 
 // ===================================================================== connexion
 
-export function EcranConnexion({ mobile = false }: { mobile?: boolean }) {
+export function EcranConnexion() {
   const { connecter, mode, basculerMode } = useSession();
   const naviguer = useNavigate();
   const [identifiant, setIdentifiant] = useState('');
@@ -30,7 +30,7 @@ export function EcranConnexion({ mobile = false }: { mobile?: boolean }) {
     setErreur(null);
     try {
       const moi = await connecter(identifiant.trim(), motDePasse);
-      naviguer(mobile ? '/instituteur/notes' : accueilDe(moi), { replace: true });
+      naviguer(accueilDe(moi), { replace: true });
     } catch (e) {
       setErreur(e instanceof ErreurApi ? e.message : String(e));
     } finally {
@@ -41,9 +41,9 @@ export function EcranConnexion({ mobile = false }: { mobile?: boolean }) {
   // Champs en 16 px : les téléphones n'agrandissent pas la page à la saisie. « safe center » : le panneau reste atteignable quand le clavier réduit la hauteur.
   const champ16: CSSProperties = { fontSize: 16 };
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'safe center', justifyContent: 'center', padding: mobile ? 16 : '32px 16px' }}>
-      <div style={{ width: '100%', maxWidth: mobile ? 358 : 420 }}>
-        <Panneau reperes marge={mobile ? 22 : 28} ecart={18}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'safe center', justifyContent: 'center', padding: '32px 16px' }}>
+      <div style={{ width: '100%', maxWidth: 420 }}>
+        <Panneau reperes marge={28} ecart={18}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div className="logo-pastille" style={{ width: 46, height: 46, borderRadius: 14 }}><Icone nom="logo" taille={26} /></div>
             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -52,7 +52,7 @@ export function EcranConnexion({ mobile = false }: { mobile?: boolean }) {
             </div>
           </div>
           <form noValidate onSubmit={(e) => { e.preventDefault(); void valider(); }} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <Champ libelle={fr ? 'Identifiant' : 'Username'} value={identifiant} onChange={setIdentifiant} autoFocus={!mobile} style={champ16} />
+            <Champ libelle={fr ? 'Identifiant ou numéro de téléphone' : 'Username or phone number'} value={identifiant} onChange={setIdentifiant} autoFocus style={champ16} />
             <Champ libelle={fr ? 'Mot de passe' : 'Password'} type="password" value={motDePasse} onChange={setMotDePasse} erreur={erreur} style={champ16} />
             {erreur && <span role="alert" style={INVISIBLE}>{erreur}</span>}
             <Bouton type="submit" variante="principal" pleine touches={[fr ? 'Entrée' : 'Enter']} charge={charge}>{fr ? 'Se connecter' : 'Sign in'}</Bouton>

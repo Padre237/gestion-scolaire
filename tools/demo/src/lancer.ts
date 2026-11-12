@@ -92,7 +92,7 @@ setTimeout(() => {
   for (const a of visibles.length ? visibles : adresses) {
     const base = `${https ? 'https' : 'http'}://${a}:${port}`;
     console.log(`Téléphones et autres postes du réseau : ${base}`);
-    console.log(`  parent : ${base}/parent/connexion · instituteur : ${base}/instituteur/connexion`);
+    console.log(`  connexion unique pour tous (personnel, instituteurs, parents) : ${base}/connexion`);
     if (https) console.log(`  certificat de l’école à installer une fois (DEMO.md) : ${base}/autorite.crt`);
   }
   console.log('Arrêt : Ctrl C');

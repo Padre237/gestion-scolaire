@@ -365,6 +365,11 @@ describe('Étapes 8 et 9 · espace parent, blocage du bulletin, levée par le di
   let parentJosiane: Client, parentGisele: Client, parentKenfack: Client;
   it('le parent se connecte par téléphone et ne voit que ses enfants (RG-35)', async () => {
     parentKenfack = await connecterParent(env.app, '600 000 055', famille1.motDePasse);
+    // Page de connexion unique (D-38) : le même numéro ouvre l'espace famille par /auth/connexion ; mauvais mot de passe refusé.
+    const unique = await new Client(env.app).post<{ compte: { type: string }; jeton: string }>('/auth/connexion', { identifiant: '600 000 055', motDePasse: famille1.motDePasse, client: 'application' });
+    expect(unique.status).toBe(200);
+    expect(unique.corps.compte.type).toBe('famille');
+    expect((await new Client(env.app).post('/auth/connexion', { identifiant: '600000055', motDePasse: 'faux-mot-de-passe', client: 'application' })).status).toBe(401);
     const a = await parentKenfack.get('/portail/accueil');
     expect(a.corps.enfants).toHaveLength(2);
     expect(a.corps.salutation).toBe('Mme KENFACK');

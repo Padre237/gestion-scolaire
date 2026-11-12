@@ -18,7 +18,7 @@ const nav = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
 const page = await nav.newPage();
 await page.evaluateOnNewDocument('globalThis.__name = (f) => f;');
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
-await page.goto(`${BASE}${parent ? '/parent/connexion' : '/connexion'}`, { waitUntil: 'networkidle0' });
+await page.goto(`${BASE}/connexion`, { waitUntil: 'networkidle0' });
 const champs = await page.$$('input');
 await champs[0]!.type(compte);
 await champs[1]!.type(mdp);

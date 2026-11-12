@@ -15,26 +15,18 @@ import { routes as mobile } from './ecrans/mobile.tsx';
 
 export interface RouteEcran { path: string; element: ReactNode }
 
-const PUBLIQUES = ['/connexion', '/parent/connexion', '/instituteur/connexion'];
+const PUBLIQUES = ['/connexion'];
 
 function Garde({ children }: { children: ReactNode }) {
   const { moi, pret } = useSession();
   const p = useLocation().pathname;
   if (!pret) return <Chargement />;
-  if (!moi) {
-    if (PUBLIQUES.includes(p)) return <>{children}</>;
-    if (p.startsWith('/parent')) return <Navigate to="/parent/connexion" replace />;
-    if (p.startsWith('/instituteur')) return <Navigate to="/instituteur/connexion" replace />;
-    return <Navigate to="/connexion" replace />;
-  }
-  // Page de connexion de l'autre espace (parent ou instituteur) : toujours accessible, la nouvelle connexion remplace la session ouverte.
-  const instituteur = moi.role('instituteur_principal') || moi.role('instituteur_matiere');
-  if (p === '/parent/connexion' && !moi.famille) return <>{children}</>;
-  if (p === '/instituteur/connexion' && !instituteur) return <>{children}</>;
+  // Une seule page de connexion pour tous (D-38) ; chacun est ensuite conduit vers son espace.
+  if (!moi) return PUBLIQUES.includes(p) ? <>{children}</> : <Navigate to="/connexion" replace />;
   // RG-35 : le compte famille n'ouvre que l'application du parent.
   if (moi.famille) return p.startsWith('/parent') && p !== '/parent/connexion' ? <>{children}</> : <Navigate to="/parent/accueil" replace />;
-  if (p === '/' || p === '/connexion') return <Navigate to={accueilDe(moi)} replace />;
-  if (p === '/instituteur' || p === '/instituteur/connexion') return <Navigate to="/instituteur/notes" replace />;
+  if (p === '/' || p === '/connexion' || p.endsWith('/connexion')) return <Navigate to={accueilDe(moi)} replace />;
+  if (p === '/instituteur') return <Navigate to="/instituteur/notes" replace />;
   if (p.startsWith('/parent')) return <Navigate to={accueilDe(moi)} replace />;
   if (!p.startsWith('/instituteur') && !routePermise(p, moi)) return <Navigate to={accueilDe(moi)} replace />;
   return <>{children}</>;

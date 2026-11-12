@@ -37,7 +37,6 @@ interface ContexteSession {
   moi: Moi | null; pret: boolean;
   charger: () => Promise<Moi | null>;
   connecter: (identifiant: string, motDePasse: string) => Promise<Moi>;
-  connecterParent: (telephone: string, motDePasse: string) => Promise<Moi>;
   deconnecter: () => Promise<void>;
   mode: 'jour' | 'nuit'; basculerMode: () => void;
 }
@@ -74,12 +73,6 @@ export function FournisseurSession({ children }: { children: ReactNode }) {
     connecter: async (identifiant, motDePasse) => {
       await oublierDonnees();
       const m = versMoi(await api.post('/auth/connexion', { identifiant, motDePasse, client: 'web' }));
-      setMoi(m);
-      return m;
-    },
-    connecterParent: async (telephone, motDePasse) => {
-      await oublierDonnees();
-      const m = versMoi(await api.post('/auth/connexion-parent', { telephone, motDePasse, client: 'web' }));
       setMoi(m);
       return m;
     },

@@ -139,14 +139,14 @@ async function session(identifiant: string, o: { mobile?: boolean; parent?: bool
   });
   if (o.parent) {
     const f = etat.famille!;
-    await aller(p, '/parent/connexion');
+    await aller(p, '/connexion');
     const champs = await p.$$('input');
     await champs[0]!.type(f.telephone);
     await champs[1]!.type(f.motDePasse);
   } else {
     const c = compte(identifiant);
-    await aller(p, o.mobile ? '/instituteur/connexion' : '/connexion');
-    await saisir(p, 'Identifiant', c.identifiant);
+    await aller(p, '/connexion');
+    await saisir(p, 'Identifiant ou numéro de téléphone', c.identifiant);
     await saisir(p, 'Mot de passe', c.motDePasse);
   }
   await Promise.all([p.waitForNavigation({ timeout: 15_000 }).catch(() => null), p.keyboard.press('Enter')]);
@@ -575,7 +575,7 @@ async function etape9() {
 
 function ecrireComptes() {
   const chemin = resolve(arg('comptes', resolve(process.cwd(), '../../COMPTES-DEMO.md'))!);
-  const OU: Record<string, string> = { 'bureau': 'PC : /connexion', 'bureau et téléphone': 'PC : /connexion · téléphone : /instituteur/connexion', 'téléphone': 'téléphone : /parent/connexion' };
+  const OU: Record<string, string> = { 'bureau': 'PC : /connexion', 'bureau et téléphone': 'PC et téléphone : /connexion', 'téléphone': 'téléphone : /parent/connexion' };
   const sec = etat.comptes.find((c) => c.identifiant === 'secretaire');
   const lignes = [
     '# Comptes de la démonstration', '',

@@ -54,9 +54,14 @@ export async function routesAuth(app: FastifyInstance) {
     schema: { tags: ['auth'], body: Connexion, response: { 200: Moi } },
   }, async (req, rep) => {
     const { identifiant, motDePasse, client, appareil } = req.body;
-    const c = await app.bd.lireUn<{ id: string; etablissement_id: string; mot_de_passe: string; verrouille: boolean; actif: boolean }>(sql`
-      SELECT id, etablissement_id, mot_de_passe, actif, COALESCE(verrouille_jusqua > now(), false) AS verrouille
-        FROM core.compte WHERE identifiant = ${identifiant.toLowerCase()} AND type = 'personnel'`);
+    // Page de connexion unique (D-38) : identifiant du personnel, ou numéro de téléphone d'une famille (RG-35).
+    const telephone = identifiant.replace(/\D/g, '');
+    const c = await app.bd.lireUn<{ id: string; etablissement_id: string; mot_de_passe: string; verrouille: boolean; actif: boolean; type: string }>(sql`
+      SELECT id, etablissement_id, mot_de_passe, actif, type, COALESCE(verrouille_jusqua > now(), false) AS verrouille
+        FROM core.compte
+       WHERE (identifiant = ${identifiant.toLowerCase()} AND type = 'personnel')
+          OR (${telephone.length >= 6} AND identifiant = ${telephone} AND type = 'famille')
+       ORDER BY type = 'personnel' DESC LIMIT 1`);
     const refus = new ErreurMetier('CORE_IDENTIFIANTS_INVALIDES', 401, 'Identifiant ou mot de passe incorrect.');
     if (!c || !c.actif) throw refus;
     if (c.verrouille) {
@@ -79,7 +84,7 @@ export async function routesAuth(app: FastifyInstance) {
       throw refus;
     }
     await app.bd.lire(sql`UPDATE core.compte SET echecs = 0, verrouille_jusqua = NULL WHERE id = ${c.id}`);
-    const jeton = await ouvrirSession(app.bd, c.id, appareil ?? client);
+    const jeton = await ouvrirSession(app.bd, c.id, c.type === 'famille' ? (client === 'web' ? 'parent-web' : 'parent-application') : appareil ?? client);
     if (client === 'web') {
       rep.setCookie(COOKIE, jeton, { httpOnly: true, secure: req.protocol === 'https', sameSite: 'strict', path: '/', maxAge: DUREE_MAX_MS / 1000 });
     }

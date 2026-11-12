@@ -58,7 +58,7 @@ Ces comptes sont créés par `pnpm demo:donnees`.
 
 - Les autres instituteurs suivent la même règle : le mot de passe est `demo-` suivi de la partie de l'identifiant avant le point.
 - Les autres parents se connectent avec leur numéro de téléphone et `demo-` suivi du nom de famille en minuscules, sans accents.
-- Les parents et les instituteurs ont leur propre page de connexion : `/parent/connexion` et `/instituteur/connexion`.
+- Tout le monde se connecte sur la même page, `/connexion`, avec son identifiant ou, pour un parent, son numéro de téléphone. Chacun arrive ensuite dans son espace : administration, instituteur ou parent.
 
 Ces mots de passe sont publics : ne les utilisez jamais sur une vraie base.
 

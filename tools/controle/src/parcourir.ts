@@ -47,7 +47,7 @@ async function resoudre(page: Page, route: string): Promise<string | null> {
 }
 
 async function connecter(page: Page, c: Compte) {
-  await page.goto(`${BASE}${c.parent ? '/parent/connexion' : '/connexion'}`, { waitUntil: 'networkidle0' });
+  await page.goto(`${BASE}/connexion`, { waitUntil: 'networkidle0' });
   const champs = await page.$$('input');
   if (champs.length < 2) throw new Error('écran de connexion sans champs');
   await champs[0]!.type(c.parent ? c.id.replace(/(\d{3})(?=\d)/g, '$1 ') : c.id);

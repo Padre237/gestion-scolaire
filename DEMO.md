@@ -26,7 +26,7 @@ Ce document déroule la démonstration, rôle par rôle, à partir d'une base vi
 
    La commande démarre PostgreSQL dans Docker, met la base à jour, prépare le certificat du réseau local, construit l'application si besoin et lance le serveur. Elle affiche ensuite les adresses à ouvrir :
    - **sur ce PC** : `http://localhost:8080` ;
-   - **sur les téléphones et les autres postes du même réseau** : `https://<adresse du PC>:8443`. Pour le parent, ajoutez `/parent/connexion` ; pour l'instituteur, `/instituteur/connexion`.
+   - **sur les téléphones et les autres postes du même réseau** : `https://<adresse du PC>:8443`. Tout le monde, parent ou instituteur, se connecte sur `/connexion`.
 
    Laissez ce terminal ouvert pendant toute la démonstration ; `Ctrl C` arrête tout.
 
@@ -50,7 +50,7 @@ Le fichier `COMPTES-DEMO.md`, à la racine, liste les comptes et mots de passe d
 Le téléphone et le PC doivent être sur le même réseau Wi-Fi.
 
 **Voie rapide (navigateur seulement).**
-1. Sur le téléphone, ouvrez `https://<adresse du PC>:8443/parent/connexion`.
+1. Sur le téléphone, ouvrez `https://<adresse du PC>:8443/connexion`.
 2. Le navigateur prévient que la connexion n'est pas privée : touchez « Paramètres avancés », puis « Continuer vers le site ».
 
 L'application s'utilise alors dans le navigateur, mais elle ne s'installe pas et ne fonctionne pas sans réseau.
@@ -60,7 +60,7 @@ L'application s'utilise alors dans le navigateur, mais elle ne s'installe pas et
 2. Installez-le comme autorité de certification :
    - **Android** : Paramètres › Sécurité › Chiffrement et identifiants › Installer un certificat › Certificat CA. Choisissez `autorite-ecole.crt`.
    - **iPhone** : ouvrez le fichier ; un profil s'ajoute dans Réglages › Général › VPN et gestion de l'appareil ; installez-le. Activez-le ensuite dans Réglages › Général › Informations › Réglages des certificats.
-3. Ouvrez de nouveau `https://<adresse du PC>:8443/parent/connexion` : il n'y a plus d'avertissement.
+3. Ouvrez de nouveau `https://<adresse du PC>:8443/connexion` : il n'y a plus d'avertissement.
 4. Installez l'application :
    - **Android (Chrome)** : menu ⋮ › Installer l'application, ou Ajouter à l'écran d'accueil ;
    - **iPhone (Safari)** : bouton Partager › Sur l'écran d'accueil.
@@ -161,7 +161,7 @@ La conception confie le paramétrage à la secrétaire, et le directeur valide s
 
 ### Étape 5 · Instituteur principal : notes et appel sur le téléphone
 
-- **Compte** : `onana.b`, sur le téléphone, à l'adresse `/instituteur/connexion`.
+- **Compte** : `onana.b`, sur le téléphone, à l'adresse `/connexion`.
 - **Gestes** :
   1. **Notes** : « Mes classes » montre CM2 A avec ses matières. Choisissez Mathématiques et saisissez les notes au pavé numérique ; Entrée passe à l'élève suivant. Puis « Enregistrer sur le téléphone ».
   2. **Hors connexion** : avec le bouton Retour, revenez à « Mes classes » et choisissez Français. Passez le téléphone en mode avion, saisissez les notes et enregistrez. Le bandeau affiche « Hors ligne · 3 notes gardées sur le téléphone ». Rétablissez le réseau : le bandeau passe à « Wi-Fi de l'école · synchronisation faite à HH:MM ».
@@ -195,7 +195,7 @@ La conception confie le paramétrage à la secrétaire, et le directeur valide s
 
 ### Étape 8 · Parent : bulletin bloqué, message à l'économe
 
-- **Compte** : la famille FOUDA, sur le téléphone, à l'adresse `/parent/connexion` : téléphone 600 000 301 et mot de passe de la fiche d'inscription.
+- **Compte** : la famille FOUDA, sur le téléphone, à l'adresse `/connexion` : téléphone 600 000 301 et mot de passe de la fiche d'inscription.
 - **Gestes** :
   1. **Accueil** : les deux enfants, le reste dû, la prochaine échéance, l'annonce de l'étape 2.
   2. **Notes** : pour Junior, « Le bulletin du 1er trimestre de Junior sera visible quand la tranche 1 sera payée à 90 % (aujourd'hui 16 %) ».

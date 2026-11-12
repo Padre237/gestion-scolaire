@@ -247,7 +247,8 @@ export async function routesFinances(app: FastifyInstance) {
     if (req.query.format !== 'json' && !ctx.a('finances.recu.imprimer')) throw interdit('finances.recu.imprimer');
     return app.bd.transaction(ctx.compteId, async (tx) => {
       const d = await donneesRecu(tx, ctx.etablissementId, req.params.id);
-      if (req.query.format === 'json') return d;
+      // Le logo ne sert qu'à l'impression : il ne part pas avec les données affichées à l'écran.
+      if (req.query.format === 'json') return { ...d, etablissement: { ...d.etablissement, logo: undefined } };
       await journaliser(tx, ctx, { action: d.duplicata ? 'Modification' : 'Création', objetType: 'Reçu',
         objetLibelle: `Impression du reçu ${d.numero}${d.duplicata ? ' · duplicata' : ''}`, avant: '–', apres: req.query.format.toUpperCase(),
         ligneId: req.params.id, table: 'finances.versement' });
@@ -532,7 +533,7 @@ export async function routesFinances(app: FastifyInstance) {
     const pdf = await app.bd.transaction(ctx.compteId, async (tx) => {
       const annee = await anneeOuverteTx(tx, ctx.etablissementId);
       const e = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; banque: string | null; numero_compte: string | null }>(tx, sql`
-        SELECT nom_fr, nom_en, ville_bp, telephone, banque, numero_compte, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+        SELECT nom_fr, nom_en, ville_bp, telephone, banque, numero_compte, modeles, logo FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
       const avis = [];
       for (const id of req.body.inscriptionIds) {
         const i = await exigerInscription(tx, ctx, id);
@@ -665,7 +666,7 @@ export async function routesFinances(app: FastifyInstance) {
       return rep.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="etat-des-comptes.csv"')
         .send(versCsv(e.parCaisse.map((c) => ({ Caisse: c.caisse, 'Solde initial': c.initial, Recettes: c.recettes, Dépenses: c.depenses, 'Versé à la banque': c.banque, Solde: c.solde }))));
     }
-    const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`SELECT nom_fr, nom_en, ville_bp, telephone FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+    const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`SELECT nom_fr, nom_en, ville_bp, telephone, logo FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
     const pdf = await pdfTableau({ etablissement: etab!, titre: 'ÉTAT DES COMPTES', sousTitre: `Du ${dateFr(e.du)} au ${dateFr(e.au)}`,
       colonnes: [{ titre: 'Caisse', largeur: 130 }, ...['Solde initial', 'Recettes', 'Dépenses', 'Versé à la banque', 'Solde'].map((t) => ({ titre: t, largeur: 75, droite: true }))],
       lignes: [...lignesC, ['Total', ...[e.total.initial, e.total.recettes, e.total.depenses, e.total.banque, e.total.solde].map((n) => n.toLocaleString('fr-FR'))]] });

@@ -1,5 +1,6 @@
 // Structure d'une année par l'API (pour demo:donnees) : établissement, personnel, matières, année et classes,
 // grilles de frais, affectations, emplois du temps.
+import { readFileSync } from 'node:fs';
 import { Client, connecter } from './client.ts';
 import {
   ABREGES, ADMIN, CLASSES, GROUPES, MATIERE_SEULE, anglophone, classeDe, grilleDe, maternelle, matieresDuNiveau, matieresPar,
@@ -19,6 +20,8 @@ export async function fondation(ctx: Contexte, a: Annee) {
     await sec.put('/structure/etablissement', { ...ECOLE, devise: 'Travail · Discipline · Réussite', villeBp: 'Yaoundé · BP 1234', telephone: '600 000 200',
       signataire: 'La Directrice', banque: BANQUE, numeroCompte: '00012 345678 90', seuilReduction: 5000 });
     for (const ss of ['francophone', 'anglophone'] as const) for (const o of ['maternelle', 'primaire'] as const) await sec.post('/structure/cycles', { sousSysteme: ss, ordreEnseignement: o });
+    // Logo de l'école (alvéoles dorées) : en tête des documents, sur les cartes, les bulletins et au centre des QR codes.
+    await sec.put('/structure/etablissement/images/logo', { base64: readFileSync(new URL('../ressources/logo-ruche-dor.png', import.meta.url)).toString('base64') });
   });
   for (const n of (await sec.get<{ id: string; code: string }[]>('/structure/niveaux'))) ctx.niveaux[n.code] = n.id;
   await creerAnnee(ctx, a, aLHeure(jour, '08:50'), true);

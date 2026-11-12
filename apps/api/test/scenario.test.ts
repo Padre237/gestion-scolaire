@@ -3,7 +3,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, connecter, connecterParent, preparer, auj, jourSemaine } from './aide.ts';
 import { FORMULAIRE_PAR_DEFAUT } from '@gs/shared';
-import { sql } from '../src/core/bd.ts';
 
 type Env = Awaited<ReturnType<typeof preparer>>;
 let env: Env;

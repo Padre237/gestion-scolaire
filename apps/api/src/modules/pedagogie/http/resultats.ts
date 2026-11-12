@@ -521,7 +521,7 @@ export async function routesResultats(app: FastifyInstance) {
     const pdf = await app.bd.transaction(ctx.compteId, async (tx) => {
       const resultats = await calculerClasse(tx, ctx.etablissementId, classeId, periodeId);
       const etab = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire: string | null }>(tx, sql`
-        SELECT nom_fr, nom_en, ville_bp, telephone, signataire FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+        SELECT nom_fr, nom_en, ville_bp, telephone, signataire, logo FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
       const pv = await ligne<{ contenu: string }>(tx, sql`SELECT contenu FROM pedagogie.proces_verbal WHERE classe_id = ${classeId} AND periode_id = ${periodeId}`);
       const moyennes = resultats.filter((x) => x.moyenne !== null);
       const reussis = moyennes.filter((x) => x.moyenne! >= 10).length;

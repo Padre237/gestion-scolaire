@@ -163,7 +163,7 @@ export async function routesPilotage(app: FastifyInstance) {
         : lignes;
       return rep.header('content-type', 'text/csv; charset=utf-8').header('content-disposition', 'attachment; filename="statistiques.csv"').send(versCsv(tout as Record<string, unknown>[]));
     }
-    const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`SELECT nom_fr, nom_en, ville_bp, telephone FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+    const etab = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`SELECT nom_fr, nom_en, ville_bp, telephone, logo FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
     const pdf = await pdfTableau({ etablissement: etab!, titre: 'EFFECTIFS PAR NIVEAU, SEXE ET STATUT', sousTitre: s.annees.find((a) => a.id === s.anneeId)?.libelle,
       colonnes: ['Niveau', 'Classes', 'Garçons', 'Filles', 'Total', 'Nouveaux', 'Redoublants'].map((t, i) => ({ titre: t, largeur: i ? 65 : 90, droite: i > 0 })),
       lignes: s.effectifs.map((e) => [e.niveau, e.classes, e.garcons, e.filles, e.total, e.nouveaux, e.redoublants].map(String)) });
@@ -182,7 +182,7 @@ export async function routesPilotage(app: FastifyInstance) {
     const annee = await anneeOuverte(app.bd, etab);
     if (!annee) throw new ErreurMetier('STR_AUCUNE_ANNEE_OUVERTE', 422, 'Aucune année scolaire n\'est ouverte.');
     const identite = await app.bd.lireUn<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null }>(sql`
-      SELECT nom_fr, nom_en, ville_bp, telephone FROM structure.etablissement WHERE id = ${etab}`);
+      SELECT nom_fr, nom_en, ville_bp, telephone, logo FROM structure.etablissement WHERE id = ${etab}`);
     const debut = await app.bd.lireUn<{ d: string }>(sql`SELECT date_debut::text AS d FROM structure.annee_scolaire WHERE id = ${annee.id}`);
     let sousTitre = `Année scolaire ${annee.libelle}`;
     let colonnes: { titre: string; largeur: number; droite?: boolean }[] = [];

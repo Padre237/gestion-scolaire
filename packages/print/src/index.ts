@@ -67,6 +67,8 @@ export interface Etablissement {
   nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; signataire?: string | null; devise?: string | null;
   /** Modèles de documents saisis dans Paramètres › Établissement. */
   modeles?: Partial<Record<TypeModele, ModeleDoc>> | null;
+  /** Logo de l'établissement (PNG ou JPEG) : en tête de chaque document. */
+  logo?: Uint8Array | null;
 }
 
 /** En-tête du modèle (par exemple la tutelle), au-dessus du nom de l'établissement : français, puis anglais. */
@@ -85,20 +87,9 @@ function mentionsModele(page: PDFPage, p: Polices, m: ModeleDoc | undefined, x: 
   for (const l of lignes) { texte(page, l, x, y, p.normal, taille, DOUX); y -= taille + 2.5; }
 }
 
-function enteteA4(page: PDFPage, p: Polices, e: Etablissement, titre: string, sousTitre?: string, type?: TypeModele) {
-  const { width, height } = page.getSize();
-  if (type) {
-    const m = e.modeles?.[type];
-    enteteModele(page, p, m, width / 2, height - 14);
-    mentionsModele(page, p, m, 40, 26, width - 80);
-  }
-  texteCentre(page, `${e.nom_fr.toUpperCase()} · ${e.nom_en.toUpperCase()}`, width / 2, height - 50, p.gras, 13);
-  const coord = [e.ville_bp, e.telephone ? `Tél. ${e.telephone}` : null].filter(Boolean).join(' · ');
-  if (coord) texteCentre(page, coord, width / 2, height - 66, p.normal, 9, DOUX);
-  if (e.devise) texteCentre(page, e.devise, width / 2, height - 78, p.normal, 8, DOUX);
-  page.drawLine({ start: { x: 40, y: height - 88 }, end: { x: width - 40, y: height - 88 }, thickness: 0.8, color: TRAIT });
-  texteCentre(page, titre, width / 2, height - 112, p.gras, 15);
-  if (sousTitre) texteCentre(page, sousTitre, width / 2, height - 130, p.normal, 10, DOUX);
+/** En-tête A4 des autres documents (avis, listes, certificats, procès-verbaux, états) : modèle classique, logo de l'établissement à gauche. */
+async function enteteA4(page: PDFPage, p: Polices, e: Etablissement, titre: string, sousTitre?: string, type?: TypeModele) {
+  enteteDocument(page, p, e, titre, sousTitre, 'classique', await logoDuDocument(page.doc, e.logo), type);
 }
 
 // ---------------------------------------------------------------- modèles d'impression (D-44) : trois habillages, logo, QR code
@@ -111,6 +102,12 @@ const CRAIE = rgb(0.98, 0.8, 0.082);     // #FACC15 : filet sous le bandeau, jam
 const NOIR = rgb(0.08, 0.08, 0.08);
 const BLANC = rgb(1, 1, 1);
 
+const logos = new WeakMap<PDFDocument, Promise<PDFImage | null>>();
+/** Logo incorporé une seule fois par document. */
+function logoDuDocument(doc: PDFDocument, b: Uint8Array | null | undefined): Promise<PDFImage | null> {
+  if (!logos.has(doc)) logos.set(doc, imageDe(doc, b));
+  return logos.get(doc)!;
+}
 async function imageDe(doc: PDFDocument, b: Uint8Array | null | undefined): Promise<PDFImage | null> {
   if (!b || b.length < 8) return null;
   try { return b[0] === 0x89 ? await doc.embedPng(b) : await doc.embedJpg(b); } catch { return null; }
@@ -191,10 +188,17 @@ function enteteDocument(page: PDFPage, p: Polices, e: Etablissement, titre: stri
   }
   // Classique : l'en-tête d'origine, logo à gauche.
   if (type) enteteModele(page, p, m, width / 2, height - 14);
-  if (logo) dansCadre(page, logo, 40, height - 92, 56, 56);
-  texteCentre(page, `${e.nom_fr.toUpperCase()} · ${e.nom_en.toUpperCase()}`, width / 2, height - 50, p.gras, 13);
-  if (coord) texteCentre(page, coord, width / 2, height - 66, p.normal, 9, DOUX);
-  if (e.devise) texteCentre(page, e.devise, width / 2, height - 78, p.normal, 8, DOUX);
+  // Avec un logo, le nom se centre dans la place à sa droite, en deux lignes (français, anglais) pour ne jamais le chevaucher.
+  const xc = logo ? (112 + width - 40) / 2 : width / 2;
+  if (logo) {
+    dansCadre(page, logo, 40, height - 94, 60, 60);
+    texteCentre(page, e.nom_fr.toUpperCase(), xc, height - 44, p.gras, 12.5);
+    texteCentre(page, e.nom_en.toUpperCase(), xc, height - 58, p.gras, 9.5, DOUX);
+  } else {
+    texteCentre(page, `${e.nom_fr.toUpperCase()} · ${e.nom_en.toUpperCase()}`, xc, height - 50, p.gras, 13);
+  }
+  if (coord) texteCentre(page, coord, xc, height - (logo ? 72 : 66), p.normal, 9, DOUX);
+  if (e.devise) texteCentre(page, e.devise, xc, height - (logo ? 84 : 78), p.normal, 8, DOUX);
   page.drawLine({ start: { x: 40, y: height - 98 }, end: { x: width - 40, y: height - 98 }, thickness: 0.8, color: TRAIT });
   texteCentre(page, titre, width / 2, height - 122, p.gras, 15);
   if (sousTitre) texteCentre(page, sousTitre, width / 2, height - 140, p.normal, 10, DOUX);
@@ -253,12 +257,13 @@ export async function pdfRecu(d: RecuData, exemplaires = 1): Promise<Uint8Array>
     const page = doc.addPage([240 * MM, 140 * MM]);
     const { width, height } = page.getSize();
     const g = 12 * MM;
-    page.drawRectangle({ x: g, y: height - g - 34, width: 34, height: 34, borderColor: TRAIT, borderWidth: 0.8 });
-    texteCentre(page, 'Logo', g + 17, height - g - 20, p.normal, 7, DOUX);
-    texte(page, `${d.etablissement.nom_fr.toUpperCase()} · ${d.etablissement.nom_en.toUpperCase()}`, g + 44, height - g - 12, p.gras, 11);
+    const logo = await logoDuDocument(doc, d.etablissement.logo);
+    const xt = logo ? g + 44 : g;
+    if (logo) dansCadre(page, logo, g, height - g - 34, 34, 34);
+    texte(page, `${d.etablissement.nom_fr.toUpperCase()} · ${d.etablissement.nom_en.toUpperCase()}`, xt, height - g - 12, p.gras, 11);
     const coord = [d.etablissement.ville_bp ? `BP ${d.etablissement.ville_bp}` : null, d.etablissement.telephone ? `Tél. ${d.etablissement.telephone}` : null]
       .filter(Boolean).join(' · ');
-    texte(page, coord, g + 44, height - g - 26, p.normal, 8, DOUX);
+    texte(page, coord, xt, height - g - 26, p.normal, 8, DOUX);
     texte(page, 'REÇU DE PAIEMENT · PAYMENT RECEIPT', g, height - g - 56, p.gras, 11);
     texteDroite(page, `N° ${d.numero}`, width - g, height - g - 12, p.gras, 11);
     texteDroite(page, `${d.date} à ${d.heure}`, width - g, height - g - 26, p.normal, 8, DOUX);
@@ -339,7 +344,7 @@ export async function pdfAvis(avis: AvisData[]): Promise<Uint8Array> {
   const { doc, polices: p } = await nouveauDocument('Avis de paiement');
   for (const d of avis) {
     const page = doc.addPage([595, 842]);
-    enteteA4(page, p, d.etablissement, 'AVIS DE PAIEMENT · PAYMENT NOTICE', `N° ${d.numero} du ${d.date}`, 'avis');
+    await enteteA4(page, p, d.etablissement, 'AVIS DE PAIEMENT · PAYMENT NOTICE', `N° ${d.numero} du ${d.date}`, 'avis');
     let y = 842 - 165;
     for (const [k, v] of [['Élève', `${d.eleve} · ${d.matricule}`], ['Classe', d.classe], ['Responsable payeur', d.payeur]]) {
       texte(page, `${k} : ${v}`, 50, y, p.normal, 10); y -= 16;
@@ -365,13 +370,13 @@ export interface EleveListe { matricule: string; nom: string; prenoms: string; s
 export async function pdfListeClasse(d: { etablissement: Etablissement; classe: string; annee: string; eleves: EleveListe[] }) {
   const { doc, polices: p } = await nouveauDocument(`Liste de classe ${d.classe}`);
   let page = doc.addPage([595, 842]);
-  enteteA4(page, p, d.etablissement, `LISTE DE CLASSE · ${d.classe}`, `Année scolaire ${d.annee} · ${d.eleves.length} élèves`, 'liste');
+  await enteteA4(page, p, d.etablissement, `LISTE DE CLASSE · ${d.classe}`, `Année scolaire ${d.annee} · ${d.eleves.length} élèves`, 'liste');
   const cols: Colonne[] = [{ titre: 'N°', largeur: 30, droite: true }, { titre: 'Matricule', largeur: 80 }, { titre: 'Nom et prénoms', largeur: 210 },
     { titre: 'Sexe', largeur: 40 }, { titre: 'Né(e) le', largeur: 75 }, { titre: 'Signature', largeur: 60 }];
   const parPage = 35;
   for (let i = 0; i < d.eleves.length; i += parPage) {
     if (i > 0) { page = doc.addPage([595, 842]); }
-    tableau(page, p, 50, i === 0 ? 842 - 150 : 800, cols, d.eleves.slice(i, i + parPage).map((e, k) => [
+    tableau(page, p, 50, i === 0 ? 842 - 165 : 800, cols, d.eleves.slice(i, i + parPage).map((e, k) => [
       String(i + k + 1), e.matricule, `${e.nom} ${e.prenoms}`, e.sexe, e.naissance, '']), { hauteur: 17 });
   }
   return doc.save();
@@ -381,7 +386,7 @@ export async function pdfCertificat(d: { etablissement: Etablissement; classe: s
   const { doc, polices: p } = await nouveauDocument('Certificats de scolarité');
   for (const e of d.eleves) {
     const page = doc.addPage([595, 842]);
-    enteteA4(page, p, d.etablissement, 'CERTIFICAT DE SCOLARITÉ', 'School attendance certificate', 'certificat');
+    await enteteA4(page, p, d.etablissement, 'CERTIFICAT DE SCOLARITÉ', 'School attendance certificate', 'certificat');
     const ne = e.sexe === 'F' ? 'née' : 'né';
     const inscrit = e.sexe === 'F' ? 'inscrite' : 'inscrit';
     const paragraphe = `${d.etablissement.signataire ? `Je soussigné(e), ${d.etablissement.signataire}` : 'Le chef d’établissement soussigné'}, certifie que l'élève ${e.nom} ${e.prenoms}, ${ne} le ${e.naissance}${e.lieu ? ` à ${e.lieu}` : ''}, matricule ${e.matricule}, est régulièrement ${inscrit} en classe de ${d.classe} pour l'année scolaire ${d.annee}.\n\nEn foi de quoi le présent certificat lui est délivré pour servir et valoir ce que de droit.`;
@@ -573,7 +578,7 @@ export async function pdfProcesVerbal(d: { etablissement: Etablissement; classe:
   stats: [string, string][]; lignes: string[][]; contenu: string }) {
   const { doc, polices: p } = await nouveauDocument(`Procès-verbal ${d.classe}`);
   const page = doc.addPage([595, 842]);
-  enteteA4(page, p, d.etablissement, `PROCÈS-VERBAL DU CONSEIL DE CLASSE · ${d.classe}`, `${d.periode} · ${d.annee}`);
+  await enteteA4(page, p, d.etablissement, `PROCÈS-VERBAL DU CONSEIL DE CLASSE · ${d.classe}`, `${d.periode} · ${d.annee}`);
   let y = 842 - 160;
   for (const [k, v] of d.stats) { texte(page, `${k} : ${v}`, 50, y, p.normal, 10); y -= 15; }
   y = tableau(page, p, 50, y - 8, [{ titre: 'Rang', largeur: 40, droite: true }, { titre: 'Élève', largeur: 180 }, { titre: 'Moyenne', largeur: 60, droite: true },
@@ -590,11 +595,11 @@ export async function pdfTableau(d: { etablissement: Etablissement; titre: strin
   const paysage = d.colonnes.reduce((s, c) => s + c.largeur, 0) > 500;
   const taille: [number, number] = paysage ? [842, 595] : [595, 842];
   let page = doc.addPage(taille);
-  enteteA4(page, p, d.etablissement, d.titre, d.sousTitre);
+  await enteteA4(page, p, d.etablissement, d.titre, d.sousTitre);
   const parPage = paysage ? 26 : 40;
   for (let i = 0; i < Math.max(d.lignes.length, 1); i += parPage) {
     if (i > 0) page = doc.addPage(taille);
-    tableau(page, p, 40, i === 0 ? taille[1] - 150 : taille[1] - 50, d.colonnes, d.lignes.slice(i, i + parPage), { taille: 8.5 });
+    tableau(page, p, 40, i === 0 ? taille[1] - 165 : taille[1] - 50, d.colonnes, d.lignes.slice(i, i + parPage), { taille: 8.5 });
   }
   return doc.save();
 }

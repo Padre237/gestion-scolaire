@@ -191,7 +191,6 @@ export function EcranTableauDeBord() {
 export const routes: RouteEcran[] = [
   { path: '/', element: <EcranTableauDeBord /> },
   { path: '/connexion', element: <EcranConnexion /> },
-  { path: '/instituteur/connexion', element: <EcranConnexion mobile /> },
   { path: '/tableau-de-bord', element: <EcranTableauDeBord /> },
 ];
 

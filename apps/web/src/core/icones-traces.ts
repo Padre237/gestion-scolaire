@@ -35,6 +35,14 @@ export const ICONES = {
   famille: "<circle cx=\"12\" cy=\"8.5\" r=\"3.5\"></circle><path d=\"M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6\"></path>",
   wifi: "<path d=\"m15 6-6 6 6 6\"></path>",
   soleil: "<circle cx=\"12\" cy=\"12\" r=\"4\"></circle><path d=\"M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4\"></path>",
-  journal: "<path d=\"M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5\"></path><path d=\"M3.5 4v4.5H8\"></path><path d=\"M12 7.5V12l3 2\"></path>",
+  // Charte Sekou (applications du parent et de l'instituteur) : tracés relevés dans les maquettes.
+  oeil: "<path d=\"M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z\"></path><circle cx=\"12\" cy=\"12\" r=\"2.8\"></circle>",
+  globe: "<circle cx=\"12\" cy=\"12\" r=\"8.5\"></circle><path d=\"M3.5 12h17M12 3.5c2.3 2.4 3.4 5.2 3.4 8.5s-1.1 6.1-3.4 8.5c-2.3-2.4-3.4-5.2-3.4-8.5s1.1-6.1 3.4-8.5z\"></path>",
+  cercleCoche: "<circle cx=\"12\" cy=\"12\" r=\"8.5\"></circle><path d=\"m8.5 12.2 2.4 2.3 4.6-5\"></path>",
+  bulletin: "<path d=\"M6.5 3.5h11v17l-2.75-1.75L12 20.5l-2.75-1.75L6.5 20.5z\"></path><path d=\"M9.5 8h5M9.5 11.5h5M9.5 15h3\"></path>",
+  envoi: "<path d=\"M4.5 12 19.5 5l-4.5 14-3.5-5.5z\"></path><path d=\"m11.5 13.5 8-8.5\"></path>",
+  nuit: "<path d=\"M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z\"></path>",
+  virement: "<path d=\"M3.5 9.5 12 4.5l8.5 5\"></path><path d=\"M5.5 10.5v7M10 10.5v7M14 10.5v7M18.5 10.5v7M3.5 19.5h17\"></path>",
+  journal:"<path d=\"M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5\"></path><path d=\"M3.5 4v4.5H8\"></path><path d=\"M12 7.5V12l3 2\"></path>",
 } as const;
 export type NomIcone = keyof typeof ICONES;

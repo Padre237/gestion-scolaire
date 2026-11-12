@@ -1,112 +1,224 @@
-// Applications mobiles installables (PWA), maquettes Mobile-enseignant-* et Mobile-parent-* :
+// Applications mobiles installables (PWA), charte Sekou (maquettes « Sekou — logo » : connexion, accueil, notes et bulletin,
+// paiements, messages, mode Nuit) :
 // - instituteur : saisie des notes et appel, utilisables hors ligne (file d'attente sur le téléphone, envoi au retour du réseau) ;
-// - parent : accueil, bulletin, paiements, reçu, agenda, messages, écrire à l'école.
+// - parent : accueil, notes et bulletin, paiements, reçu, agenda, messagerie, vie scolaire.
 // Le serveur reste seul juge : la famille ne voit que ses enfants, à l'écran, sans téléchargement (RG-35), le bulletin
 // sous condition de paiement (RG-40) ; l'instituteur ne saisit que ses matières (RG-22) et ses créneaux d'appel (RG-38).
 //
 // Mise en page : une colonne sur téléphone (fidèle aux maquettes à 390 px) ; à partir de 700 px (tablette portrait) les
 // écrans passent en deux colonnes ; à partir de 900 px (tablette paysage) la barre d'onglets devient un rail latéral gauche.
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { api, ErreurApi, requete } from '../core/api.ts';
 import { useMoi, useSession } from '../core/session.tsx';
 import { aujourdhuiIso, dateLocale, decimal, fcfa, heure, initiale, jjmm, jjmmaaaa, jourDate, montant, note2, pluriel, versDecimal } from '../core/format.ts';
-import { agir, Bandeau, Bascules, Bouton, Champ, Chargement, Erreur, Icone, Liste, Note, ouvrirFenetre, ouvrirFormulaire, PiedFenetre, signaler, useDonnees } from '../core/ui.tsx';
+import { agir, Bouton, Champ, Chargement, Erreur, Icone, Note, ouvrirFenetre, ouvrirFormulaire, PiedFenetre, signaler, useDonnees } from '../core/ui.tsx';
 import type { NomIcone } from '../core/icones-traces.ts';
 
-// ===================================================================== présentation commune (maquettes mobiles)
+// ===================================================================== charte Sekou (maquettes mobiles)
 
 const LARGE = 700; // tablette portrait : deux colonnes
 const RAIL = 900; // tablette paysage : rail latéral
 
+// Couleurs relevées dans les maquettes : bandeau bleu encre en Jour, gris nuit en Nuit ; jaune craie pour le trait seulement.
+const BANDEAU = { jour: '#0B1F4B', nuit: '#171B23' };
+
 const CSS = `
-.m-app { min-height: 100vh; min-height: 100dvh; display: flex; justify-content: center; }
+@font-face { font-family: 'Inter Sekou'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('/polices/Inter-variable-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Inter Sekou'; font-style: normal; font-weight: 400 800; font-display: swap; src: url('/polices/Inter-variable-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+
+.m-app {
+  --m-bandeau: ${BANDEAU.jour}; --m-bandeau-texte: #FFFFFF; --m-bandeau-doux: #C7D6FF; --m-bandeau-bord: #2A3F73; --m-bandeau-creux: #152A5C;
+  --m-puce-fond: #FFFFFF; --m-puce-texte: #0B1F4B; --m-pastille: #1D4ED8; --m-pastille-texte: #FFFFFF; --m-pastille-off: #2A3F73; --m-pastille-off-texte: #FFFFFF;
+  --m-compteur: #C7D6FF; --m-compteur-texte: #0B1F4B; --m-trait: #FACC15;
+  --m-piste: #E3E8F2; --m-ligne: rgba(11,31,75,0.10); --m-encart: #F1F4FA; --m-carte-bord: transparent; --m-ombre: 0 1px 3px rgba(11,31,75,0.10);
+  --m-succes-fond: rgba(21,112,58,0.10); --m-attention-fond: rgba(168,54,10,0.10); --m-attention-bord: rgba(168,54,10,0.35); --m-accent-fond: rgba(29,78,216,0.10);
+  min-height: 100vh; min-height: 100dvh; display: flex; justify-content: center; background: var(--fond);
+  font-family: 'Inter Sekou', Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45; font-variant-numeric: tabular-nums slashed-zero;
+}
+:root[data-theme='nuit'] .m-app {
+  --m-bandeau: ${BANDEAU.nuit}; --m-bandeau-texte: #E8ECF3; --m-bandeau-doux: #A9B2C2; --m-bandeau-bord: #2A303C; --m-bandeau-creux: #101318;
+  --m-puce-fond: #E8ECF3; --m-puce-texte: #101318; --m-pastille: #A3C1FF; --m-pastille-texte: #0E1320; --m-pastille-off: #2A303C; --m-pastille-off-texte: #E8ECF3;
+  --m-compteur: #A3C1FF; --m-compteur-texte: #0E1320;
+  --m-piste: #2A303C; --m-ligne: #262C38; --m-encart: #1F242E; --m-carte-bord: #262C38; --m-ombre: none;
+  --m-succes-fond: rgba(110,231,160,0.12); --m-attention-fond: rgba(253,186,116,0.12); --m-attention-bord: rgba(253,186,116,0.35); --m-accent-fond: rgba(163,193,255,0.12);
+}
 .m-app :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.m-app .champ:focus-visible { outline-offset: 1px; }
+.m-entete :focus-visible { outline-color: var(--m-bandeau-texte); }
 .m-app .champ, .m-app textarea.champ, .m-app select.champ { font-size: 16px; }
+.m-app .etiquette, .m-etiquette { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--doux); }
+.m-app .bouton.principal { min-height: 50px; border-radius: 8px; font-size: 15px; font-weight: 600; }
+.m-sombre-seul { display: none !important; }
+:root[data-theme='nuit'] .m-sombre-seul { display: block !important; }
+:root[data-theme='nuit'] .m-clair-seul { display: none !important; }
+
 .m-colonne { position: relative; width: 100%; height: 100vh; height: 100dvh; display: flex; flex-direction: column; background: var(--fond); overflow: hidden; padding-bottom: var(--m-clavier, 0px); }
-.m-colonne.m-connexion { height: auto; min-height: 100vh; min-height: 100dvh; max-width: 560px; overflow: visible; justify-content: center;
-  padding: calc(40px + env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); gap: 22px; }
 .m-principal { order: 1; flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
-.m-entete { flex: none; padding: 12px max(16px, env(safe-area-inset-right)) 12px max(16px, env(safe-area-inset-left)); padding-top: calc(12px + env(safe-area-inset-top)); background: var(--panneau); border-bottom: 1px solid var(--bord); }
-.m-entete-int { display: flex; align-items: center; gap: 10px; width: 100%; max-width: 1040px; margin: 0 auto; min-height: 44px; }
-.m-entete h1 { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.25; }
-.m-titre { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.m-titre > span { font-size: 12px; color: var(--doux); }
-.m-logo { flex: none; width: 40px; height: 40px; border-radius: 12px; background: var(--eclat); color: #0B1F4B; display: flex; align-items: center; justify-content: center; }
-.m-icone { flex: none; position: relative; display: flex; align-items: center; justify-content: center; gap: 2px; min-width: 44px; height: 44px; padding: 0; border-radius: 10px; border: 1px solid var(--bord-fort); background: var(--panneau); color: var(--texte); font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
-.m-icone:hover { background: var(--neutre-fond); }
-.m-retour-texte { display: none; }
-@media (min-width: 460px) { .m-retour { padding: 0 14px 0 8px; } .m-retour-texte { display: inline; } }
-.m-compteur { position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; background: var(--accent); color: var(--sur-accent); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid var(--panneau); }
+
+/* Bandeau : logo et actions, trait jaune, titre, puis le choix de l'enfant ou de la période. */
+.m-entete { flex: none; background: var(--m-bandeau); color: var(--m-bandeau-texte); border-bottom: 1px solid var(--m-bandeau-bord);
+  padding: calc(16px + env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 18px max(20px, env(safe-area-inset-left)); }
+.m-entete.fil { padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: 14px; }
+.m-entete-int { display: flex; flex-direction: column; gap: 14px; width: 100%; max-width: 1040px; margin: 0 auto; min-width: 0; }
+.m-entete.fil .m-entete-int { gap: 12px; }
+.m-entete-haut { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; }
+.m-logo-entete { display: block; width: 80.4px; height: 26px; }
+.m-actions { display: flex; gap: 8px; margin-left: auto; }
+.m-titre { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.m-titre.avec-trait { gap: 8px; }
+.m-trait { width: 32px; height: 4px; border-radius: 2px; background: var(--m-trait); }
+.m-entete h1 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.m-entete h1.grand { font-size: 24px; font-variation-settings: 'opsz' 32; }
+.m-titre > span:not(.m-trait) { font-size: 13px; color: var(--m-bandeau-doux); }
+.m-entete-fil { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.m-entete.fil .m-titre { gap: 0; }
+.m-entete.fil h1 { font-size: 20px; }
+.m-entete.fil .m-titre > span { font-size: 12px; }
+.m-icone { flex: none; position: relative; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; padding: 0; border-radius: 12px;
+  border: 1px solid var(--m-bandeau-bord); background: transparent; color: var(--m-bandeau-texte); font: inherit; cursor: pointer; text-decoration: none; }
+.m-icone:hover { color: var(--m-bandeau-texte); background: rgba(255,255,255,0.06); }
+.m-retour { border-color: transparent; margin-left: -10px; }
+.m-compteur { position: absolute; top: 6px; right: 6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--m-compteur); color: var(--m-compteur-texte);
+  font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+
+/* Choix de l'enfant (pastille et initiale), de la période (segments), du destinataire (puces). */
+.m-enfants { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 0 20px; }
+.m-enfants::-webkit-scrollbar { display: none; }
+.m-enfant { flex: none; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px 0 6px; border-radius: 22px; font: inherit; font-size: 13px; font-weight: 600;
+  white-space: nowrap; cursor: pointer; background: transparent; color: var(--m-bandeau-doux); border: 1px solid var(--m-bandeau-bord); }
+.m-enfant > span { width: 32px; height: 32px; border-radius: 16px; display: flex; align-items: center; justify-content: center; background: var(--m-pastille-off); color: var(--m-pastille-off-texte); font-size: 13px; font-weight: 700; }
+.m-enfant[aria-pressed='true'] { background: var(--m-puce-fond); color: var(--m-puce-texte); border-color: var(--m-puce-fond); }
+.m-enfant[aria-pressed='true'] > span { background: var(--m-pastille); color: var(--m-pastille-texte); }
+.m-segments { display: flex; gap: 4px; padding: 4px; border-radius: 12px; background: var(--m-bandeau-creux); }
+.m-segments button { flex: 1 1 0; min-width: 0; height: 40px; padding: 0 6px; border-radius: 8px; border: 0; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  background: transparent; color: var(--m-bandeau-doux); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-segments button[aria-pressed='true'] { background: var(--m-puce-fond); color: var(--m-puce-texte); }
+.m-segments button:disabled { cursor: default; opacity: 0.55; }
+.m-puces { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -20px; padding: 0 20px; }
+.m-puces::-webkit-scrollbar { display: none; }
+.m-puce { position: relative; flex: none; height: 36px; padding: 0 12px; border-radius: 18px; font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  background: transparent; color: var(--m-bandeau-doux); border: 1px solid var(--m-bandeau-bord); }
+.m-puce[aria-pressed='true'] { background: var(--m-puce-fond); color: var(--m-puce-texte); border-color: var(--m-puce-fond); }
+.m-puce .m-point { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 4px; background: var(--m-trait); }
+
 .m-bande { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left)); font-size: 13px; font-weight: 600; }
-.m-bande.attention { background: var(--attention-fond); }
+.m-bande.attention { background: var(--m-attention-fond); }
 .m-bande.attention .icone { color: var(--attention); }
-.m-bande.succes { background: var(--succes-fond); }
+.m-bande.succes { background: var(--m-succes-fond); }
 .m-bande.succes .icone { color: var(--succes); }
 .m-contenu { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-bottom: 96px; -webkit-overflow-scrolling: touch;
   padding: 16px max(16px, env(safe-area-inset-right)) 28px max(16px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 14px; }
 .m-contenu > *, .m-deux > *, .m-col > * { flex-shrink: 0; }
-.m-pied { flex: none; display: flex; justify-content: center; padding: 10px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); background: var(--panneau); border-top: 1px solid var(--bord); }
-.m-pied > * { max-width: 1040px; }
-.m-onglets { order: 2; flex: none; display: flex; justify-content: center; background: var(--panneau); border-top: 1px solid var(--bord); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
-.m-onglets a { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 60px; padding: 6px 4px; text-decoration: none; font-size: 11px; font-weight: 600; color: var(--doux); }
+.m-pied { flex: none; display: flex; justify-content: center; padding: 10px max(12px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: var(--panneau); border-top: 1px solid var(--m-ligne); }
+.m-pied > * { width: 100%; max-width: 1040px; }
+
+/* Onglets du bas : icône au-dessus du libellé, filet bleu sur l'onglet courant. */
+.m-onglets { order: 2; flex: none; display: flex; justify-content: center; background: var(--panneau); border-top: 1px solid var(--m-ligne); padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+.m-onglets a { position: relative; flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; height: 62px; padding: 0 4px;
+  text-decoration: none; font-size: 11px; font-weight: 600; color: var(--doux); }
 .m-onglets a:hover { color: var(--texte); }
 .m-onglets a.actif { color: var(--accent); }
-.m-onglets a.actif::before { content: ''; position: absolute; top: -1px; left: 22%; right: 22%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+.m-onglets a.actif::before { content: ''; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
 .m-rail-logo { display: none; }
-.m-carte { position: relative; flex: none; background: var(--panneau); border: 1px solid var(--bord); border-radius: 12px; box-shadow: var(--ombre); padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.m-carte.serree { gap: 0; }
+.m-sans-onglets .m-onglets { display: none; }
+
+/* Cartes et lignes. */
+.m-carte { position: relative; flex: none; background: var(--panneau); border: 1px solid var(--m-carte-bord); border-radius: 12px; box-shadow: var(--m-ombre); padding: 16px;
+  display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.m-carte.serree { gap: 4px; }
 .m-carte.cliquable { cursor: pointer; }
-.m-carte.cliquable:hover { border-color: var(--bord-fort); }
+.m-carte.cliquable:hover { box-shadow: 0 2px 8px rgba(11,31,75,0.14); }
+.m-tete-carte { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.m-lien { display: flex; align-items: center; gap: 2px; min-height: 32px; font-size: 13px; font-weight: 600; text-decoration: none; color: var(--accent); background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
 .m-vide { display: flex; align-items: center; gap: 10px; color: var(--doux); font-size: 13px; }
 .m-vide .icone { color: var(--doux); }
-.m-ligne { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-height: 44px; padding: 8px 0; border-bottom: 1px solid var(--bord); }
+.m-ligne { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 10px 0; border-bottom: 1px solid var(--m-ligne); color: inherit; text-decoration: none; }
+.m-ligne:last-child, .m-ligne.derniere { border-bottom: 0; }
 .m-ligne.cliquable { cursor: pointer; }
-.m-ligne.cliquable:hover .gras, .m-ligne.cliquable:hover > span[style] { color: var(--accent); }
+.m-ligne.cliquable:hover .gras { color: var(--accent); }
 .m-pile { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.m-pile .gras { font-weight: 600; }
 .m-petit { font-size: 12px; color: var(--doux); }
 .m-deux-lignes { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.m-avatar { flex: none; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 11px; background: var(--champ); border: 1px solid var(--bord-fort); font-size: 16px; font-weight: 700; }
-.m-choix { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; border: 1px solid var(--bord-fort); background: var(--panneau); color: var(--texte); }
-.m-choix[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-fond); color: var(--accent); }
-.m-choix .m-avatar { width: 28px; height: 28px; border-radius: 8px; font-size: 13px; }
+.m-note-chiffre { font-size: 17px; font-weight: 700; white-space: nowrap; }
+.m-note-chiffre small { font-size: 13px; font-weight: 500; color: var(--doux); }
+.m-somme { font-size: 28px; line-height: 1.1; font-weight: 700; font-variation-settings: 'opsz' 32; letter-spacing: -0.01em; white-space: nowrap; }
+.m-somme small { font-size: 15px; font-weight: 600; color: var(--doux); }
+.m-encart { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--m-encart); font-size: 13px; }
+.m-encart .icone { color: var(--accent); }
+.m-encart b, .m-alerte b { font-weight: 600; }
+.m-alerte { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border-radius: 8px; background: var(--m-attention-fond); border: 1px solid var(--m-attention-bord); font-size: 13px; line-height: 1.45; }
+.m-alerte > .icone { flex: none; margin-top: 1px; color: var(--attention); }
+.m-badge { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 8px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.m-badge.succes { background: var(--m-succes-fond); color: var(--succes); }
+.m-badge.attention { background: var(--m-attention-fond); color: var(--attention); }
+.m-badge.accent { background: var(--m-accent-fond); color: var(--accent); }
+.m-tranches { display: flex; gap: 6px; }
+.m-tranche { flex: 1 1 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.m-tranche > span { font-size: 11px; font-weight: 500; color: var(--doux); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-tranche.retard > span { color: var(--attention); font-weight: 600; }
+.m-piste { height: 10px; border-radius: 4px; background: var(--m-piste); overflow: hidden; }
+.m-piste > div { height: 100%; background: var(--accent); }
+.m-tranche.retard .m-piste > div { background: var(--attention); }
+.m-barre { flex: 1; height: 6px; border-radius: 3px; background: var(--m-piste); }
+.m-barre > div { height: 100%; border-radius: 3px; background: var(--accent); }
+.m-tuile { flex: none; width: 40px; height: 40px; border-radius: 12px; background: var(--m-accent-fond); color: var(--accent); display: flex; align-items: center; justify-content: center; }
+.m-bouton { display: flex; align-items: center; justify-content: center; gap: 8px; height: 50px; padding: 0 16px; border: 0; border-radius: 8px; background: var(--accent); color: var(--sur-accent);
+  font: inherit; font-size: 15px; font-weight: 600; text-decoration: none; cursor: pointer; }
+.m-bouton:hover { color: var(--sur-accent); background: var(--accent-survol); }
+.m-bouton:disabled { opacity: 0.6; cursor: default; }
+
+/* Messagerie : séparateurs de jour, bulles, barre d'écriture. */
+.m-fil { display: flex; flex-direction: column; gap: 10px; }
+.m-jour-sep { align-self: center; font-size: 12px; color: var(--doux); padding: 4px 10px; border-radius: 8px; background: var(--m-encart); }
+.m-bulle { max-width: 82%; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.45; }
+.m-bulle > span:first-child { white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-bulle > span:last-child { font-size: 11px; align-self: flex-end; }
+.m-bulle.moi { align-self: flex-end; background: var(--accent); color: var(--sur-accent); border-radius: 14px 14px 4px 14px; }
+.m-bulle.moi > span:last-child { opacity: 0.8; }
+.m-bulle.ecole { align-self: flex-start; background: var(--panneau); color: var(--texte); border-radius: 14px 14px 14px 4px; box-shadow: var(--m-ombre); border: 1px solid var(--m-carte-bord); }
+.m-bulle.ecole > span:last-child { color: var(--doux); }
+.m-ecrire { display: flex; align-items: center; gap: 8px; margin: 0; }
+.m-ecrire input { flex: 1; min-width: 0; height: 44px; padding: 0 14px; border-radius: 22px; border: 1px solid var(--m-ligne); background: var(--champ); font: inherit; font-size: 16px; color: var(--texte); }
+.m-ecrire input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.m-envoyer { flex: none; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border: 0; border-radius: 22px; background: var(--accent); color: var(--sur-accent); cursor: pointer; }
+.m-envoyer:disabled { opacity: 0.6; cursor: default; }
+
+/* Écrans de l'instituteur : grille des notes et appel. */
+.m-avatar { flex: none; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 20px; background: var(--m-pastille); color: var(--m-pastille-texte); font-size: 15px; font-weight: 700; }
+.m-choix { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 22px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  white-space: nowrap; border: 1px solid var(--m-ligne); background: var(--panneau); color: var(--doux); }
+.m-choix[aria-pressed='true'] { border-color: var(--accent); background: var(--m-accent-fond); color: var(--accent); }
 .m-jours { display: flex; align-items: center; gap: 6px; }
-.m-jours .m-choix { flex: 1 1 0; min-width: 0; padding: 0; flex-direction: column; gap: 0; line-height: 1.1; }
+.m-jours .m-choix { flex: 1 1 0; min-width: 0; padding: 0; flex-direction: column; gap: 0; line-height: 1.1; border-radius: 12px; }
 .m-jours .m-choix small { font-size: 10px; font-weight: 600; color: var(--doux); }
 .m-jours .m-choix[aria-pressed='true'] small { color: var(--accent); }
 .m-eleves { display: flex; flex-direction: column; }
-.m-rang { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 0; border-bottom: 1px solid var(--bord); }
+.m-rang { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 4px 0; border-bottom: 1px solid var(--m-ligne); }
 .m-nom { flex: 1; min-width: 0; min-height: 48px; display: flex; align-items: center; padding: 0 4px 0 0; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .m-nom:not(:disabled):hover { background: var(--neutre-fond); }
-.m-nom:not(:disabled):active { background: var(--accent-fond); }
+.m-nom:not(:disabled):active { background: var(--m-accent-fond); }
 .m-nom:disabled { cursor: default; }
 .m-nom .m-petit { font-weight: 500; }
-.m-note { flex: none; width: 76px; height: 44px; padding: 0 10px; text-align: right; font-weight: 600; }
+.m-note { flex: none; width: 76px; height: 44px; padding: 0 10px; text-align: right; font-weight: 600; border-radius: 8px; }
 .m-note[readonly] { color: var(--doux); }
 .m-statut { flex: none; min-height: 44px; min-width: 76px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--bord-fort); background: var(--panneau); color: var(--texte); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-.m-statut.absent { border-color: var(--attention-bord); background: var(--attention-fond); color: var(--attention); }
+.m-statut.absent { border-color: var(--m-attention-bord); background: var(--m-attention-fond); color: var(--attention); }
 .m-statut.absent_justifie { border-color: var(--bord-fort); background: var(--neutre-fond); color: var(--texte); }
-.m-statut.dispense { border-color: var(--accent-bord); background: var(--accent-fond); color: var(--accent); }
+.m-statut.dispense { border-color: var(--accent-bord); background: var(--m-accent-fond); color: var(--accent); }
 .m-statut:disabled { cursor: default; }
 .m-presences { display: flex; align-items: center; gap: 8px; }
-.m-presence { width: 48px; height: 48px; border-radius: 10px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; border: 1px solid var(--bord-fort); background: var(--panneau); color: var(--doux); }
-.m-presence:not(:disabled):hover { background: var(--neutre-fond); }
+.m-presence { width: 48px; height: 48px; border-radius: 12px; font: inherit; font-size: 16px; font-weight: 700; cursor: pointer; border: 1px solid var(--m-ligne); background: var(--m-encart); color: var(--doux); }
+.m-presence:not(:disabled):hover { border-color: var(--bord-fort); }
 .m-presence.p[aria-pressed='true'] { border-color: var(--succes); background: var(--succes); color: var(--panneau); }
 .m-presence.a[aria-pressed='true'] { border-color: var(--danger); background: var(--danger); color: var(--panneau); }
 .m-presence.r[aria-pressed='true'] { border-color: var(--attention); background: var(--attention); color: var(--panneau); }
 .m-presence:disabled { cursor: default; opacity: 0.7; }
-.m-radio { position: relative; display: flex; align-items: flex-start; gap: 12px; min-height: 56px; padding: 12px 10px; margin: 0 -4px; border-radius: 10px; border: 1px solid transparent; cursor: pointer; }
-.m-radio + .m-radio { margin-top: 2px; }
-.m-radio:hover { background: var(--neutre-fond); }
-.m-radio input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.m-rond { flex: none; width: 22px; height: 22px; margin-top: 1px; border-radius: 50%; border: 2px solid var(--doux); background: var(--panneau); display: flex; align-items: center; justify-content: center; }
-.m-radio input:checked ~ .m-rond { border-color: var(--accent); }
-.m-radio input:checked ~ .m-rond::after { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
-.m-radio:has(input:checked) { background: var(--accent-fond); border-color: var(--accent-bord); }
-.m-radio input:focus-visible ~ .m-rond { outline: 2px solid var(--accent); outline-offset: 2px; }
-.m-bulle { max-width: 85%; padding: 8px 12px; border-radius: 10px; display: flex; flex-direction: column; gap: 2px; }
+.m-compteurs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .m-deconnexion { min-height: 44px; padding: 0 16px; border-radius: 8px; }
 .m-erreur { font-size: 13px; font-weight: 600; color: var(--danger); }
 .m-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
@@ -118,20 +230,46 @@ const CSS = `
 .m-jour-col h2 { margin: 0 0 6px; font-size: 13px; font-weight: 700; display: flex; align-items: baseline; gap: 6px; }
 .m-jour-col h2 span { font-size: 12px; font-weight: 500; color: var(--doux); }
 .m-jour-col.aujourdhui h2 { color: var(--accent); }
-.m-cours { display: flex; flex-direction: column; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--bord); font-size: 13px; }
+.m-cours { display: flex; flex-direction: column; gap: 0; padding: 6px 0; border-bottom: 1px solid var(--m-ligne); font-size: 13px; }
 .m-cours .m-petit { font-size: 11px; }
 .m-tableau { width: 100%; border-collapse: collapse; font-size: 13px; }
 .m-tableau th { text-align: left; padding: 6px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--doux); border-bottom: 1px solid var(--bord-fort); }
-.m-tableau td { padding: 8px; border-bottom: 1px solid var(--bord); vertical-align: top; }
+.m-tableau td { padding: 8px; border-bottom: 1px solid var(--m-ligne); vertical-align: top; }
 .m-tableau .num { text-align: right; white-space: nowrap; }
 .m-tableau tfoot td { font-weight: 700; border-bottom: 0; }
 body:has(.m-app) .messages-flottants { bottom: calc(84px + env(safe-area-inset-bottom)); }
+
+/* Connexion : bandeau bleu encre, carte qui le chevauche, langue en bas. */
+.m-connexion { width: 100%; min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--fond); }
+.m-connexion-haut { flex: none; background: var(--m-bandeau); padding: calc(56px + env(safe-area-inset-top)) max(28px, env(safe-area-inset-right)) 72px max(28px, env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 28px; }
+.m-connexion-haut > *, .m-connexion-corps > * { width: 100%; max-width: 480px; margin-left: auto; margin-right: auto; }
+.m-connexion-haut img { display: block; width: 212.2px; height: 44px; }
+.m-connexion-haut .m-titre { gap: 10px; }
+.m-connexion-haut .m-trait { width: 40px; }
+.m-connexion-haut h1 { margin: 0; color: var(--m-bandeau-texte); font-size: 28px; line-height: 1.15; font-weight: 800; letter-spacing: -0.02em; }
+.m-connexion-haut p { margin: 0; color: var(--m-bandeau-doux); font-size: 14px; line-height: 1.5; }
+.m-connexion-corps { flex: 1; display: flex; flex-direction: column; gap: 16px; margin-top: -40px; padding: 0 max(16px, env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.m-connexion-corps .m-carte { padding: 20px; gap: 0; }
+.m-formulaire { display: flex; flex-direction: column; gap: 16px; margin: 0; }
+.m-champ { display: flex; flex-direction: column; gap: 6px; }
+.m-champ label { font-size: 13px; font-weight: 600; }
+.m-saisie { display: flex; align-items: center; gap: 8px; height: 48px; padding: 0 14px; border-radius: 8px; background: var(--champ); border: 1px solid var(--m-ligne); }
+.m-saisie:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.m-saisie.erreur { border-color: var(--danger); }
+.m-saisie input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 16px; color: var(--texte); outline: none; }
+.m-saisie input::placeholder { color: var(--doux); opacity: 0.85; }
+.m-saisie button { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-right: -10px; border: 0; background: transparent; color: var(--doux); cursor: pointer; }
+.m-connexion-note { margin: 0 auto; font-size: 13px; line-height: 1.5; color: var(--doux); text-align: center; }
+.m-langues { margin-top: auto; display: flex; justify-content: center; gap: 8px; padding-top: 8px; }
+.m-langues button { display: flex; align-items: center; gap: 6px; height: 44px; padding: 0 16px; border-radius: 22px; border: 1px solid var(--m-ligne); background: var(--panneau); color: var(--doux);
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.m-langues button[aria-pressed='true'] { border-color: var(--accent); background: var(--m-accent-fond); color: var(--accent); }
 
 /* Téléphone : le tableau du reçu s'empile ligne par ligne (lisible à 360 px). */
 @media (max-width: ${LARGE - 1}px) {
   .m-tableau thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .m-tableau, .m-tableau tbody, .m-tableau tfoot { display: block; }
-  .m-tableau tr { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--bord); }
+  .m-tableau tr { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--m-ligne); }
   .m-tableau tfoot tr { border-bottom: 0; }
   .m-tableau td { display: flex; flex-direction: column; padding: 0; border: 0; }
   .m-tableau td.libelle { grid-column: 1 / -1; font-weight: 600; }
@@ -144,15 +282,13 @@ body:has(.m-app) .messages-flottants { bottom: calc(84px + env(safe-area-inset-b
 /* Tablette portrait (≥ 700 px) : deux colonnes, contenu centré sur 1040 px au plus, onglets plus larges. */
 @media (min-width: ${LARGE}px) {
   .m-cache-large { display: none !important; }
-  .m-entete, .m-bande, .m-contenu, .m-pied { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
-  .m-entete h1 { font-size: 19px; }
-  .m-titre > span { font-size: 13px; }
+  .m-entete { padding-left: max(28px, env(safe-area-inset-left)); padding-right: max(28px, env(safe-area-inset-right)); }
+  .m-enfants, .m-puces { margin: 0; padding: 0; flex-wrap: wrap; }
+  .m-segments { max-width: 560px; }
+  .m-bande, .m-contenu, .m-pied { padding-left: max(24px, env(safe-area-inset-left)); padding-right: max(24px, env(safe-area-inset-right)); }
   .m-contenu { padding-top: 20px; gap: 16px; }
   .m-contenu > * { width: 100%; max-width: 1040px; margin-left: auto; margin-right: auto; }
-  .m-pied > * { max-width: 1040px; }
   .m-onglets a { flex: 0 1 200px; flex-direction: row; gap: 8px; font-size: 13px; }
-  .m-onglets a.actif::before { left: 12%; right: 12%; }
-  .m-carte { padding: 16px; }
   .m-deux { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px 20px; align-items: start; }
   .m-deux.droite-large { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
   .m-deux > .m-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -163,26 +299,26 @@ body:has(.m-app) .messages-flottants { bottom: calc(84px + env(safe-area-inset-b
   .m-rang { min-height: 60px; }
   .m-presence { width: 52px; height: 52px; }
   .m-semaine { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 18px; }
+  .m-fil { max-width: 760px !important; }
+  .m-connexion-corps .m-carte { padding: 28px; }
 }
 @media (min-width: 1200px) { .m-semaine { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 
-/* Tablette paysage (≥ 900 px) : la barre d'onglets devient un rail latéral avec icônes et libellés. */
+/* Tablette paysage (≥ 900 px) : la barre d'onglets devient un rail latéral, le logo y passe. */
 @media (min-width: ${RAIL}px) {
   .m-colonne { flex-direction: row; }
-  .m-onglets { order: 0; flex-direction: column; justify-content: flex-start; gap: 4px; width: 224px; border-top: 0; border-right: 1px solid var(--bord);
+  .m-onglets, .m-sans-onglets .m-onglets { order: 0; display: flex; flex-direction: column; justify-content: flex-start; gap: 4px; width: 232px; border-top: 0; border-right: 1px solid var(--m-ligne);
     padding: calc(20px + env(safe-area-inset-top)) 12px calc(20px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
-  .m-onglets a { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; min-height: 48px; padding: 0 12px; border-radius: 10px; font-size: 14px; border: 1px solid transparent; color: var(--texte); }
+  .m-onglets a { flex: none; flex-direction: row; justify-content: flex-start; gap: 12px; height: 48px; padding: 0 12px; border-radius: 10px; font-size: 14px; color: var(--texte); }
   .m-onglets a .icone { color: var(--doux); }
   .m-onglets a:hover:not(.actif) { background: var(--neutre-fond); }
-  .m-onglets a.actif { background: var(--accent-fond); border-color: var(--accent-bord); color: var(--accent); }
+  .m-onglets a.actif { background: var(--m-accent-fond); color: var(--accent); }
   .m-onglets a.actif .icone { color: var(--accent); }
   .m-onglets a.actif::before { display: none; }
-  .m-rail-logo { display: flex; align-items: center; gap: 10px; padding: 0 4px 18px; min-width: 0; }
-  .m-rail-logo .m-pile { gap: 0; }
-  .m-rail-logo strong { font-size: 15px; }
-  .m-entete .m-logo { display: none; }
-  .m-entete { padding-left: max(28px, env(safe-area-inset-left)); padding-right: max(28px, env(safe-area-inset-right)); }
-  .m-contenu, .m-pied, .m-bande { padding-left: max(28px, env(safe-area-inset-left)); padding-right: max(28px, env(safe-area-inset-right)); }
+  .m-rail-logo { display: flex; flex-direction: column; gap: 6px; padding: 0 6px 18px; min-width: 0; }
+  .m-rail-logo img { display: block; width: 104px; height: 33.6px; }
+  .m-entete .m-logo-entete { display: none; }
+  .m-entete-haut:not(:has(.m-actions > *)) { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -232,41 +368,88 @@ function useLarge(min = LARGE): boolean {
   return large;
 }
 
-/** Cadre des maquettes mobiles : en-tête (retour ou logo), bande d'état, contenu défilant, barre d'action, onglets (ou rail). */
-function Mobile({ titre, sous, retour, action, bande, pied, onglets, actif, children }: {
-  titre: ReactNode; sous?: ReactNode; retour?: string | (() => void); action?: ReactNode; bande?: ReactNode; pied?: ReactNode;
-  onglets: Onglet[]; actif: string; children: ReactNode;
+/** Barre d'état du téléphone à la couleur du bandeau, rendue au fond de l'écran en quittant l'application mobile. */
+function useCouleurBarre() {
+  const { mode } = useSession();
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    meta?.setAttribute('content', BANDEAU[mode]);
+    return () => meta?.setAttribute('content', mode === 'nuit' ? '#101318' : '#F6F8FC');
+  }, [mode]);
+}
+
+/** Logo Sekou : version claire sur le bandeau, version du fond de page dans le rail de la tablette. */
+const LogoBandeau = () => <img className="m-logo-entete" src="/marque/sekou-logo-sombre.svg" alt="Sekou" width={80} height={26} />;
+const LogoRail = () => (
+  <>
+    <img className="m-clair-seul" src="/marque/sekou-logo.svg" alt="Sekou" width={104} height={34} />
+    <img className="m-sombre-seul" src="/marque/sekou-logo-sombre.svg" alt="Sekou" width={104} height={34} />
+  </>
+);
+
+/** Bascule Jour / Nuit du bandeau (maquette « accueil, mode Nuit »). */
+function BoutonMode() {
+  const { mode, basculerMode } = useSession();
+  return (
+    <button type="button" className="m-icone" aria-pressed={mode === 'nuit'} onClick={basculerMode}
+      aria-label={mode === 'nuit' ? 'Mode Nuit activé : passer en mode Jour' : 'Passer en mode Nuit'}>
+      <Icone nom="nuit" taille={20} />
+    </button>
+  );
+}
+
+/** Accès à la messagerie du parent, avec le nombre de conversations non lues. */
+const BoutonMessages = ({ nonLus = 0 }: { nonLus?: number }) => (
+  <Link to="/parent/messages" className="m-icone" aria-label={nonLus ? `Messages, ${pluriel(nonLus, 'non lu')}` : 'Messages'}>
+    <Icone nom="messages" taille={20} />{nonLus > 0 && <span className="m-compteur" aria-hidden="true">{nonLus > 9 ? '9+' : nonLus}</span>}
+  </Link>
+);
+
+/** Cadre des écrans mobiles : bandeau (logo et actions, ou retour), bande d'état, contenu défilant, barre d'action, onglets (ou rail). */
+function Mobile({ titre, sous, retour, actions, entete, trait, grand, bande, pied, onglets, actif, sansOnglets, children }: {
+  titre: ReactNode; sous?: ReactNode; retour?: string | (() => void); actions?: ReactNode; entete?: ReactNode; trait?: boolean; grand?: boolean;
+  bande?: ReactNode; pied?: ReactNode; onglets: Onglet[]; actif: string; sansOnglets?: boolean; children: ReactNode;
 }) {
   const moi = useMoi();
   const ref = useRef<HTMLDivElement>(null);
   useClavier(ref);
+  useCouleurBarre();
   const nomAppli = onglets === ONGLETS_PARENT ? 'Espace parents' : 'Espace instituteur';
-  const boutonRetour = <><Icone nom="wifi" /><span className="m-retour-texte">Retour</span></>;
+  const icone = <Icone nom="wifi" taille={22} />;
   return (
-    <div className="m-app">
+    <div className={`m-app ${sansOnglets ? 'm-sans-onglets' : ''}`}>
       <StyleMobile />
       <div className="m-colonne" ref={ref}>
         <nav className="m-onglets" aria-label="Navigation principale">
-          <div className="m-rail-logo">
-            <div className="m-logo" aria-hidden="true"><Icone nom="logo" taille={22} /></div>
-            <div className="m-pile"><strong>{nomAppli}</strong><span className="m-petit m-deux-lignes">{moi.etablissement}</span></div>
-          </div>
+          <div className="m-rail-logo"><LogoRail /><span className="m-petit m-deux-lignes">{nomAppli} · {moi.etablissement}</span></div>
           {onglets.map((o) => (
             <Link key={o.route} to={o.route} className={o.route === actif ? 'actif' : ''} aria-current={o.route === actif ? 'page' : undefined}>
-              <Icone nom={o.icone} taille={22} /><span>{o.libelle}</span>
+              <Icone nom={o.icone} taille={20} /><span>{o.libelle}</span>
             </Link>
           ))}
         </nav>
         <div className="m-principal">
-          <header className="m-entete">
+          <header className={`m-entete ${retour ? 'fil' : ''}`}>
             <div className="m-entete-int">
-              {typeof retour === 'string'
-                ? <Link to={retour} className="m-icone m-retour" aria-label="Retour">{boutonRetour}</Link>
-                : retour
-                  ? <button type="button" className="m-icone m-retour" aria-label="Retour" onClick={retour}>{boutonRetour}</button>
-                  : <div className="m-logo" aria-hidden="true"><Icone nom="logo" taille={22} /></div>}
-              <div className="m-titre"><h1>{titre}</h1>{sous && <span>{sous}</span>}</div>
-              {action}
+              {retour ? (
+                <div className="m-entete-fil">
+                  {typeof retour === 'string'
+                    ? <Link to={retour} className="m-icone m-retour" aria-label="Retour">{icone}</Link>
+                    : <button type="button" className="m-icone m-retour" aria-label="Retour" onClick={retour}>{icone}</button>}
+                  <div className="m-titre"><h1>{titre}</h1>{sous && <span>{sous}</span>}</div>
+                  {actions && <div className="m-actions">{actions}</div>}
+                </div>
+              ) : (
+                <>
+                  <div className="m-entete-haut"><LogoBandeau />{actions ? <div className="m-actions">{actions}</div> : <div className="m-actions" />}</div>
+                  <div className={`m-titre ${trait ? 'avec-trait' : ''}`}>
+                    {trait && <span className="m-trait" aria-hidden="true" />}
+                    <h1 className={grand ? 'grand' : ''}>{titre}</h1>
+                    {sous && <span>{sous}</span>}
+                  </div>
+                </>
+              )}
+              {entete}
             </div>
           </header>
           {bande}
@@ -280,7 +463,14 @@ function Mobile({ titre, sous, retour, action, bande, pied, onglets, actif, chil
 
 const Carte = ({ children, serree, ecart, style, className, ariaLabel }: { children: ReactNode; serree?: boolean; ecart?: number; style?: CSSProperties; className?: string; ariaLabel?: string }) =>
   <section className={`m-carte ${serree ? 'serree' : ''} ${className ?? ''}`} aria-label={ariaLabel} style={{ ...(ecart !== undefined ? { gap: ecart } : {}), ...style }}>{children}</section>;
-const Chevron = () => <span style={{ display: 'flex', color: 'var(--doux)' }} aria-hidden="true"><Icone nom="chevron" /></span>;
+const Chevron = ({ taille = 18 }: { taille?: number }) => <span style={{ display: 'flex', color: 'var(--doux)' }} aria-hidden="true"><Icone nom="chevron" taille={taille} /></span>;
+/** En-tête de carte : étiquette en capitales, lien « Détail › » à droite. */
+const TeteCarte = ({ titre, lien, libelle }: { titre: ReactNode; lien?: string; libelle?: string }) => (
+  <div className="m-tete-carte">
+    <span className="m-etiquette">{titre}</span>
+    {lien && <Link to={lien} className="m-lien">{libelle}<Icone nom="chevron" taille={16} /></Link>}
+  </div>
+);
 /** État vide, explicite et bienveillant. */
 const Vide = ({ children, icone = 'lire', style }: { children: ReactNode; icone?: NomIcone; style?: CSSProperties }) =>
   <Carte style={style}><span className="m-vide"><Icone nom={icone} taille={20} /><span>{children}</span></span></Carte>;
@@ -302,9 +492,19 @@ function isoNet(s: string | null | undefined): string {
   return t.includes('T') ? t.replace(/(\.\d{3})\d+/, '$1').replace(/([+-]\d{2})$/, '$1:00') : t;
 }
 const memeJour = (iso: string) => dateLocale(iso)?.toDateString() === new Date().toDateString();
-/** Montants écrits par la base avec une virgule de milliers (« 15,000 ») : affichage « 15 000 ». */
-const montantsFr = (texte: string) => texte.replace(/\d{1,3}(?:,\d{3})+/g, (m) => montant(Number(m.replace(/,/g, ''))));
 const de = (mot: string) => (/^[aeiouyhàâéèêëîïôöûü]/i.test(mot) ? `d’${mot}` : `de ${mot}`);
+/** « de la tranche 2 », « de l’inscription », « des frais d’examen ». */
+const deLa = (mot: string) => (/^[aeiouyhàâéèêëîïôöûü]/i.test(mot) ? `de l’${mot}` : /^frais\b/i.test(mot) ? `des ${mot}` : `de la ${mot}`);
+/** « M. ONANA Bertrand » → « M. ONANA » (civilité et nom de famille, comme dans les maquettes). */
+const nomCourt = (nom: string) => {
+  const mots = nom.trim().split(/\s+/);
+  const garde = mots.filter((m, i) => (i === 0 && /^(M\.|Mme|Mlle|Dr)$/.test(m)) || (m.length > 1 && m === m.toUpperCase() && /\p{L}/u.test(m)));
+  return garde.length > (/^(M\.|Mme|Mlle|Dr)$/.test(mots[0] ?? '') ? 1 : 0) ? garde.join(' ') : nom;
+};
+/** Date limite : « 30/11 » dans l'année en cours, « 15/02/2027 » au-delà. */
+const dateCourte = (iso: string) => (iso.slice(0, 4) === aujourdhuiIso().slice(0, 4) ? jjmm(iso) : jjmmaaaa(iso));
+/** « 2026/2027 » → « 2026‑2027 », insécable comme dans la maquette. */
+const anneeTiret = (a: string | null | undefined) => (a ?? '').replace(/\s*[/-]\s*/, '\u2011');
 
 const lire = <T,>(cle: string, defaut: T): T => {
   try { const v = localStorage.getItem(cle); return v ? (JSON.parse(v) as T) : defaut; } catch { return defaut; }
@@ -319,6 +519,36 @@ function Deconnexion({ vers }: { vers: string }) {
       <button type="button" className="lien-texte m-deconnexion" onClick={async () => { await deconnecter(); naviguer(vers, { replace: true }); }}>Se déconnecter</button>
     </div>
   );
+}
+
+/** Barres de paiement par ligne de l'échéancier (inscription, tranches) ; en retard : orange. */
+function Tranches({ lignes }: { lignes: { libelle: string; aPayer: number; reste: number; dateLimite: string }[] }) {
+  const auj = aujourdhuiIso();
+  if (!lignes.length) return null;
+  return (
+    <div className="m-tranches">
+      {lignes.map((l, i) => {
+        const part = l.aPayer > 0 ? Math.round(((l.aPayer - l.reste) * 100) / l.aPayer) : 100;
+        const retard = l.reste > 0 && l.dateLimite < auj;
+        return (
+          <div key={i} className={`m-tranche ${retard ? 'retard' : ''}`}>
+            <div className="m-piste" role="progressbar" aria-label={`${l.libelle} : payée à ${part} %${retard ? ', en retard' : ''}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={part}>
+              <div style={{ width: `${part}%` }} />
+            </div>
+            <span aria-hidden="true">{l.libelle}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Situation des paiements : soldé, à jour, en retard. */
+function BadgeSituation({ lignes }: { lignes: { reste: number; dateLimite: string }[] }) {
+  const auj = aujourdhuiIso();
+  const reste = lignes.reduce((s, l) => s + l.reste, 0);
+  if (lignes.some((l) => l.reste > 0 && l.dateLimite < auj)) return <span className="m-badge attention"><Icone nom="bouclier" taille={13} />En retard</span>;
+  return <span className="m-badge succes"><Icone nom="cercleCoche" taille={13} />{reste === 0 && lignes.length ? 'Soldé' : 'À jour'}</span>;
 }
 
 // ===================================================================== file d'attente du téléphone (hors ligne)
@@ -489,11 +719,11 @@ function EcranNotesInstituteur() {
   const choisir = (classeId: string, matiereId: string) => { ecrire(CLE_CHOIX, { classeId, matiereId }); setParams({ classe: classeId, matiere: matiereId }); };
 
   if (erreur || !d) {
-    return <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/notes" titre="Notes">{erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : <Chargement />}</Mobile>;
+    return <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/notes" trait titre="Notes" actions={<BoutonMode />}>{erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : <Chargement />}</Mobile>;
   }
   if (!d.sequence) {
     return (
-      <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/notes" titre="Notes">
+      <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/notes" trait titre="Notes" actions={<BoutonMode />}>
         <Vide>Aucune séquence n’est ouverte pour l’instant : la saisie s’ouvrira avec la prochaine séquence.</Vide>
         <Deconnexion vers="/instituteur/connexion" />
       </Mobile>
@@ -523,14 +753,15 @@ function ChoixClasse({ classes, sequence, choisir }: { classes: ClasseSaisie[]; 
     return res;
   }, [sequence.id, classes.map((c) => c.id).join()]);
   return (
-    <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/notes" titre="Mes classes" sous={`${sequence.libelle} · ${etatSaisie(sequence)}`}
-      bande={<BandeSynchro synchro={synchro} quoi="notes" />}>
+    <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/notes" trait titre="Mes classes" sous={`${sequence.libelle} · ${etatSaisie(sequence)}`}
+      actions={<BoutonMode />} bande={<BandeSynchro synchro={synchro} quoi="notes" />}>
       {classes.length === 0 && <Vide>Aucune classe ne vous est confiée cette année.</Vide>}
       <div className="m-grille-classes">
         {classes.map((c) => (
           <section key={c.id} className="m-classe" aria-label={c.nom}>
-            <span className="etiquette">{c.nom}</span>
+            <span className="m-etiquette">{c.nom}</span>
             <Carte serree style={{ '--m-lignes': Math.max(1, Math.ceil(c.matieres.length / 2)) } as CSSProperties}>
+              {c.matieres.length === 0 && <VideLigne icone="notes">Aucune matière n’est encore programmée pour cette classe : le préfet des études la définit dans le programme de l’année.</VideLigne>}
               {c.matieres.map((m) => {
                 const a = avancement?.[`${c.id}|${m.id}`];
                 const autre = m.saisiePar !== 'Principal' && m.saisiePar !== moi.nom;
@@ -541,7 +772,7 @@ function ChoixClasse({ classes, sequence, choisir }: { classes: ClasseSaisie[]; 
                       <span className="gras">{m.libelle}</span>
                       <span className="m-petit">{autre ? `Saisie par ${m.saisiePar}` : a ? `${pluriel(a.notes, 'note')} sur ${a.total}` : ' '}</span>
                     </div>
-                    {!autre && a && a.total > 0 && a.notes >= a.total && <span className="pastille succes">Complet</span>}
+                    {!autre && a && a.total > 0 && a.notes >= a.total && <span className="m-badge succes"><Icone nom="cercleCoche" taille={13} />Complet</span>}
                     <Chevron />
                   </div>
                 );
@@ -751,7 +982,7 @@ function EcranAppelInstituteur() {
   };
 
   return (
-    <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/appel" retour="/instituteur/notes"
+    <Mobile onglets={ONGLETS_INSTITUTEUR} actif="/instituteur/appel" actions={<BoutonMode />}
       titre={fiche ? `${fiche.classe} · appel` : 'Appel'}
       sous={fiche ? `${capitale(jourDate(fiche.jour))} · ${fiche.debut} – ${fiche.fin} · ${fiche.libelle}` : undefined}
       bande={<BandeSynchro synchro={synchro} quoi="appel" />}
@@ -760,10 +991,10 @@ function EcranAppelInstituteur() {
         <Vide icone="emploiDuTemps">Aucun appel à faire aujourd’hui : pas de cours prévu à votre emploi du temps.</Vide>
       ) : (
         <>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }} role="status" aria-live="polite">
-            <span className="pastille succes">{pluriel(nombre('present'), 'présent')}</span>
-            <span className="pastille danger">{pluriel(nombre('absent'), 'absent')}</span>
-            <span className="pastille attention">{pluriel(nombre('retard'), 'retard')}</span>
+          <div className="m-compteurs" role="status" aria-live="polite">
+            <span className="m-badge succes">{pluriel(nombre('present'), 'présent')}</span>
+            <span className="m-badge attention" style={{ background: 'var(--danger-fond)', color: 'var(--danger)' }}>{pluriel(nombre('absent'), 'absent')}</span>
+            <span className="m-badge attention">{pluriel(nombre('retard'), 'retard')}</span>
           </div>
           {!fiche.modifiable && <Note ton="attention">Seul l’instituteur prévu à ce créneau fait l’appel.</Note>}
           {fiche.statut === 'faite' && fiche.faiteLe && <span className="m-petit">Appel enregistré à {heure(isoNet(fiche.faiteLe))} ; une correction reste possible.</span>}
@@ -792,64 +1023,120 @@ function EcranAppelInstituteur() {
   );
 }
 
-// ===================================================================== parent : connexion
+// ===================================================================== connexion (parent et instituteur)
 
 const TEXTES_CONNEXION = {
-  fr: { titre: 'Espace parents', sous: 'suivez les notes, les absences et les paiements de vos enfants.', telephone: 'Numéro de téléphone', motDePasse: 'Mot de passe',
-    connecter: 'Se connecter', aide: 'Un seul compte par famille, créé à l’inscription. Le mot de passe figure sur la fiche remise par le secrétariat ; en cas d’oubli, demandez-en un nouveau à l’école.',
-    appareils: 'Android, iPhone ou navigateur', langue: 'Langue' },
-  en: { titre: 'Parents’ area', sous: 'follow your children’s marks, absences and payments.', telephone: 'Phone number', motDePasse: 'Password',
-    connecter: 'Sign in', aide: 'One account per family, created at registration. The password is on the sheet given by the school office; if you forget it, ask the school for a new one.',
-    appareils: 'Android, iPhone or browser', langue: 'Language' },
+  parent: {
+    fr: { titre: 'Espace parents', sous: 'Les notes, la présence et les paiements de vos enfants, au même endroit.', identifiant: 'Numéro de téléphone', exemple: '6XX XX XX XX',
+      motDePasse: 'Mot de passe', indice: 'Remis à l’inscription', connecter: 'Se connecter', oubli: 'Mot de passe oublié ?',
+      oubliTexte: 'Le secrétariat de l’école vous remet un nouveau mot de passe, sur présentation d’une pièce d’identité. Un seul compte par famille.',
+      note: 'Vous n’avez pas de mot de passe ? Il vous est remis par le secrétariat le jour de l’inscription.', afficher: 'Afficher le mot de passe', masquer: 'Masquer le mot de passe',
+      langue: 'Langue', fermer: 'Fermer', logo: 'Sekou, logiciel de gestion scolaire' },
+    en: { titre: 'Parents’ area', sous: 'Your children’s marks, attendance and payments, all in one place.', identifiant: 'Phone number', exemple: '6XX XX XX XX',
+      motDePasse: 'Password', indice: 'Given at registration', connecter: 'Sign in', oubli: 'Forgot your password?',
+      oubliTexte: 'The school office gives you a new password on presentation of an identity document. One account per family.',
+      note: 'No password yet? The school office gives it to you on the day of registration.', afficher: 'Show password', masquer: 'Hide password',
+      langue: 'Language', fermer: 'Close', logo: 'Sekou, school management software' },
+  },
+  instituteur: {
+    fr: { titre: 'Espace instituteur', sous: 'Les notes et l’appel de vos classes, même sans réseau.', identifiant: 'Identifiant', exemple: 'prenom.n',
+      motDePasse: 'Mot de passe', indice: 'Remis par le secrétariat', connecter: 'Se connecter', oubli: 'Mot de passe oublié ?',
+      oubliTexte: 'Demandez un nouveau mot de passe au secrétariat ou à la direction de l’école.',
+      note: 'Votre compte est créé par le secrétariat avec vos classes et vos matières.', afficher: 'Afficher le mot de passe', masquer: 'Masquer le mot de passe',
+      langue: 'Langue', fermer: 'Fermer', logo: 'Sekou, logiciel de gestion scolaire' },
+    en: { titre: 'Teachers’ area', sous: 'Marks and roll call for your classes, even offline.', identifiant: 'Username', exemple: 'firstname.i',
+      motDePasse: 'Password', indice: 'Given by the school office', connecter: 'Sign in', oubli: 'Forgot your password?',
+      oubliTexte: 'Ask the school office or the head teacher for a new password.',
+      note: 'Your account is created by the school office with your classes and subjects.', afficher: 'Show password', masquer: 'Hide password',
+      langue: 'Language', fermer: 'Close', logo: 'Sekou, school management software' },
+  },
 };
 
-function EcranConnexionParent() {
-  const { connecterParent } = useSession();
+function EcranConnexionMobile({ espace }: { espace: 'parent' | 'instituteur' }) {
+  const { moi, connecter, connecterParent, deconnecter } = useSession();
   const naviguer = useNavigate();
-  const [telephone, setTelephone] = useState('');
+  const [identifiant, setIdentifiant] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
+  const [visible, setVisible] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
   const [langue, setLangue] = useState<'fr' | 'en'>('fr');
-  const [accueil, setAccueil] = useState<{ nomFr: string; nomEn: string } | null>(null);
-  useEffect(() => { api.get('/auth/accueil').then(setAccueil).catch(() => undefined); }, []);
-  const t = TEXTES_CONNEXION[langue];
+  useCouleurBarre();
+  const t = TEXTES_CONNEXION[espace][langue];
   const valider = async () => {
     if (charge) return;
     setCharge(true);
     setErreur(null);
     try {
-      await connecterParent(telephone.trim(), motDePasse);
-      naviguer('/parent/accueil', { replace: true });
+      // Une autre session est ouverte sur ce navigateur (personnel, autre famille) : elle est fermée avant la nouvelle connexion.
+      if (moi) await deconnecter();
+      if (espace === 'parent') {
+        await connecterParent(identifiant.trim(), motDePasse);
+        naviguer('/parent/accueil', { replace: true });
+      } else {
+        await connecter(identifiant.trim(), motDePasse);
+        naviguer('/instituteur/notes', { replace: true });
+      }
     } catch (e) {
       setErreur(e instanceof ErreurApi ? e.message : String(e));
     } finally {
       setCharge(false);
     }
   };
-  const ecole = accueil ? (langue === 'en' ? accueil.nomEn : accueil.nomFr) : null;
+  const oubli = () => void ouvrirFenetre(t.oubli, (fermer) => (
+    <>
+      <p>{t.oubliTexte}</p>
+      <div className="pied"><Bouton variante="principal" onClick={() => fermer()}>{t.fermer}</Bouton></div>
+    </>
+  ), 420);
   return (
     <div className="m-app" lang={langue}>
       <StyleMobile />
-      <div className="m-colonne m-connexion">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
-          <div className="m-logo" aria-hidden="true" style={{ width: 56, height: 56, borderRadius: 17 }}><Icone nom="logo" taille={34} /></div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em' }}>{t.titre}</h1>
-          <span className="doux">{ecole ? `${ecole} · ${t.sous}` : capitale(t.sous)}</span>
+      <div className="m-connexion">
+        <div className="m-connexion-haut">
+          <div><img src="/marque/sekou-logo-signature-sombre.svg" alt={t.logo} width={212} height={44} /></div>
+          <div className="m-titre">
+            <span className="m-trait" aria-hidden="true" />
+            <h1>{t.titre}</h1>
+            <p>{t.sous}</p>
+          </div>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); void valider(); }} noValidate>
-          <Carte ecart={12}>
-            <Champ libelle={t.telephone} type="tel" inputMode="tel" value={telephone} onChange={setTelephone} />
-            <Champ libelle={t.motDePasse} type="password" value={motDePasse} onChange={setMotDePasse} erreur={erreur ? ' ' : null} />
-            {erreur && <div className="note danger" role="alert">{erreur}</div>}
-            <Bouton type="submit" variante="principal" pleine charge={charge}>{t.connecter}</Bouton>
-            <span className="m-petit">{t.aide}</span>
-          </Carte>
-        </form>
-        <div style={{ display: 'flex', justifyContent: 'center' }} role="group" aria-label={t.langue}>
-          <Bascules options={[['fr', 'Français'], ['en', 'English']]} valeur={langue} onChange={setLangue} />
-        </div>
-        <span className="m-petit" style={{ textAlign: 'center' }}>{t.appareils}</span>
+        <main className="m-connexion-corps">
+          <section className="m-carte">
+            <form className="m-formulaire" noValidate onSubmit={(e) => { e.preventDefault(); void valider(); }}>
+              <div className="m-champ">
+                <label htmlFor="m-identifiant">{t.identifiant}</label>
+                <div className={`m-saisie ${erreur ? 'erreur' : ''}`}>
+                  <input id="m-identifiant" type={espace === 'parent' ? 'tel' : 'text'} inputMode={espace === 'parent' ? 'tel' : 'text'}
+                    autoComplete={espace === 'parent' ? 'tel' : 'username'} autoCapitalize="none" spellCheck={false} placeholder={t.exemple}
+                    value={identifiant} onChange={(e) => setIdentifiant(e.target.value)} aria-invalid={erreur ? true : undefined} />
+                </div>
+              </div>
+              <div className="m-champ">
+                <label htmlFor="m-mot-de-passe">{t.motDePasse}</label>
+                <div className={`m-saisie ${erreur ? 'erreur' : ''}`}>
+                  <input id="m-mot-de-passe" type={visible ? 'text' : 'password'} autoComplete="current-password" placeholder={t.indice}
+                    value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} aria-invalid={erreur ? true : undefined} aria-describedby={erreur ? 'm-erreur-connexion' : undefined} />
+                  <button type="button" aria-label={visible ? t.masquer : t.afficher} aria-pressed={visible} onClick={() => setVisible((v) => !v)}><Icone nom="oeil" taille={20} /></button>
+                </div>
+              </div>
+              {erreur && <div id="m-erreur-connexion" className="m-alerte" role="alert" style={{ background: 'var(--danger-fond)', borderColor: 'var(--danger)' }}><Icone nom="alerte" taille={18} style={{ color: 'var(--danger)' }} /><span>{erreur}</span></div>}
+              <button type="submit" className="m-bouton" disabled={charge} aria-busy={charge || undefined}>{charge ? <span className="chargement" aria-hidden="true"><span /></span> : null}{t.connecter}</button>
+              <button type="button" className="m-lien" style={{ alignSelf: 'center', padding: 8 }} onClick={oubli}>{t.oubli}</button>
+            </form>
+          </section>
+          {moi && (
+            <div className="m-alerte" role="status">
+              <Icone nom="bouclier" taille={18} />
+              <span>{langue === 'en' ? <>You are signed in as <b>{moi.nom}</b>. Signing in here will close that session.</> : <>Vous êtes connecté en tant que <b>{moi.nom}</b>. Vous connecter ici fermera cette session.</>}</span>
+            </div>
+          )}
+          <p className="m-connexion-note">{t.note}</p>
+          <div className="m-langues" role="group" aria-label={t.langue}>
+            <button type="button" aria-pressed={langue === 'fr'} onClick={() => setLangue('fr')} lang="fr">{langue === 'fr' && <Icone nom="globe" taille={16} />}Français</button>
+            <button type="button" aria-pressed={langue === 'en'} onClick={() => setLangue('en')} lang="en">{langue === 'en' && <Icone nom="globe" taille={16} />}English</button>
+          </div>
+        </main>
       </div>
     </div>
   );
@@ -876,14 +1163,14 @@ function useEnfant() {
   return { enfants, choisi, choisir, erreur, recharger };
 }
 
-/** Choix de l'enfant, identique sur toutes les pages (initiale, prénom, classe) ; absent quand la famille n'a qu'un enfant. */
-function ChoixEnfant({ enfants, choisi, choisir, style }: { enfants: Enfant[] | null; choisi: Enfant | null; choisir: (id: string) => void; style?: CSSProperties }) {
-  if (!enfants || enfants.length < 2) return null;
+/** Choix de l'enfant dans le bandeau, identique sur toutes les pages (initiale, prénom, classe). */
+function ChoixEnfant({ enfants, choisi, choisir }: { enfants: { eleveId: string; prenom: string; classe: string }[] | null | undefined; choisi: string | null | undefined; choisir: (id: string) => void }) {
+  if (!enfants || enfants.length === 0) return null;
   return (
-    <div role="group" aria-label="Enfant" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, ...style }}>
+    <div className="m-enfants" role="group" aria-label="Enfant">
       {enfants.map((e) => (
-        <button key={e.eleveId} type="button" className="m-choix" aria-pressed={e.eleveId === choisi?.eleveId} onClick={() => choisir(e.eleveId)}>
-          <span className="m-avatar" aria-hidden="true">{initiale(e.prenom)}</span>{e.prenom} · {e.classe}
+        <button key={e.eleveId} type="button" className="m-enfant" aria-pressed={e.eleveId === choisi} onClick={() => choisir(e.eleveId)}>
+          <span aria-hidden="true">{initiale(e.prenom)}</span>{e.prenom} · {e.classe}
         </button>
       ))}
     </div>
@@ -892,75 +1179,110 @@ function ChoixEnfant({ enfants, choisi, choisir, style }: { enfants: Enfant[] | 
 
 // ===================================================================== parent : accueil
 
+interface LigneEcheance { libelle: string; aPayer: number; reste: number; dateLimite: string }
+interface Annonce { id: string; titre: string; texteFr: string; texteEn: string | null; date: string; cible: string | null }
 interface AccueilParent {
-  salutation: string; nonLus: number; alertes: string[]; nouvelles: { date: string; type: string; texte: string }[];
-  enfants: { eleveId: string; nom: string; prenom: string; classe: string; resteDu: number; absences: number;
-    prochaine: { montant: number; date: string; ligne: string; enRetard: boolean } | null;
-    derniereNote: { matiere: string; valeur: number; bareme: number } | null }[];
+  salutation: string; annee: string | null; nonLus: number; blocages: { eleveId: string; prenom: string; texte: string }[]; annonces: Annonce[];
+  enfants: { eleveId: string; nom: string; prenom: string; classe: string; resteDu: number; absences: number; absencesJustifiees: number;
+    prochaine: { montant: number; date: string; ligne: string; enRetard: boolean } | null; tranches: LigneEcheance[];
+    dernieresNotes: { matiere: string; valeur: number; bareme: number; sequence: string; date: string }[] }[];
+}
+
+const lireAnnonce = (a: Annonce) => void ouvrirFenetre(a.titre, (fermer) => (
+  <>
+    <span className="m-petit">{jjmmaaaa(isoNet(a.date))}{a.cible ? ` · ${a.cible}` : ''}</span>
+    <p style={{ whiteSpace: 'pre-wrap' }}>{a.texteFr}</p>
+    {a.texteEn && <p className="doux" lang="en" style={{ whiteSpace: 'pre-wrap' }}>{a.texteEn}</p>}
+    <div className="pied"><Bouton onClick={() => fermer()}>Fermer</Bouton></div>
+  </>
+));
+
+function texteAbsences(n: number, justifiees: number) {
+  if (!n) return 'Aucune absence';
+  return `${pluriel(n, 'demi-journée')} d’absence`;
+}
+function detailAbsences(n: number, justifiees: number) {
+  if (!n) return 'Ce trimestre';
+  const accord = (k: number) => (k > 1 ? 'justifiées' : 'justifiée');
+  return `Ce trimestre · ${justifiees === n ? (n > 1 ? 'toutes justifiées' : 'justifiée') : justifiees === 0 ? `non ${accord(n)}` : `dont ${justifiees} ${accord(justifiees)}`}`;
 }
 
 function EcranAccueilParent() {
   const moi = useMoi();
   const naviguer = useNavigate();
+  const [params, setParams] = useSearchParams();
   const { d, erreur, recharger } = useDonnees<AccueilParent>(() => api.get('/portail/accueil'));
-  const echeance = (p: AccueilParent['enfants'][number]['prochaine']) =>
-    !p ? 'Tout est payé' : p.enRetard ? `${fcfa(p.montant)} ${de(p.ligne.toLowerCase())}, en retard` : `${fcfa(p.montant)} avant le ${jjmm(p.date)}`;
-  const nonLus = d?.nonLus ?? 0;
+  const voulu = params.get('eleve') ?? lire<string | null>(CLE_ENFANT, null);
+  const e = d?.enfants.find((x) => x.eleveId === voulu) ?? d?.enfants[0] ?? null;
+  const choisir = (id: string) => { ecrire(CLE_ENFANT, id); setParams({ eleve: id }, { replace: true }); };
+  const prochaine = e?.prochaine;
+  const echeance = !e ? null : !prochaine ? <span>Tout est payé pour cette année.</span>
+    : prochaine.enRetard
+      ? <span><b>{fcfa(prochaine.montant)}</b> {deLa(prochaine.ligne.toLowerCase())}, à payer depuis le {jjmm(prochaine.date)}</span>
+      : <span><b>{fcfa(prochaine.montant)}</b> {deLa(prochaine.ligne.toLowerCase())} avant le {jjmm(prochaine.date)}</span>;
+  const annee = d?.annee ?? moi.annee;
   return (
-    <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" titre={d?.salutation ? `Bonjour, ${d.salutation}` : 'Bonjour'} sous={moi.etablissement}
-      action={(
-        <Link to="/parent/messages" className="m-icone" aria-label={nonLus ? `Messages, ${pluriel(nonLus, 'non lu')}` : 'Messages et annonces'}>
-          <Icone nom="messages" />{nonLus > 0 && <span className="m-compteur" aria-hidden="true">{nonLus > 9 ? '9+' : nonLus}</span>}
-        </Link>
-      )}>
+    <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" trait grand titre={d?.salutation ? `Bonjour, ${d.salutation}` : 'Bonjour'}
+      sous={`${moi.etablissement}${annee ? ` · année\u00a0${anneeTiret(annee)}` : ''}`}
+      actions={<><BoutonMode /><BoutonMessages nonLus={d?.nonLus ?? 0} /></>}
+      entete={<ChoixEnfant enfants={d?.enfants} choisi={e?.eleveId} choisir={choisir} />}>
       {erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <>
-          <div className="m-deux">
-            <Col>
-              <span className="etiquette" style={ordre(1)}>Vos enfants</span>
-              {d.enfants.length === 0 && <Vide icone="eleves">Aucun enfant inscrit cette année. Rapprochez-vous du secrétariat de l’école.</Vide>}
-              {d.enfants.map((e) => {
-                const aller = () => naviguer(`/parent/notes?eleve=${e.eleveId}`);
-                return (
-                  <section key={e.eleveId} className="m-carte cliquable" role="button" tabIndex={0} aria-label={`${e.nom}, ${e.classe} : voir le bulletin`} style={ordre(2)}
-                    onClick={aller} onKeyDown={touche(aller)}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span className="m-avatar" aria-hidden="true">{initiale(e.prenom)}</span>
-                      <div className="m-pile" style={{ gap: 0 }}><span className="gras">{e.nom}</span><span className="m-petit">{e.classe}</span></div>
-                      <Chevron />
+          {d.enfants.length === 0 && <Vide icone="eleves">Aucun enfant inscrit cette année. Rapprochez-vous du secrétariat de l’école.</Vide>}
+          {e && (
+            <div className="m-deux">
+              <Col>
+                <Carte style={ordre(1)}>
+                  <TeteCarte titre={`Scolarité ${de(e.prenom)}`} lien={`/parent/paiements?eleve=${e.eleveId}`} libelle="Détail" />
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+                    <div className="m-pile" style={{ gap: 2, flex: 'none' }}>
+                      <span style={{ fontSize: 13, color: 'var(--doux)' }}>Reste à payer</span>
+                      <span className="m-somme">{montant(e.resteDu)} <small>FCFA</small></span>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                      <div className="m-pile" style={{ gap: 2 }}>
-                        <span className="etiquette">Reste dû</span>
-                        <span style={{ fontSize: 20, fontWeight: 700, color: e.resteDu > 0 ? 'var(--attention)' : 'var(--succes)' }}>{fcfa(e.resteDu)}</span>
-                      </div>
-                      <div className="m-pile" style={{ gap: 2 }}>
-                        <span className="etiquette">Prochaine échéance</span>
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{echeance(e.prochaine)}</span>
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-                      {e.derniereNote && <span className="pastille accent"><Icone nom="notes" taille={13} />{e.derniereNote.matiere} : {decimal(e.derniereNote.valeur)} sur {e.derniereNote.bareme}</span>}
-                      <span className="pastille"><Icone nom="vieScolaire" taille={13} />{e.absences > 0 ? pluriel(e.absences, 'demi-journée') : 'Aucune absence'}</span>
-                    </div>
-                  </section>
-                );
-              })}
-            </Col>
-            <Col>
-              {d.alertes.map((a, i) => <div key={i} style={ordre(3)}><Bandeau icone="bouclier" ton="attention">{a}</Bandeau></div>)}
-              <span className="etiquette" style={ordre(4)}>Dernières nouvelles</span>
-              {d.nouvelles.length === 0 ? <Vide style={ordre(5)}>Aucune nouvelle pour l’instant : les notes publiées, les reçus et les annonces apparaîtront ici.</Vide> : (
-                <Carte serree style={ordre(5)}>
-                  {d.nouvelles.map((n, i) => (
-                    <div key={i} className="m-ligne">
-                      <div className="m-pile"><span className="m-petit">{jjmm(isoNet(n.date))} · {n.type}</span><span style={{ fontSize: 13 }}>{montantsFr(n.texte)}</span></div>
+                    <BadgeSituation lignes={e.tranches} />
+                  </div>
+                  <Tranches lignes={e.tranches} />
+                  <div className="m-encart"><Icone nom="emploiDuTemps" taille={18} />{echeance}</div>
+                </Carte>
+                {d.blocages.map((b) => (
+                  <div key={b.eleveId} className="m-alerte" style={ordre(2)}><Icone nom="bouclier" taille={18} /><span><b>{b.prenom}</b> : {b.texte}</span></div>
+                ))}
+              </Col>
+              <Col>
+                <Carte serree style={ordre(3)}>
+                  <TeteCarte titre="Dernières notes" lien={`/parent/notes?eleve=${e.eleveId}`} libelle="Tout voir" />
+                  {e.dernieresNotes.length === 0 && <VideLigne icone="notes">Aucune note publiée pour l’instant.</VideLigne>}
+                  {e.dernieresNotes.map((n, i) => (
+                    <div key={i} className="m-ligne" style={{ padding: '8px 0' }}>
+                      <div className="m-pile"><span className="gras">{n.matiere}</span><span className="m-petit">{n.sequence} · {jjmm(n.date)}</span></div>
+                      <span className="m-note-chiffre">{decimal(n.valeur)}<small> / {n.bareme}</small></span>
                     </div>
                   ))}
                 </Carte>
-              )}
-            </Col>
-          </div>
+                <section className="m-carte cliquable" style={ordre(4)} role="link" tabIndex={0} aria-label={`${texteAbsences(e.absences, e.absencesJustifiees)}, ${detailAbsences(e.absences, e.absencesJustifiees)} : voir le détail`}
+                  onClick={() => naviguer(`/parent/vie-scolaire?eleve=${e.eleveId}`)} onKeyDown={touche(() => naviguer(`/parent/vie-scolaire?eleve=${e.eleveId}`))}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className="m-tuile" aria-hidden="true"><Icone nom="vieScolaire" taille={20} /></span>
+                    <div className="m-pile"><span className="gras">{texteAbsences(e.absences, e.absencesJustifiees)}</span><span className="m-petit">{detailAbsences(e.absences, e.absencesJustifiees)}</span></div>
+                    <Chevron />
+                  </div>
+                </section>
+                <Carte ecart={6} style={ordre(5)}>
+                  <span className="m-etiquette">Annonces</span>
+                  {d.annonces.length === 0 && <VideLigne>Aucune annonce pour l’instant.</VideLigne>}
+                  {d.annonces.map((a) => (
+                    <div key={a.id} className="m-ligne cliquable" style={{ padding: '4px 0', minHeight: 44 }} role="button" tabIndex={0} aria-label={`Lire l’annonce : ${a.titre}`}
+                      onClick={() => lireAnnonce(a)} onKeyDown={touche(() => lireAnnonce(a))}>
+                      <div className="m-pile">
+                        <span className="gras" style={{ fontSize: 13 }}>{a.titre}</span>
+                        <span className="m-petit">{jjmm(isoNet(a.date))}{a.cible ? ` · ${a.cible}` : ''}</span>
+                      </div>
+                    </div>
+                  ))}
+                </Carte>
+              </Col>
+            </div>
+          )}
           <Deconnexion vers="/parent/connexion" />
         </>
       )}
@@ -968,7 +1290,7 @@ function EcranAccueilParent() {
   );
 }
 
-// ===================================================================== parent : bulletin
+// ===================================================================== parent : notes et bulletin
 
 interface ResultatBulletin {
   matieres: { matiereId: string; libelle: string; moyenne: number | null; appreciation: string | null }[];
@@ -977,9 +1299,13 @@ interface ResultatBulletin {
   absences: { demiJournees: number; demiJourneesJustifiees: number };
   appreciationGenerale: string | null; principal: string | null; annee: string;
 }
-interface BulletinParent { prenom: string; classe: string; periode?: string; bulletin: ResultatBulletin | null; bloque: string | null }
+interface BulletinParent {
+  prenom: string; classe: string; principal: string | null; periodes: { id: string; libelle: string; publie: boolean }[]; enseignants: Record<string, string>;
+  periodeId: string | null; periode?: string; bulletin: ResultatBulletin | null; bloque: string | null;
+}
 
-const rang = (r: number | null) => (r === null ? '–' : r === 1 ? '1er' : `${r}e`);
+/** Mention d'une moyenne sur 20 (barème des bulletins du primaire). */
+const mention = (m: number | null) => (m === null ? '' : m >= 18 ? 'Excellent' : m >= 16 ? 'Très bien' : m >= 14 ? 'Bien' : m >= 12 ? 'Assez bien' : m >= 10 ? 'Passable' : 'Insuffisant');
 function absencesBulletin(a: ResultatBulletin['absences']) {
   const n = a.demiJournees;
   const j = a.demiJourneesJustifiees;
@@ -987,64 +1313,111 @@ function absencesBulletin(a: ResultatBulletin['absences']) {
   const accord = (mot: string, k: number) => `${mot}${k > 1 ? 's' : ''}`;
   return `${pluriel(n, 'demi-journée')}, ${j === n ? accord('justifiée', n) : j === 0 ? `non ${accord('justifiée', n)}` : `dont ${j} ${accord('justifiée', j)}`}`;
 }
+/** « 7e », avec l'exposant des maquettes. */
+const Rang = ({ r }: { r: number | null }) => (r === null ? <>–</> : <>{r}<sup style={{ fontSize: 15 }}>{r === 1 ? 'er' : 'e'}</sup></>);
+
+function bulletinComplet(d: BulletinParent, b: ResultatBulletin) {
+  void ouvrirFenetre(`Bulletin ${de(d.prenom)} · ${d.periode === 'Annuel' ? 'bulletin annuel' : d.periode ?? ''}`, (fermer) => (
+    <>
+      <span className="m-petit">{d.classe} · année {anneeTiret(b.annee)} · moyenne de la classe : {note2(b.classe.moyenne)} · absences : {absencesBulletin(b.absences)}</span>
+      <table className="m-tableau">
+        <caption className="m-sr">Moyennes et appréciations par matière</caption>
+        <thead><tr><th scope="col">Matière</th><th scope="col" className="num">Moyenne</th><th scope="col">Appréciation</th></tr></thead>
+        <tbody>
+          {b.matieres.map((m) => (
+            <tr key={m.matiereId}>
+              <td className="libelle">{m.libelle}</td>
+              <td className="num" data-l="Moyenne">{decimal(m.moyenne)} / 20</td>
+              <td data-l="Appréciation">{m.appreciation || mention(m.moyenne) || '–'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {b.appreciationGenerale && <p><b>Appréciation générale :</b> {b.appreciationGenerale}</p>}
+      {b.principal && <span className="m-petit">{b.principal}, instituteur principal</span>}
+      <span className="m-petit">Bulletin consultable à l’écran, sans téléchargement.</span>
+      <div className="pied"><Bouton variante="principal" onClick={() => fermer()}>Fermer</Bouton></div>
+    </>
+  ), 640);
+}
 
 function EcranNotesParent() {
-  const moi = useMoi();
   const { enfants, choisi, choisir, erreur: erreurEnfants, recharger: rechargerEnfants } = useEnfant();
+  const [params, setParams] = useSearchParams();
+  const periodeVoulue = params.get('periode');
   const id = choisi?.eleveId ?? null;
-  const { d, erreur, recharger } = useDonnees<BulletinParent | null>(() => (id ? api.get(`/portail/enfants/${id}/bulletin`) : Promise.resolve(null)), [id]);
+  const { d, erreur, recharger } = useDonnees<BulletinParent | null>(
+    () => (id ? api.get(`/portail/enfants/${id}/bulletin${requete({ periodeId: periodeVoulue })}`) : Promise.resolve(null)), [id, periodeVoulue]);
   const b = d?.bulletin ?? null;
-  const periode = d?.periode === 'Annuel' ? 'bulletin annuel' : d?.periode;
-  const sous = d && periode ? `${d.classe} · ${periode} ${b?.annee ?? moi.annee ?? ''} · publié` : choisi?.classe;
+  const choisirPeriode = (p: string) => { const q = new URLSearchParams(params); q.set('periode', p); setParams(q, { replace: true }); };
+  const sous = d ? `${d.prenom} · ${d.classe}${d.principal ? ` · instituteur principal : ${nomCourt(d.principal)}` : ''}` : choisi ? `${choisi.prenom} · ${choisi.classe}` : undefined;
+  const periodes = d?.periodes ?? [];
   return (
-    <Mobile onglets={ONGLETS_PARENT} actif="/parent/notes" retour="/parent/accueil" titre={`Bulletin de ${d?.prenom ?? choisi?.prenom ?? ''}`.trim()} sous={sous}>
+    <Mobile onglets={ONGLETS_PARENT} actif="/parent/notes" titre="Notes et bulletin" sous={sous} actions={<BoutonMessages />}
+      entete={(
+        <>
+          {enfants && enfants.length > 1 && <ChoixEnfant enfants={enfants} choisi={choisi?.eleveId} choisir={(x) => { const q = new URLSearchParams(params); q.delete('periode'); q.set('eleve', x); ecrire(CLE_ENFANT, x); setParams(q, { replace: true }); }} />}
+          {periodes.length > 0 && (
+            <div className="m-segments" role="group" aria-label="Période">
+              {periodes.map((p) => (
+                <button key={p.id} type="button" aria-pressed={p.id === d?.periodeId} disabled={!p.publie && p.id !== d?.periodeId} onClick={() => choisirPeriode(p.id)}
+                  title={p.publie ? undefined : 'Bulletin pas encore publié'}>{p.libelle}</button>
+              ))}
+            </div>
+          )}
+        </>
+      )}>
       {erreurEnfants ? <ErreurMobile message={erreurEnfants} recharger={rechargerEnfants} /> : erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !enfants || (id && !d) ? <Chargement /> : (
         <>
-          <ChoixEnfant enfants={enfants} choisi={choisi} choisir={choisir} />
           {!choisi && <Vide icone="eleves">Aucun enfant inscrit cette année.</Vide>}
-          {d?.bloque && <Bandeau icone="bouclier" ton="attention">{d.bloque}</Bandeau>}
+          {d?.bloque && <div className="m-alerte"><Icone nom="bouclier" taille={18} /><span>{d.bloque}</span></div>}
           {d && !b && !d.bloque && <Vide icone="notes">Aucun bulletin publié pour l’instant : il apparaîtra ici dès que l’école le publiera.</Vide>}
-          {b && (
+          {d && b && (
             <div className="m-deux droite-large">
               <Col>
                 <Carte style={ordre(1)}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'stretch', gap: 12 }}>
                     <div className="m-pile" style={{ gap: 2 }}>
-                      <span className="etiquette">Moyenne générale</span>
-                      <span style={{ fontSize: 26, fontWeight: 700 }}>{note2(b.moyenne)}<span style={{ fontSize: 13, fontWeight: 600, color: 'var(--doux)' }}> sur 20</span></span>
+                      <span className="m-etiquette">Moyenne</span>
+                      <span className="m-somme" style={{ fontSize: 34, letterSpacing: '-0.02em' }}>{note2(b.moyenne)}<small> / 20</small></span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                      <span className="etiquette">Rang</span>
-                      <span style={{ fontSize: 26, fontWeight: 700 }}>{rang(b.rang)}<span style={{ fontSize: 13, fontWeight: 600, color: 'var(--doux)' }}> sur {b.effectif}</span></span>
+                    <div aria-hidden="true" style={{ width: 1, background: 'var(--m-ligne)' }} />
+                    <div className="m-pile" style={{ gap: 2 }}>
+                      <span className="m-etiquette">Rang</span>
+                      <span className="m-somme" style={{ fontSize: 34 }}><Rang r={b.rang} /><small> sur {b.effectif}</small></span>
                     </div>
                   </div>
-                  <span className="m-petit">Moyenne de la classe : {note2(b.classe.moyenne)} · absences : {absencesBulletin(b.absences)}</span>
+                  {b.appreciationGenerale && <p className="m-encart" style={{ display: 'block', margin: 0, lineHeight: 1.5 }}><b>Appréciation :</b> {b.appreciationGenerale}</p>}
                 </Carte>
-                {(b.appreciationGenerale || b.principal) && (
-                  <Carte style={ordre(3)}>
-                    <span className="etiquette">Appréciation générale</span>
-                    {b.appreciationGenerale && <span style={{ fontSize: 13 }}>{b.appreciationGenerale}</span>}
-                    {b.principal && <span className="m-petit">{b.principal}, instituteur principal</span>}
-                  </Carte>
-                )}
+                <button type="button" className="m-bouton m-cache-petit" style={ordre(3)} onClick={() => bulletinComplet(d, b)}><Icone nom="bulletin" taille={20} />Voir le bulletin complet</button>
               </Col>
               <Col>
                 <Carte serree style={ordre(2)} ariaLabel="Moyennes par matière">
-                  {b.matieres.map((m) => (
-                    <div key={m.matiereId} className="m-ligne">
-                      <div className="m-pile" style={{ gap: 2 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
-                          <span className="gras">{m.libelle}</span><span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{decimal(m.moyenne)} / 20</span>
+                  <span className="m-etiquette">Par matière</span>
+                  <div>
+                    {b.matieres.map((m) => {
+                      const prof = d.enseignants[m.matiereId];
+                      const quoi = [mention(m.moyenne), prof ? nomCourt(prof) : null].filter(Boolean).join(' · ');
+                      return (
+                        <div key={m.matiereId} className="m-ligne" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6, minHeight: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                            <span className="gras" style={{ flex: 1 }}>{m.libelle}</span>
+                            <span style={{ fontSize: 16, fontWeight: 700, whiteSpace: 'nowrap' }}>{decimal(m.moyenne)}<small style={{ fontSize: 12, fontWeight: 500, color: 'var(--doux)' }}> / 20</small></span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div className="m-barre" aria-hidden="true"><div style={{ width: `${Math.max(0, Math.min(100, ((m.moyenne ?? 0) * 100) / 20))}%` }} /></div>
+                            {quoi && <span className="m-petit" style={{ whiteSpace: 'nowrap' }}>{quoi}</span>}
+                          </div>
                         </div>
-                        {m.appreciation && <span className="m-petit">{m.appreciation}</span>}
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    })}
+                  </div>
                 </Carte>
               </Col>
+              <button type="button" className="m-bouton m-cache-large" style={ordre(4)} onClick={() => bulletinComplet(d, b)}><Icone nom="bulletin" taille={20} />Voir le bulletin complet</button>
             </div>
           )}
-          <span className="m-petit">Bulletin consultable à l’écran, sans téléchargement. Il s’affiche quand la tranche de la période est payée à 90 % au moins (100 % pour le bulletin de fin d’année).</span>
+          <span className="m-petit" style={ordre(99)}>Bulletin consultable à l’écran, sans téléchargement. Il s’affiche quand la tranche de la période est payée à 90 % au moins (100 % pour le bulletin de fin d’année).</span>
         </>
       )}
     </Mobile>
@@ -1063,67 +1436,75 @@ function EcranPaiementsParent() {
   const { enfants, choisi, choisir, erreur: erreurEnfants, recharger: rechargerEnfants } = useEnfant();
   const id = choisi?.eleveId ?? null;
   const { d, erreur, recharger } = useDonnees<PaiementsParent | null>(() => (id ? api.get(`/portail/enfants/${id}/paiements`) : Promise.resolve(null)), [id]);
-  const aujourdhui = aujourdhuiIso();
-  const premiere = d?.lignes.findIndex((l) => !l.solde) ?? -1;
+  const auj = aujourdhuiIso();
   const banque = d ? [d.banque, d.numeroCompte ? `compte ${d.numeroCompte}` : null].filter(Boolean).join(', ') : '';
-  const part = d && d.aPayer > 0 ? Math.min(100, Math.round((d.verse * 100) / d.aPayer)) : 0;
   return (
-    <Mobile onglets={ONGLETS_PARENT} actif="/parent/paiements" titre="Paiements" sous={d ? `${d.nom} · ${d.classe}` : choisi ? `${choisi.nom} · ${choisi.classe}` : undefined}>
+    <Mobile onglets={ONGLETS_PARENT} actif="/parent/paiements" titre="Paiements" actions={<BoutonMessages />}
+      entete={<ChoixEnfant enfants={enfants} choisi={choisi?.eleveId} choisir={choisir} />}>
       {erreurEnfants ? <ErreurMobile message={erreurEnfants} recharger={rechargerEnfants} /> : erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !enfants || (id && !d) ? <Chargement /> : (
         <>
-          <ChoixEnfant enfants={enfants} choisi={choisi} choisir={choisir} />
           {!d && <Vide icone="eleves">Aucun enfant inscrit cette année.</Vide>}
           {d && (
             <div className="m-deux">
               <Col>
-                <Carte ecart={8} style={ordre(1)}>
-                  <span className="etiquette">Reste dû</span>
-                  <span style={{ fontSize: 30, fontWeight: 700, lineHeight: 1.1, color: d.resteDu > 0 ? 'var(--attention)' : 'var(--succes)' }}>
-                    {montant(d.resteDu)}<span style={{ fontSize: 13, fontWeight: 600, color: 'var(--doux)' }}> FCFA</span>
-                  </span>
-                  <div role="progressbar" aria-label="Part des frais déjà versée" aria-valuemin={0} aria-valuemax={100} aria-valuenow={part}
-                    style={{ height: 6, borderRadius: 3, background: 'var(--bord)', overflow: 'hidden' }}>
-                    <div style={{ width: `${part}%`, height: '100%', borderRadius: 3, background: 'var(--accent)' }} />
+                <Carte style={ordre(1)}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 }}>
+                    <div className="m-pile" style={{ gap: 2, flex: 'none' }}>
+                      <span style={{ fontSize: 13, color: 'var(--doux)' }}>Reste à payer pour l’année</span>
+                      <span className="m-somme" style={{ fontSize: 30 }}>{montant(d.resteDu)} <small>FCFA</small></span>
+                    </div>
+                    <BadgeSituation lignes={d.lignes} />
                   </div>
-                  <span className="m-petit">{montant(d.verse)} {d.verse > 1 ? 'versés' : 'versé'} sur {montant(d.aPayer)} FCFA</span>
+                  <Tranches lignes={d.lignes} />
                 </Carte>
-                <Carte ecart={6} style={ordre(4)}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-                    <span style={{ display: 'flex', color: 'var(--accent)' }} aria-hidden="true"><Icone nom="banque" /></span><span className="gras">Comment payer</span>
+                <Carte ecart={10} style={ordre(4)}>
+                  <span className="m-etiquette">Comment payer</span>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <Icone nom="fraisCaisse" taille={20} style={{ flex: 'none', color: 'var(--accent)' }} />
+                    <span style={{ fontSize: 13, lineHeight: 1.5 }}><b style={{ fontWeight: 600 }}>Au guichet de l’école</b>, auprès de l’économe. Le reçu arrive ici aussitôt.</span>
                   </div>
-                  <span style={{ fontSize: 13 }}>{banque ? `À la caisse de l’école, ou par versement à la banque : ${banque}. Gardez le bordereau.` : 'À la caisse de l’école. Gardez votre reçu.'}</span>
-                  <span className="m-petit">Aucun paiement ne se fait dans l’application.</span>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <Icone nom="virement" taille={20} style={{ flex: 'none', color: 'var(--accent)' }} />
+                    <span style={{ fontSize: 13, lineHeight: 1.5 }}><b style={{ fontWeight: 600 }}>Par virement bancaire</b>{banque ? ` (${banque})` : ''} : apportez le bordereau à l’économe, qui le pointe sur le relevé.</span>
+                  </div>
                 </Carte>
               </Col>
               <Col>
-                <Carte serree style={ordre(2)} ariaLabel="Frais de l’année">
-                  {d.lignes.length === 0 && <VideLigne icone="fraisCaisse">Aucun frais à régler pour l’instant.</VideLigne>}
-                  {d.lignes.map((l, i) => {
-                    const urgent = i === premiere || l.dateLimite < aujourdhui;
-                    return (
-                      <div key={i} className="m-ligne" style={{ padding: '5px 0' }}>
-                        <div className="m-pile">
-                          <span className="gras">{l.libelle}</span>
-                          {l.solde
-                            ? <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--succes)' }}>Soldé{l.reduction ? ` · réduction ${l.reduction.toLowerCase()}` : ''}</span>
-                            : <span style={{ fontSize: 12, fontWeight: 600, color: urgent ? 'var(--attention)' : 'var(--doux)' }}>Reste {montant(l.reste)} avant le {jjmmaaaa(l.dateLimite)}</span>}
+                <Carte serree style={ordre(2)} ariaLabel="Échéancier">
+                  <span className="m-etiquette">Échéancier · {d.classe}</span>
+                  <div>
+                    {d.lignes.length === 0 && <VideLigne icone="fraisCaisse">Aucun frais à régler pour l’instant.</VideLigne>}
+                    {d.lignes.map((l, i) => {
+                      const retard = !l.solde && l.dateLimite < auj;
+                      const partiel = !l.solde && l.reste < l.aPayer;
+                      return (
+                        <div key={i} className="m-ligne">
+                          <div className="m-pile">
+                            <span className="gras">{l.libelle}</span>
+                            {l.solde
+                              ? <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--succes)' }}>Payée{l.reduction ? ` · réduction ${l.reduction.toLowerCase()}` : ''}</span>
+                              : retard
+                                ? <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--attention)' }}>Reste {montant(l.reste)} · limite dépassée ({jjmm(l.dateLimite)})</span>
+                                : <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--doux)' }}>{partiel ? `Reste ${montant(l.reste)} avant le ` : 'Avant le '}{dateCourte(l.dateLimite)}</span>}
+                          </div>
+                          <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fcfa(l.aPayer)}</span>
                         </div>
-                        <span style={{ fontWeight: 600 }}>{montant(l.aPayer)}</span>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </Carte>
                 <Carte serree style={ordre(3)} ariaLabel="Reçus">
-                  {d.recus.length === 0 && <VideLigne icone="lire">Aucun versement pour l’instant : vos reçus apparaîtront ici après chaque paiement à la caisse.</VideLigne>}
-                  {d.recus.map((r) => (
-                    <div key={r.id} className="m-ligne" style={{ padding: '2px 0' }}>
-                      <div className="m-pile">
-                        <span className="gras">{r.numero} · {fcfa(r.montant)}</span>
-                        <span className="m-petit">{jjmmaaaa(isoNet(r.date))}{r.modeLibelle ? ` · ${r.modeLibelle}` : ''}</span>
-                      </div>
-                      <Link to={`/parent/recus/${r.id}?eleve=${id}`} className="bouton lien" aria-label={`Voir le reçu ${r.numero}`}><span>Voir</span></Link>
-                    </div>
-                  ))}
+                  <span className="m-etiquette">Reçus</span>
+                  <div>
+                    {d.recus.length === 0 && <VideLigne icone="lire">Aucun versement pour l’instant : vos reçus apparaîtront ici après chaque paiement.</VideLigne>}
+                    {d.recus.map((r) => (
+                      <Link key={r.id} to={`/parent/recus/${r.id}?eleve=${id}`} className="m-ligne cliquable" style={{ padding: '9px 0' }} aria-label={`Reçu ${r.numero}, ${fcfa(r.montant)}, du ${jjmmaaaa(isoNet(r.date))}`}>
+                        <div className="m-pile"><span className="gras">{r.numero}</span><span className="m-petit">{jjmmaaaa(isoNet(r.date))}{r.modeLibelle ? ` · ${r.modeLibelle}` : ''}</span></div>
+                        <span style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>{fcfa(r.montant)}</span>
+                        <Chevron />
+                      </Link>
+                    ))}
+                  </div>
                 </Carte>
               </Col>
             </div>
@@ -1149,7 +1530,7 @@ function EcranRecuParent() {
   const { d, erreur, recharger } = useDonnees<RecuParent>(() => api.get(`/portail/recus/${id}`), [id]);
   const eleve = params.get('eleve');
   const champ = (libelle: string, valeur: string) => (
-    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}><span className="m-petit">{libelle}</span><span className="gras">{valeur}</span></div>
+    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}><span className="m-petit">{libelle}</span><span style={{ fontWeight: 600 }}>{valeur}</span></div>
   );
   const total = (f: (l: RecuParent['lignes'][number]) => number) => d?.lignes.reduce((s, l) => s + f(l), 0) ?? 0;
   return (
@@ -1157,12 +1538,12 @@ function EcranRecuParent() {
       titre={d ? `Reçu ${d.numero}` : 'Reçu'} sous={d ? `${d.date} à ${d.heure}` : undefined}>
       {erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <>
-          {d.annule && <Bandeau icone="alerte" ton="attention">Ce versement a été annulé : le reçu n’a plus de valeur.</Bandeau>}
+          {d.annule && <div className="m-alerte"><Icone nom="alerte" taille={18} /><span>Ce versement a été annulé : le reçu n’a plus de valeur.</span></div>}
           <div className="m-deux">
             <Col>
               <Carte ecart={0} style={{ padding: 0, overflow: 'hidden', ...ordre(1) }}>
                 <div aria-hidden="true" style={{ height: 6, background: 'var(--accent)' }} />
-                <div style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div className="m-pile" style={{ gap: 2 }}>
                     <span style={{ fontWeight: 700 }}>{[d.etablissement.nom_fr, d.etablissement.nom_en].filter(Boolean).join(' · ').toUpperCase()}</span>
                     {(d.etablissement.ville_bp || d.etablissement.telephone) && (
@@ -1170,25 +1551,25 @@ function EcranRecuParent() {
                     )}
                   </div>
                   <div className="m-pile" style={{ gap: 2 }}>
-                    <span className="etiquette">Reçu de paiement · Payment receipt</span>
+                    <span className="m-etiquette">Reçu de paiement · Payment receipt</span>
                     <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--accent)' }}>N° {d.numero}</span>
                     <span className="m-petit">{d.date} à {d.heure}</span>
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', padding: '8px 12px', border: '1px solid var(--bord-fort)', borderRadius: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 12px', padding: '10px 12px', borderRadius: 8, background: 'var(--m-encart)' }}>
                     {champ('Élève / Student', d.eleve)}{champ('Matricule / Reg. no.', d.matricule)}{champ('Classe / Class', d.classe)}{champ('Année / Year', d.annee)}
                   </div>
                 </div>
               </Carte>
               <Carte ecart={6} style={ordre(3)}>
-                <span className="etiquette">Montant versé / Amount paid</span>
-                <span style={{ fontSize: 24, fontWeight: 700 }}>{fcfa(d.montant)}</span>
+                <span className="m-etiquette">Montant versé / Amount paid</span>
+                <span className="m-somme">{montant(d.montant)} <small>FCFA</small></span>
                 <span style={{ fontSize: 13 }}>{d.montantLettresFr} · {d.montantLettresEn}</span>
                 <span className="m-petit">Mode / Method : {d.modeFr} / {d.modeEn}{d.bordereau ? ` · bordereau ${d.bordereau}` : ''}</span>
                 <span className="m-petit">Encaissé par / Received by : {d.caissier}</span>
               </Carte>
             </Col>
             <Col>
-              <Carte serree style={{ padding: '6px 14px', ...ordre(2) }}>
+              <Carte serree style={{ padding: '6px 16px', ...ordre(2) }}>
                 <table className="m-tableau">
                   <caption className="m-sr">Détail du versement par frais</caption>
                   <thead>
@@ -1218,7 +1599,7 @@ function EcranRecuParent() {
               </Carte>
             </Col>
           </div>
-          <span className="m-petit">Reçu consultable à l’écran, sans téléchargement. L’original papier reste celui remis à la caisse.</span>
+          <span className="m-petit" style={ordre(99)}>Reçu consultable à l’écran, sans téléchargement. L’original papier reste celui remis à la caisse.</span>
         </>
       )}
     </Mobile>
@@ -1234,6 +1615,7 @@ interface AgendaParent {
 }
 const JOURS_COURTS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 const JOURS_LONGS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
 function pourLe(iso: string | null): string | null {
   const d = dateLocale(iso);
@@ -1281,10 +1663,11 @@ function EcranAgendaParent() {
     </>
   );
   return (
-    <Mobile onglets={ONGLETS_PARENT} actif="/parent/agenda" titre="Agenda" sous={courant ? `${courant.nom} · ${large ? 'semaine' : jourDate(courant.date)}` : choisi?.nom}>
+    <Mobile onglets={ONGLETS_PARENT} actif="/parent/agenda" titre="Agenda" actions={<BoutonMessages />}
+      sous={courant ? `${courant.prenom} · ${courant.classe} · ${large ? 'semaine' : jourDate(courant.date)}` : choisi ? `${choisi.prenom} · ${choisi.classe}` : undefined}
+      entete={<ChoixEnfant enfants={enfants} choisi={choisi?.eleveId} choisir={choisir} />}>
       {erreurEnfants ? <ErreurMobile message={erreurEnfants} recharger={rechargerEnfants} /> : (
         <>
-          <ChoixEnfant enfants={enfants} choisi={choisi} choisir={choisir} />
           {!large && (
             <div className="m-jours" role="group" aria-label="Jour de la semaine">
               {JOURS_COURTS.map((j, i) => (
@@ -1308,19 +1691,21 @@ function EcranAgendaParent() {
                     ))}
                   </div>
                 </Carte>
-              ) : <Carte serree>{listeCours(courant)}</Carte>}
-              <span className="etiquette">Devoirs à faire</span>
+              ) : <Carte serree><span className="m-etiquette">Emploi du temps</span><div>{listeCours(courant)}</div></Carte>}
               <Carte serree>
-                {courant.devoirs.length === 0 && <VideLigne icone="notes">Aucun devoir à faire pour l’instant.</VideLigne>}
-                {courant.devoirs.map((x, i) => {
-                  const pour = pourLe(x.pour);
-                  return (
-                    <div key={i} className="m-ligne" style={{ padding: '4px 0' }}>
-                      <div className="m-pile"><span className="gras">{x.matiere}</span><span style={{ fontSize: 13 }}>{x.devoir}</span></div>
-                      {pour && <span className="pastille attention">{pour}</span>}
-                    </div>
-                  );
-                })}
+                <span className="m-etiquette">Devoirs à faire</span>
+                <div>
+                  {courant.devoirs.length === 0 && <VideLigne icone="notes">Aucun devoir à faire pour l’instant.</VideLigne>}
+                  {courant.devoirs.map((x, i) => {
+                    const pour = pourLe(x.pour);
+                    return (
+                      <div key={i} className="m-ligne">
+                        <div className="m-pile"><span className="gras">{x.matiere}</span><span style={{ fontSize: 13 }}>{x.devoir}</span></div>
+                        {pour && <span className="m-badge attention">{pour}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
               </Carte>
             </>
           )}
@@ -1330,45 +1715,127 @@ function EcranAgendaParent() {
   );
 }
 
-// ===================================================================== parent : messages
+// ===================================================================== parent : messagerie (RG-42 : un seul destinataire)
 
 interface Evenement { type: string; prenom: string; date: string; texte: string; inscriptionId: string | null; jour: string | null; justifiable: boolean }
 interface MessagesParent {
   famille: string;
-  annonces: { id: string; titre: string; texteFr: string; texteEn: string | null; date: string; cible: string | null }[];
+  annonces: Annonce[];
   evenements: Evenement[];
-  conversations: { id: string; destinataire: string; nonLu: boolean; dernier: string | null; dernierAuteur: string | null; date: string }[];
+  conversations: { id: string; eleveId: string | null; destinataire: string; sujet: string | null; nonLu: boolean; dernier: string | null; dernierAuteur: string | null; date: string }[];
 }
 interface Conversation { id: string; destinataire: string; sujet: string | null; messages: { auteurType: string; auteur: string; texte: string; envoyeLe: string }[] }
-const DESTINATAIRES: Record<string, string> = { instituteur_principal: 'Instituteur principal', econome: 'Économe', directeur: 'Directeur', secretaire: 'Secrétariat' };
-const horodatage = (s: string) => { const iso = isoNet(s); return memeJour(iso) ? heure(iso) : jjmm(iso); };
+interface Destinataire { code: string; role: string; nom: string; aide: string }
+const DESTINATAIRES: Record<string, string> = { instituteur_principal: 'Instituteur principal', econome: 'Économe', directeur: 'Directeur', secretaire: 'Secrétaire' };
+const CODES_DESTINATAIRES = Object.keys(DESTINATAIRES);
 
-function FilConversation({ id, fermer, repondre }: { id: string; fermer: () => void; repondre: (destinataire: string) => void }) {
-  const { d, erreur } = useDonnees<Conversation>(() => api.get(`/portail/conversations/${id}`), [id]);
-  if (erreur) return <><div role="alert"><Note ton="danger">{erreur}</Note></div><div className="pied"><Bouton onClick={fermer}>Fermer</Bouton></div></>;
-  if (!d) return <Chargement />;
+/** Séparateur de jour du fil : « Aujourd’hui », « Hier », « Lundi 9 novembre ». */
+function jourFil(iso: string): string {
+  const d = dateLocale(iso);
+  if (!d) return jjmmaaaa(iso);
+  const hier = new Date();
+  hier.setDate(hier.getDate() - 1);
+  if (d.toDateString() === new Date().toDateString()) return 'Aujourd’hui';
+  if (d.toDateString() === hier.toDateString()) return 'Hier';
+  return `${capitale(JOURS_LONGS[d.getDay()]!)} ${d.getDate()} ${MOIS[d.getMonth()]}${d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : ''}`;
+}
+
+function EcranMessagesParent() {
+  const [params, setParams] = useSearchParams();
+  const { enfants, choisi, choisir, erreur: erreurEnfants, recharger: rechargerEnfants } = useEnfant();
+  const eleveId = choisi?.eleveId ?? null;
+  const code = CODES_DESTINATAIRES.includes(params.get('destinataire') ?? '') ? params.get('destinataire')! : 'instituteur_principal';
+  const choisirDestinataire = (c: string) => { const q = new URLSearchParams(params); q.set('destinataire', c); setParams(q, { replace: true }); };
+  const { d: destinataires } = useDonnees<Destinataire[] | null>(
+    () => (eleveId ? api.get(`/portail/destinataires${requete({ eleveId })}`) : Promise.resolve(null)), [eleveId]);
+  // Vue d'ensemble : conversations de la famille (non lues signalées sur les puces), puis le fil choisi.
+  const { d: vue, erreur, recharger } = useDonnees<MessagesParent>(() => api.get('/portail/messages'));
+  const conversations = useMemo(() => (vue?.conversations ?? []).filter((c) => c.eleveId === eleveId && c.destinataire === code), [vue, eleveId, code]);
+  const ids = conversations.map((c) => c.id).join(',');
+  const { d: fils, erreur: erreurFil, recharger: rechargerFil } = useDonnees<Conversation[]>(
+    () => Promise.all(conversations.map((c) => api.get<Conversation>(`/portail/conversations/${c.id}`))), [ids]);
+  const [nonLus] = useState(() => new Set<string>());
+  useEffect(() => { for (const c of vue?.conversations ?? []) if (c.nonLu && c.eleveId === eleveId) nonLus.add(c.destinataire); }, [vue, eleveId, nonLus]);
+  const [texte, setTexte] = useState('');
+  const [charge, setCharge] = useState(false);
+  const bas = useRef<HTMLDivElement>(null);
+  const messages = useMemo(() => (fils ?? []).flatMap((f) => f.messages).sort((a, b) => isoNet(a.envoyeLe).localeCompare(isoNet(b.envoyeLe))), [fils]);
+  useEffect(() => { bas.current?.scrollIntoView({ block: 'end' }); }, [messages.length]);
+  const dest = destinataires?.find((x) => x.code === code);
+  const role = dest?.role ?? DESTINATAIRES[code]!;
+  const envoyer = async () => {
+    if (!eleveId || charge) return;
+    if (texte.trim().length < 2) { signaler('Écrivez votre message avant de l’envoyer.', true); return; }
+    setCharge(true);
+    const r = await agir(() => api.post('/portail/messages', { destinataire: code, eleveId, texte: texte.trim() }), 'Message envoyé.');
+    setCharge(false);
+    if (r) { setTexte(''); await recharger(); void rechargerFil(); }
+  };
+  let jourPrecedent = '';
   return (
-    <>
-      {d.sujet && <span className="m-petit">{d.sujet}</span>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: '55vh', overflowY: 'auto' }}>
-        {d.messages.map((m, i) => {
-          const famille = m.auteurType === 'famille';
-          const iso = isoNet(m.envoyeLe);
-          return (
-            <div key={i} className="m-bulle" style={{ alignSelf: famille ? 'flex-end' : 'flex-start', background: famille ? 'var(--accent-fond)' : 'var(--neutre-fond)' }}>
-              <span style={{ whiteSpace: 'pre-wrap' }}>{m.texte}</span>
-              <span className="m-petit">{famille ? 'Vous' : m.auteur} · {jjmm(iso)} à {heure(iso)}</span>
+    <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" sansOnglets retour="/parent/accueil" titre={role}
+      sous={dest ? dest.nom || dest.aide : undefined}
+      entete={(
+        <div className="m-puces" role="group" aria-label="Écrire à">
+          {CODES_DESTINATAIRES.map((c) => (
+            <button key={c} type="button" className="m-puce" aria-pressed={c === code} onClick={() => { nonLus.delete(c); choisirDestinataire(c); }}
+              aria-label={`${destinataires?.find((x) => x.code === c)?.role ?? DESTINATAIRES[c]}${nonLus.has(c) && c !== code ? ', message non lu' : ''}`}>
+              {destinataires?.find((x) => x.code === c)?.role ?? DESTINATAIRES[c]}
+              {nonLus.has(c) && c !== code && <span className="m-point" aria-hidden="true" />}
+            </button>
+          ))}
+        </div>
+      )}
+      pied={(
+        <form className="m-ecrire" onSubmit={(e) => { e.preventDefault(); void envoyer(); }}>
+          <label htmlFor="m-message" className="m-sr">Votre message</label>
+          <input id="m-message" type="text" enterKeyHint="send" autoComplete="off" placeholder={`Écrire ${role === 'Économe' ? 'à l’économe' : role === 'Secrétaire' ? 'au secrétariat' : `au ${role.toLowerCase()}`}…`}
+            value={texte} onChange={(e) => setTexte(e.target.value)} disabled={!eleveId} maxLength={2000} />
+          <button type="submit" className="m-envoyer" aria-label="Envoyer" disabled={charge || !eleveId}><Icone nom="envoi" taille={20} /></button>
+        </form>
+      )}>
+      {erreurEnfants ? <ErreurMobile message={erreurEnfants} recharger={rechargerEnfants} /> : erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !enfants || !vue ? <Chargement /> : (
+        <div className="m-fil" style={{ width: '100%', maxWidth: 760, alignSelf: 'center' }}>
+          {enfants.length > 1 && (
+            <div role="group" aria-label="Au sujet de" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+              <span className="m-petit">Au sujet de</span>
+              {enfants.map((x) => <button key={x.eleveId} type="button" className="m-choix" style={{ minHeight: 36 }} aria-pressed={x.eleveId === eleveId} onClick={() => choisir(x.eleveId)}>{x.prenom}</button>)}
             </div>
-          );
-        })}
-      </div>
-      <div className="pied">
-        <Bouton onClick={fermer}>Fermer</Bouton>
-        <Bouton variante="principal" icone="messages" onClick={() => { fermer(); repondre(d.destinataire); }}>Répondre</Bouton>
-      </div>
-    </>
+          )}
+          {erreurFil ? <ErreurMobile message={erreurFil} recharger={rechargerFil} /> : !fils ? <Chargement /> : messages.length === 0 ? (
+            <div className="m-vide" style={{ justifyContent: 'center', textAlign: 'center', padding: '24px 8px' }}>
+              <span>{dest ? `${dest.aide} : écrivez ${role === 'Économe' ? 'à l’économe' : role === 'Secrétaire' ? 'au secrétariat' : `au ${role.toLowerCase()}`}, la réponse arrivera ici et par SMS.` : 'Écrivez votre message, la réponse arrivera ici et par SMS.'}</span>
+            </div>
+          ) : messages.map((m, i) => {
+            const iso = isoNet(m.envoyeLe);
+            const jour = jourFil(iso);
+            const sep = jour !== jourPrecedent;
+            jourPrecedent = jour;
+            const moi = m.auteurType === 'famille';
+            return (
+              <Fragment key={i}>
+                {sep && <span className="m-jour-sep">{jour}</span>}
+                <div className={`m-bulle ${moi ? 'moi' : 'ecole'}`}>
+                  <span>{m.texte}</span>
+                  <span><span className="m-sr">{moi ? 'Vous' : m.auteur}, à </span>{heure(iso)}</span>
+                </div>
+              </Fragment>
+            );
+          })}
+          <div ref={bas} />
+        </div>
+      )}
+    </Mobile>
   );
 }
+
+/** Ancienne adresse « Écrire à l'école » : la messagerie fait désormais les deux. */
+function RedirectionEcrire() {
+  const { search } = useLocation();
+  return <Navigate to={`/parent/messages${search}`} replace />;
+}
+
+// ===================================================================== parent : vie scolaire (absences, observations, annonces)
 
 function FormJustification({ ev, fermer }: { ev: Evenement; fermer: (ok?: boolean) => void }) {
   const [texte, setTexte] = useState('');
@@ -1394,163 +1861,52 @@ function FormJustification({ ev, fermer }: { ev: Evenement; fermer: (ok?: boolea
   );
 }
 
-function EcranMessagesParent() {
-  const moi = useMoi();
-  const naviguer = useNavigate();
-  const { d, erreur, recharger } = useDonnees<MessagesParent>(() => api.get('/portail/messages'));
-  const lireAnnonce = (a: MessagesParent['annonces'][number]) => void ouvrirFenetre(a.titre, (fermer) => (
-    <>
-      <span className="m-petit">{jjmmaaaa(isoNet(a.date))}{a.cible ? ` · ${a.cible}` : ''}</span>
-      <p style={{ whiteSpace: 'pre-wrap' }}>{a.texteFr}</p>
-      {a.texteEn && <p className="doux" lang="en" style={{ whiteSpace: 'pre-wrap' }}>{a.texteEn}</p>}
-      <div className="pied"><Bouton onClick={() => fermer()}>Fermer</Bouton></div>
-    </>
-  ));
+function EcranVieScolaireParent() {
+  // « lu=0 » : consulter les absences ne vaut pas lecture des messages.
+  const { d, erreur, recharger } = useDonnees<MessagesParent>(() => api.get('/portail/messages?lu=0'));
   const justifier = (ev: Evenement) => void ouvrirFormulaire<boolean>('Justifier une absence', ({ fermer }) => <FormJustification ev={ev} fermer={fermer} />, 440)
     .then((ok) => { if (ok) void recharger(); });
-  const ouvrir = (c: MessagesParent['conversations'][number]) => void ouvrirFenetre(DESTINATAIRES[c.destinataire] ?? c.destinataire, (fermer) => (
-    <FilConversation id={c.id} fermer={() => fermer()} repondre={(dest) => naviguer(`/parent/ecrire?destinataire=${dest}`)} />
-  ));
   return (
-    <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" retour="/parent/accueil" titre="Messages" sous={d ? `Famille ${d.famille}` : moi.nom}>
+    <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" retour="/parent/accueil" titre="Vie scolaire" sous={d ? `Famille ${d.famille}` : undefined}>
       {erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <div className="m-deux">
           <Col>
-            <span className="etiquette" style={ordre(1)}>Annonces</span>
-            <Carte serree style={ordre(2)}>
-              {d.annonces.length === 0 && <VideLigne>Aucune annonce pour l’instant.</VideLigne>}
-              {d.annonces.map((a) => (
-                <div key={a.id} className="m-ligne cliquable" role="button" tabIndex={0} aria-label={`Lire l’annonce : ${a.titre}`} onClick={() => lireAnnonce(a)} onKeyDown={touche(() => lireAnnonce(a))}>
-                  <div className="m-pile">
-                    <span className="m-petit">{jjmm(isoNet(a.date))}{a.cible ? ` · ${a.cible}` : ''}</span>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>{a.titre}</span>
-                  </div>
-                  <Chevron />
-                </div>
-              ))}
-            </Carte>
-            <span className="etiquette" style={ordre(3)}>Absences et observations</span>
-            <Carte serree style={ordre(4)}>
-              {d.evenements.length === 0 && <VideLigne icone="vieScolaire">Aucune absence ni observation : tout va bien.</VideLigne>}
-              {d.evenements.map((ev, i) => (
-                <div key={i} className="m-ligne" style={{ padding: '6px 0' }}>
-                  <div className="m-pile" style={{ gap: 3 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
-                      <span className={`pastille ${ev.type === 'Félicitations' ? 'succes' : 'attention'}`}>{ev.type}</span><span className="gras">{ev.prenom}</span>
+            <Carte serree style={ordre(1)}>
+              <span className="m-etiquette">Absences et observations</span>
+              <div>
+                {d.evenements.length === 0 && <VideLigne icone="vieScolaire">Aucune absence ni observation : tout va bien.</VideLigne>}
+                {d.evenements.map((ev, i) => (
+                  <div key={i} className="m-ligne">
+                    <div className="m-pile" style={{ gap: 3 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                        <span className={`m-badge ${ev.type === 'Félicitations' ? 'succes' : 'attention'}`}>{ev.type}</span><span className="gras">{ev.prenom}</span>
+                      </div>
+                      <span className="m-petit">{jjmm(isoNet(ev.date))} · {ev.texte}</span>
                     </div>
-                    <span className="m-petit">{jjmm(isoNet(ev.date))} · {ev.texte}</span>
+                    {ev.justifiable && ev.inscriptionId && ev.jour && (
+                      <button type="button" className="m-lien" aria-label={`Justifier l’absence de ${ev.prenom} du ${jjmm(ev.jour)}`} onClick={() => justifier(ev)}>Justifier</button>
+                    )}
                   </div>
-                  {ev.justifiable && ev.inscriptionId && ev.jour && (
-                    <button type="button" className="bouton lien" aria-label={`Justifier l’absence de ${ev.prenom} du ${jjmm(ev.jour)}`} onClick={() => justifier(ev)}><span>Justifier</span></button>
-                  )}
-                </div>
-              ))}
+                ))}
+              </div>
             </Carte>
           </Col>
           <Col>
-            <span className="etiquette" style={ordre(5)}>Messagerie</span>
-            <Carte ecart={8} style={ordre(6)}>
-              {d.conversations.length === 0 && <VideLigne icone="messages">Aucune conversation pour l’instant : écrivez à l’école, la réponse arrivera ici.</VideLigne>}
-              {d.conversations.map((c) => (
-                <div key={c.id} className="m-ligne cliquable" style={{ padding: '6px 0' }} role="button" tabIndex={0}
-                  aria-label={`${DESTINATAIRES[c.destinataire] ?? c.destinataire}${c.nonLu ? ', non lu' : ''} : ouvrir la conversation`} onClick={() => ouvrir(c)} onKeyDown={touche(() => ouvrir(c))}>
-                  <div className="m-pile">
-                    <span className="gras" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {DESTINATAIRES[c.destinataire] ?? c.destinataire}
-                      {c.nonLu && <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 4, background: 'var(--accent)' }} />}
-                    </span>
-                    {c.dernier && <span className="m-petit m-deux-lignes">{c.dernierAuteur === 'famille' ? 'Vous : ' : ''}«{' '}{c.dernier}{' '}»</span>}
-                  </div>
-                  <span className="m-petit">{horodatage(c.date)}</span>
-                  <Chevron />
-                </div>
-              ))}
-              <Link to="/parent/ecrire" className="bouton pleine"><Icone nom="messages" /><span>Écrire à l’école</span></Link>
-            </Carte>
-          </Col>
-        </div>
-      )}
-    </Mobile>
-  );
-}
-
-// ===================================================================== parent : écrire à l'école (RG-42 : un seul destinataire)
-
-interface Destinataire { code: string; role: string; nom: string; aide: string }
-
-function EcranEcrireParent() {
-  const moi = useMoi();
-  const [params] = useSearchParams();
-  const { d: enfants, erreur, recharger } = useDonnees<Enfant[]>(() => api.get('/portail/enfants'));
-  const [eleveId, setEleveId] = useState<string | null>(() => params.get('eleve') ?? lire<string | null>(CLE_ENFANT, null));
-  const eleve = enfants?.find((e) => e.eleveId === eleveId) ?? enfants?.[0] ?? null;
-  const { d: destinataires, erreur: erreurDest, recharger: rechargerDest } = useDonnees<Destinataire[] | null>(
-    () => (eleve ? api.get(`/portail/destinataires${requete({ eleveId: eleve.eleveId })}`) : Promise.resolve(null)), [eleve?.eleveId]);
-  const [code, setCode] = useState(params.get('destinataire') ?? 'instituteur_principal');
-  const [texte, setTexte] = useState('');
-  const [charge, setCharge] = useState(false);
-  const [erreurTexte, setErreurTexte] = useState<string | null>(null);
-  const [envoye, setEnvoye] = useState<{ destinataire: string; eleve: string } | null>(null);
-  const destinataire = destinataires?.find((x) => x.code === code);
-  const envoyer = async () => {
-    if (!eleve || charge) return;
-    if (texte.trim().length < 2) {
-      setErreurTexte('Écrivez votre message avant de l’envoyer.');
-      document.querySelector<HTMLTextAreaElement>('.m-contenu textarea')?.focus();
-      return;
-    }
-    setErreurTexte(null);
-    setCharge(true);
-    const r = await agir(() => api.post('/portail/messages', { destinataire: code, eleveId: eleve.eleveId, texte: texte.trim() }), 'Message envoyé.');
-    setCharge(false);
-    if (r) { setEnvoye({ destinataire: destinataire?.role ?? DESTINATAIRES[code] ?? code, eleve: eleve.prenom }); setTexte(''); }
-  };
-  return (
-    <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" retour="/parent/messages" titre="Écrire à l’école" sous={moi.nom}>
-      {erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !enfants ? <Chargement /> : !eleve ? <Vide icone="eleves">Aucun enfant inscrit cette année.</Vide> : envoye ? (
-        <Carte ecart={12} style={{ maxWidth: 560, alignSelf: 'center', width: '100%' }}>
-          <div role="status" style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-            <span style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 22, background: 'var(--succes-fond)', color: 'var(--succes)' }} aria-hidden="true"><Icone nom="coche" taille={24} /></span>
-            <div className="m-pile" style={{ gap: 4 }}>
-              <span style={{ fontSize: 17, fontWeight: 700 }}>Message envoyé</span>
-              <span style={{ fontSize: 13 }}>Votre message au sujet {de(envoye.eleve)} a été transmis : {envoye.destinataire.toLowerCase()}. La réponse arrivera dans l’application et par SMS.</span>
-            </div>
-          </div>
-          <Link to="/parent/messages" className="bouton principal pleine"><Icone nom="messages" /><span>Voir mes messages</span></Link>
-          <Bouton pleine onClick={() => setEnvoye(null)}>Écrire un autre message</Bouton>
-        </Carte>
-      ) : (
-        <div className="m-deux">
-          <Col>
-            <span className="etiquette" id="m-dest-titre" style={ordre(1)}>À qui écrivez-vous ?</span>
             <Carte serree style={ordre(2)}>
-              {erreurDest ? <ErreurMobile message={erreurDest} recharger={rechargerDest} /> : !destinataires ? <Chargement /> : (
-                <div role="radiogroup" aria-labelledby="m-dest-titre">
-                  {destinataires.map((x) => (
-                    <label key={x.code} className="m-radio">
-                      <input type="radio" name="destinataire" value={x.code} checked={code === x.code} onChange={() => setCode(x.code)} />
-                      <span className="m-rond" aria-hidden="true" />
-                      <span className="m-pile">
-                        <span className="gras">{x.role}</span>
-                        {x.nom && <span className="m-petit">{x.nom}</span>}
-                        <span style={{ fontSize: 12 }}>{x.aide}</span>
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
+              <span className="m-etiquette">Annonces</span>
+              <div>
+                {d.annonces.length === 0 && <VideLigne>Aucune annonce pour l’instant.</VideLigne>}
+                {d.annonces.map((a) => (
+                  <div key={a.id} className="m-ligne cliquable" role="button" tabIndex={0} aria-label={`Lire l’annonce : ${a.titre}`} onClick={() => lireAnnonce(a)} onKeyDown={touche(() => lireAnnonce(a))}>
+                    <div className="m-pile">
+                      <span className="gras" style={{ fontSize: 13 }}>{a.titre}</span>
+                      <span className="m-petit">{jjmm(isoNet(a.date))}{a.cible ? ` · ${a.cible}` : ''}</span>
+                    </div>
+                    <Chevron />
+                  </div>
+                ))}
+              </div>
             </Carte>
-          </Col>
-          <Col>
-            <div style={ordre(3)}>
-              <Liste libelle="Au sujet de" value={eleve.eleveId} options={enfants.map((e) => [e.eleveId, `${e.prenom} · ${e.classe}`] as [string, string])} onChange={(v) => setEleveId(v)} />
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, ...ordre(4) }}>
-              <Champ libelle="Votre message" lignes={5} value={texte} onChange={(v) => { setTexte(v); if (erreurTexte && v.trim().length >= 2) setErreurTexte(null); }} erreur={erreurTexte ? ' ' : null} />
-              {erreurTexte && <span className="m-erreur" role="alert">{erreurTexte}</span>}
-            </div>
-            <div style={ordre(5)}><Bouton variante="principal" pleine icone="envoyer" charge={charge} onClick={envoyer}>Envoyer</Bouton></div>
-            <span className="m-petit" style={ordre(6)}>Seul le destinataire choisi lit votre message. Réponse dans l’application et par SMS.</span>
           </Col>
         </div>
       )}
@@ -1559,14 +1915,16 @@ function EcranEcrireParent() {
 }
 
 export const routes: RouteEcran[] = [
+  { path: '/instituteur/connexion', element: <EcranConnexionMobile espace="instituteur" /> },
   { path: '/instituteur/notes', element: <EcranNotesInstituteur /> },
   { path: '/instituteur/appel', element: <EcranAppelInstituteur /> },
-  { path: '/parent/connexion', element: <EcranConnexionParent /> },
+  { path: '/parent/connexion', element: <EcranConnexionMobile espace="parent" /> },
   { path: '/parent/accueil', element: <EcranAccueilParent /> },
   { path: '/parent/notes', element: <EcranNotesParent /> },
   { path: '/parent/paiements', element: <EcranPaiementsParent /> },
   { path: '/parent/recus/:id', element: <EcranRecuParent /> },
   { path: '/parent/agenda', element: <EcranAgendaParent /> },
   { path: '/parent/messages', element: <EcranMessagesParent /> },
-  { path: '/parent/ecrire', element: <EcranEcrireParent /> },
+  { path: '/parent/ecrire', element: <RedirectionEcrire /> },
+  { path: '/parent/vie-scolaire', element: <EcranVieScolaireParent /> },
 ];

@@ -11,6 +11,7 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
   - l'application de l'instituteur, avec notes et appel hors connexion ;
   - l'application du parent.
   Le passage automatique (`tools/controle/src/parcourir.ts`) ouvre 115 écrans sous les huit comptes de répétition, sans erreur ni mot interdit.
+- **Charte Sekou (applications du parent et de l'instituteur)** : maquettes « Sekou — logo » appliquées (bandeau bleu encre et trait jaune, logo, connexion, accueil, notes et bulletin par trimestre, paiements par tranche, messagerie en fil par destinataire, mode Nuit) ; logos dans `apps/web/public/marque`, icône de l'application installée au symbole Sekou.
 - **Documents** : reçu bilingue (PDF et ESC/P), avis, listes, certificats, cartes scolaires, fiche d'inscription, bulletins, procès-verbal, rapports pour la tutelle, export comptable. En-tête et mentions se règlent par modèle.
 - **Commandes** : `demo:vide`, `demo:donnees`, `import:csv` (`--essai`, rapport des rejets), `demo:sauvegarde`, `demo:restaurer`, `demo:lancer` (certificat local et adresses du réseau).
 - **Documents de suivi** : `DEMO.md`, `IMPORT.md`, `../DECISIONS.md` (D-01 à D-31), `../ECARTS.md` (E-01 à E-43).

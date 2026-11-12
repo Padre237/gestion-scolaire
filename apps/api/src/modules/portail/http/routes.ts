@@ -57,18 +57,24 @@ export async function routesPortail(app: FastifyInstance) {
     const liste = await enfants(ctx);
     const res = [];
     const alertes: string[] = [];
+    const blocages: { eleveId: string; prenom: string; texte: string }[] = [];
     for (const e of liste) {
-      const ech = await app.bd.lire<{ libelle_fr: string; ordre: number; reste: number; date_limite: string }>(sql`
-        SELECT libelle_fr, ordre, reste, date_limite FROM reporting.v_echeance WHERE inscription_id = ${e.inscription_id} ORDER BY ordre`);
+      const ech = await app.bd.lire<{ libelle_fr: string; ordre: number; a_payer: number; reste: number; date_limite: string }>(sql`
+        SELECT libelle_fr, ordre, a_payer, reste, date_limite FROM reporting.v_echeance WHERE inscription_id = ${e.inscription_id} ORDER BY ordre`);
       const prochaine = ech.find((x) => Number(x.reste) > 0);
       const auj = new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
-      const note = await app.bd.lireUn<{ matiere: string; valeur: number; bareme: number }>(sql`
-        SELECT COALESCE(m.abrege_fr, m.libelle_fr) AS matiere, n.valeur, n.bareme FROM reporting.v_note n JOIN pedagogie.matiere m ON m.id = n.matiere_id
-          JOIN pedagogie.sequence s ON s.periode_id = n.periode_id AND s.numero = n.sequence AND s.type = n.type_sequence
-         WHERE n.inscription_id = ${e.inscription_id} AND n.valeur IS NOT NULL AND s.statut = 'fermee'
-         ORDER BY s.numero DESC, n.id DESC LIMIT 1`);
-      const abs = await app.bd.lireUn<{ n: number }>(sql`
-        SELECT count(DISTINCT (jour, debut < '12:00'))::int AS n FROM reporting.v_absence WHERE inscription_id = ${e.inscription_id}
+      // Dernières notes publiées (séquence fermée), les plus récentes d'abord.
+      const notes = await app.bd.lire<{ matiere: string; abrege: string; valeur: number; bareme: number; sequence: string; date: string }>(sql`
+        SELECT m.libelle_fr AS matiere, COALESCE(m.abrege_fr, m.libelle_fr) AS abrege, n.valeur, ev.bareme, s.libelle_fr AS sequence, ev.fait_le AS date
+          FROM pedagogie.note n JOIN pedagogie.evaluation ev ON ev.id = n.evaluation_id
+          JOIN pedagogie.sequence s ON s.id = ev.sequence_id AND s.statut = 'fermee' JOIN pedagogie.matiere m ON m.id = ev.matiere_id
+         WHERE n.inscription_id = ${e.inscription_id} AND n.valeur IS NOT NULL
+         ORDER BY ev.fait_le DESC, s.numero DESC, m.libelle_fr LIMIT 3`);
+      const note = notes[0];
+      const abs = await app.bd.lireUn<{ n: number; justifiees: number }>(sql`
+        SELECT count(DISTINCT (jour, debut < '12:00'))::int AS n,
+               count(DISTINCT (jour, debut < '12:00')) FILTER (WHERE statut = 'justifiee')::int AS justifiees
+          FROM reporting.v_absence WHERE inscription_id = ${e.inscription_id}
            AND jour >= (SELECT p.date_debut FROM structure.periode p JOIN scolarite.inscription i ON i.annee_id = p.annee_id
                          WHERE i.id = ${e.inscription_id} AND current_date BETWEEN p.date_debut AND p.date_fin + 30 ORDER BY p.ordre LIMIT 1)`);
       // Alerte de bulletin bloqué (RG-40) : bulletin publié de la dernière période, non visible.
@@ -78,16 +84,28 @@ export async function routesPortail(app: FastifyInstance) {
       if (b) {
         const v = await app.bd.transaction(null, (tx) => visibilites(tx, [e.inscription_id], b.periode_id, b.tranche));
         const vis = v.get(e.inscription_id)!;
-        if (!vis.visible) alertes.push(`Le bulletin du ${b.libelle} de ${e.prenoms} sera visible quand la tranche ${b.tranche} sera payée à ${vis.seuil} % (aujourd’hui ${vis.taux} %).`);
+        if (!vis.visible) {
+          alertes.push(`Le bulletin du ${b.libelle} de ${e.prenoms} sera visible quand la tranche ${b.tranche} sera payée à ${vis.seuil} % (aujourd’hui ${vis.taux} %).`);
+          blocages.push({ eleveId: e.eleve_id, prenom: e.prenoms,
+            texte: `le bulletin du ${b.libelle} sera visible quand la tranche ${b.tranche} sera payée à ${vis.seuil} % (aujourd’hui ${vis.taux} %).` });
+        }
       }
       res.push({
         eleveId: e.eleve_id, inscriptionId: e.inscription_id, nom: `${e.nom} ${e.prenoms}`, prenom: e.prenoms, classe: e.classe,
         resteDu: ech.reduce((s, x) => s + Number(x.reste), 0),
         prochaine: prochaine ? { montant: Number(prochaine.reste), date: prochaine.date_limite, ligne: prochaine.libelle_fr, enRetard: prochaine.date_limite < auj } : null,
-        derniereNote: note ? { matiere: note.matiere, valeur: Number(note.valeur), bareme: note.bareme } : null,
+        derniereNote: note ? { matiere: note.abrege, valeur: Number(note.valeur), bareme: note.bareme } : null,
+        dernieresNotes: notes.map((n) => ({ matiere: n.matiere, valeur: Number(n.valeur), bareme: n.bareme, sequence: n.sequence, date: n.date })),
+        tranches: ech.map((x) => ({ libelle: x.libelle_fr, aPayer: Number(x.a_payer), reste: Number(x.reste), dateLimite: x.date_limite })),
         absences: abs?.n ?? 0,
+        absencesJustifiees: abs?.justifiees ?? 0,
       });
     }
+    const annonces = await app.bd.lire(sql`
+      SELECT a.id, a.titre, a.texte_fr AS "texteFr", a.texte_en AS "texteEn", a.publiee_le AS date,
+             CASE a.cible WHEN 'ecole' THEN 'Toute l’école' WHEN 'debiteurs' THEN 'Paiements' ELSE a.cible_libelle END AS cible
+        FROM communication.annonce a JOIN communication.annonce_famille af ON af.annonce_id = a.id
+       WHERE af.famille_id = ${f} AND a.statut = 'publiee' ORDER BY a.publiee_le DESC LIMIT 3`);
     const nouvelles = await app.bd.lire<{ date: string; type: string; texte: string }>(sql`
       SELECT * FROM (
         SELECT v.encaisse_le AS date, 'Paiement' AS type, 'Reçu ' || v.numero_recu || ' · ' || replace(to_char(v.montant, 'FM999,999,999'), ',', U&'\\202F') || ' FCFA pour ' || e.prenoms AS texte
@@ -102,7 +120,9 @@ export async function routesPortail(app: FastifyInstance) {
          WHERE e.famille_id = ${f}) x
        WHERE date IS NOT NULL ORDER BY date DESC LIMIT 3`);
     const nonLus = await app.bd.lireUn<{ n: number }>(sql`SELECT count(*)::int AS n FROM communication.conversation WHERE famille_id = ${f} AND non_lu_famille`);
-    return { salutation: payeur ? `${CIVILITE[payeur.lien] ?? ''} ${payeur.famille}`.trim() : '', enfants: res, alertes,
+    const annee = await app.bd.lireUn<{ libelle: string }>(sql`
+      SELECT libelle FROM structure.annee_scolaire WHERE etablissement_id = ${ctx.etablissementId} AND statut = 'ouverte' LIMIT 1`);
+    return { salutation: payeur ? `${CIVILITE[payeur.lien] ?? ''} ${payeur.famille}`.trim() : '', annee: annee?.libelle ?? null, enfants: res, alertes, blocages, annonces,
       nouvelles: nouvelles.map((n) => ({ ...n, texte: n.texte.replace(/ | |,/g, (c) => (c === ',' ? ',' : ' ')) })), nonLus: nonLus?.n ?? 0 };
   });
 
@@ -122,13 +142,24 @@ export async function routesPortail(app: FastifyInstance) {
         FROM pedagogie.bulletin b LEFT JOIN structure.periode p ON p.id = b.periode_id
        WHERE b.inscription_id = ${e.inscription_id} AND b.statut = 'publie' AND (${req.query.periodeId ?? null}::uuid IS NULL OR b.periode_id = ${req.query.periodeId ?? null}::uuid)
        ORDER BY p.ordre DESC NULLS FIRST LIMIT 1`);
-    if (!b) return { prenom: e.prenoms, classe: e.classe, bulletin: null, bloque: null };
+    // Choix de la période à l'écran : toutes les périodes de l'année, celles dont le bulletin est publié sont consultables.
+    const periodes = (await app.bd.lire<{ id: string; libelle: string; publie: boolean }>(sql`
+      SELECT p.id, p.libelle_fr AS libelle,
+             EXISTS (SELECT 1 FROM pedagogie.bulletin b WHERE b.inscription_id = ${e.inscription_id} AND b.periode_id = p.id AND b.statut = 'publie') AS publie
+        FROM structure.periode p WHERE p.annee_id = ${e.annee_id} ORDER BY p.ordre`));
+    const affectations = await app.bd.lire<{ matiere_id: string | null; nom: string; principal: boolean }>(sql`
+      SELECT a.matiere_id, p.nom_affiche AS nom, a.principal FROM pedagogie.affectation a JOIN personnel.fiche p ON p.id = a.personnel_id
+       WHERE a.classe_id = ${e.classe_id}`);
+    const principal = affectations.find((a) => a.principal)?.nom ?? null;
+    const enseignants = Object.fromEntries(affectations.filter((a) => !a.principal && a.matiere_id).map((a) => [a.matiere_id!, a.nom]));
+    const commun = { prenom: e.prenoms, classe: e.classe, principal, periodes, enseignants };
+    if (!b) return { ...commun, periodeId: req.query.periodeId ?? null, bulletin: null, bloque: null };
     const vis = (await app.bd.transaction(null, (tx) => visibilites(tx, [e.inscription_id], b.periode_id, b.tranche))).get(e.inscription_id)!;
     if (!vis.visible) {
-      return { prenom: e.prenoms, classe: e.classe, periode: b.libelle, bulletin: null,
+      return { ...commun, periodeId: b.periode_id, periode: b.libelle, bulletin: null,
         bloque: `Le bulletin du ${b.libelle} de ${e.prenoms} sera visible quand ${b.periode_id ? `la tranche ${b.tranche} sera payée à ${vis.seuil} %` : 'les frais de l’année seront payés à 100 %'} (aujourd’hui ${vis.taux} %).` };
     }
-    return { prenom: e.prenoms, classe: e.classe, periode: b.libelle, bulletin: b.resultats, version: b.version, bloque: null };
+    return { ...commun, periodeId: b.periode_id, periode: b.libelle, bulletin: b.resultats, version: b.version, bloque: null };
   });
 
   r.get('/portail/enfants/:eleveId/paiements', { config: { permission: 'portail.famille.consulter' }, schema: { tags: ['portail'], params: z.object({ eleveId: Uuid }) } }, async (req) => {
@@ -185,7 +216,8 @@ export async function routesPortail(app: FastifyInstance) {
     return { prenom: e.prenoms, nom: `${e.nom} ${e.prenoms}`, classe: e.classe, jour, date, cours: cours.length ? lignes : [], devoirs };
   });
 
-  r.get('/portail/messages', { config: { permission: 'portail.famille.consulter' }, schema: { tags: ['portail'] } }, async (req) => {
+  // « lu=0 » : lecture des absences et annonces sans marquer les conversations comme lues.
+  r.get('/portail/messages', { config: { permission: 'portail.famille.consulter' }, schema: { tags: ['portail'], querystring: z.object({ lu: z.enum(['0', '1']).optional() }) } }, async (req) => {
     const ctx = exiger(req);
     const f = famille(ctx);
     const fam = await app.bd.lireUn<{ nom: string }>(sql`SELECT nom FROM scolarite.famille WHERE id = ${f}`);
@@ -204,12 +236,12 @@ export async function routesPortail(app: FastifyInstance) {
         JOIN scolarite.inscription i ON i.id = o.inscription_id JOIN scolarite.eleve e ON e.id = i.eleve_id
        WHERE e.famille_id = ${f} ORDER BY o.survenu_le DESC LIMIT 5`);
     const conversations = await app.bd.lire(sql`
-      SELECT c.id, c.destinataire_role AS destinataire, c.non_lu_famille AS "nonLu",
+      SELECT c.id, c.eleve_id AS "eleveId", c.destinataire_role AS destinataire, c.sujet, c.non_lu_famille AS "nonLu",
              (SELECT m.texte FROM communication.message m WHERE m.conversation_id = c.id AND NOT m.brouillon ORDER BY m.envoye_le DESC LIMIT 1) AS dernier,
              (SELECT m.auteur_type FROM communication.message m WHERE m.conversation_id = c.id AND NOT m.brouillon ORDER BY m.envoye_le DESC LIMIT 1) AS "dernierAuteur",
              c.derniere_activite AS date
-        FROM communication.conversation c WHERE c.famille_id = ${f} ORDER BY c.derniere_activite DESC LIMIT 5`);
-    await app.bd.lire(sql`UPDATE communication.conversation SET non_lu_famille = false WHERE famille_id = ${f}`);
+        FROM communication.conversation c WHERE c.famille_id = ${f} ORDER BY c.derniere_activite DESC LIMIT 60`);
+    if (req.query.lu !== '0') await app.bd.lire(sql`UPDATE communication.conversation SET non_lu_famille = false WHERE famille_id = ${f}`);
     const evenements = [
       ...absences.map((a) => ({ type: 'Absence', prenom: a.prenom, date: a.jour, texte: `${a.matin && a.apres ? 'journée' : a.matin ? 'matin' : 'après-midi'} · ${a.justifiee ? 'justifiée' : a.demande ? 'justification demandée' : 'non justifiée'}`,
         inscriptionId: a.inscription_id, jour: a.jour, justifiable: !a.justifiee && !a.demande })),

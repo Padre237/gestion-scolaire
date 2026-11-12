@@ -368,6 +368,16 @@ describe('Étapes 8 et 9 · espace parent, blocage du bulletin, levée par le di
     const a = await parentKenfack.get('/portail/accueil');
     expect(a.corps.enfants).toHaveLength(2);
     expect(a.corps.salutation).toBe('Mme KENFACK');
+    // Charte Sekou : barres par tranche, dernières notes, absences justifiées, annonces et blocages sur l'accueil.
+    expect(a.corps.enfants[0].tranches.length).toBeGreaterThan(0);
+    expect(a.corps.enfants[0].tranches[0]).toMatchObject({ libelle: expect.any(String), aPayer: expect.any(Number), reste: expect.any(Number) });
+    expect(Array.isArray(a.corps.enfants[0].dernieresNotes)).toBe(true);
+    expect(a.corps.enfants[0].absencesJustifiees).toBeLessThanOrEqual(a.corps.enfants[0].absences);
+    expect(Array.isArray(a.corps.annonces)).toBe(true);
+    expect(Array.isArray(a.corps.blocages)).toBe(true);
+    const bs = await parentKenfack.get(`/portail/enfants/${ids['eleve:steve']}/bulletin`);
+    expect(bs.corps.periodes.length).toBeGreaterThan(0);
+    expect(typeof bs.corps.enseignants).toBe('object');
     expect((await parentKenfack.get(`/portail/enfants/${ids['eleve:Josiane']}/bulletin`)).status).toBe(403);
     expect((await parentKenfack.get('/scolarite/eleves')).status).toBe(403);
   });

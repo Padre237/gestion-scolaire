@@ -1,7 +1,7 @@
 // Service worker de l'application installable : l'application (HTML, scripts, polices) est gardée sur le poste ;
 // les lectures de l'API passent par le réseau et, sans réseau, par la dernière réponse connue.
-const VERSION = 'gs-v1';
-const COQUE = ['/', '/index.html', '/manifest.webmanifest', '/icone.svg', '/icone-192.png', '/icone-512.png'];
+const VERSION = 'gs-v2';
+const COQUE = ['/', '/index.html', '/manifest.webmanifest', '/icone.svg', '/icone-192.png', '/icone-512.png', '/marque/sekou-logo-sombre.svg', '/marque/sekou-logo-signature-sombre.svg', '/marque/sekou-logo.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(COQUE)).then(() => self.skipWaiting()));
@@ -30,7 +30,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   e.respondWith(caches.match(req).then((m) => m || fetch(req).then((r) => {
-    if (r.ok && (u.pathname.startsWith('/assets/') || u.pathname.startsWith('/polices/'))) { const copie = r.clone(); caches.open(VERSION).then((c) => c.put(req, copie)); }
+    if (r.ok && (u.pathname.startsWith('/assets/') || u.pathname.startsWith('/polices/') || u.pathname.startsWith('/marque/'))) { const copie = r.clone(); caches.open(VERSION).then((c) => c.put(req, copie)); }
     return r;
   })));
 });

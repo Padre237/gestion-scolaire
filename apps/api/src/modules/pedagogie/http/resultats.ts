@@ -13,7 +13,8 @@ import { calculerResultats, distinctionProposee, type Distinction } from '../dom
 import { visibiliteBulletin } from '../../finances/domain/solvabilite.ts';
 import { reglesDe, titulaire, titulairesClasse } from '../index.ts';
 import { dateFr, pdfBulletins, type ModeleDoc, pdfProcesVerbal } from '@gs/print';
-import { exigerAnneeOuverte } from '../../structure/index.ts';
+import { baseVerification, exigerAnneeOuverte, habillageImpression } from '../../structure/index.ts';
+import { codesVerification } from '../../scolarite/index.ts';
 
 const Uuid = z.uuid();
 export const DISTINCTIONS: Record<Distinction, string> = {
@@ -325,16 +326,23 @@ export async function routesResultats(app: FastifyInstance) {
     }
     const pdf = await app.bd.transaction(ctx.compteId, async (tx) => {
       const resultats = await calculerClasse(tx, ctx.etablissementId, classeId, periodeId);
-      const stockes = await lignes<{ inscription_id: string; statut: string; version: number }>(tx, sql`
-        SELECT DISTINCT ON (inscription_id) inscription_id, statut, version FROM pedagogie.bulletin
+      const stockes = await lignes<{ id: string; inscription_id: string; statut: string; version: number }>(tx, sql`
+        SELECT DISTINCT ON (inscription_id) id, inscription_id, statut, version FROM pedagogie.bulletin
          WHERE inscription_id = ANY(${tableau(resultats.map((x) => x.eleve.inscriptionId))}::uuid[]) AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid
            AND statut <> 'remplace' ORDER BY inscription_id, (statut = 'brouillon') DESC, version DESC`);
-      const etab = await ligne<{ nom_fr: string; modeles: { bulletin?: ModeleDoc } | null }>(tx, sql`SELECT nom_fr, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      const etab = await ligne<{ nom_fr: string; nom_en: string; ville_bp: string | null; telephone: string | null; modeles: { bulletin?: ModeleDoc } | null }>(tx, sql`
+        SELECT nom_fr, nom_en, ville_bp, telephone, modeles FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
+      // QR code de vérification sur chaque bulletin publié, logo au centre (D-44).
+      const h = await habillageImpression(app.bd, ctx.etablissementId, 'bulletin');
+      const publies = stockes.filter((x) => x.statut === 'publie');
+      const codes = await codesVerification(tx, ctx.etablissementId, 'bulletin', publies.map((x) => x.id));
+      const base = baseVerification(h.adresse, req);
       await journaliser(tx, ctx, { action: 'Export', objetType: 'Bulletin', objetLibelle: `Bulletins · ${resultats[0]?.classe.nom ?? ''} · ${resultats[0]?.periode.libelleFr ?? ''}`,
         avant: '–', apres: `PDF · ${resultats.length} bulletins` });
       return pdfBulletins([...resultats].sort((a, b) => a.eleve.nom.localeCompare(b.eleve.nom)).map((x) => {
         const st = stockes.find((s) => s.inscription_id === x.eleve.inscriptionId);
         return {
+          verification: st?.statut === 'publie' && codes.get(st.id) ? `${base}/verifier/${codes.get(st.id)}` : undefined,
           etablissement: etab!.nom_fr, modele: etab!.modeles?.bulletin, periodeFr: x.periode.libelleFr, periodeEn: x.periode.libelleEn, annee: x.annee,
           version: st?.version ?? 1, statut: st?.statut === 'publie' ? 'publie' : 'brouillon',
           eleve: x.eleve.nom, matricule: x.eleve.matricule, classe: x.classe.nom, effectif: x.effectif, naissance: dateFr(x.eleve.dateNaissance),
@@ -344,7 +352,7 @@ export async function routesResultats(app: FastifyInstance) {
           absences: `${heures(x.absences.minutes)} dont ${heures(x.absences.justifiees)} justifiées`, distinction: DISTINCTIONS[x.distinction],
           appreciationGenerale: x.appreciationGenerale,
         };
-      }));
+      }), { gabarit: h.gabarit, logo: h.logo, etablissement: { nom_fr: etab!.nom_fr, nom_en: etab!.nom_en, ville_bp: etab!.ville_bp, telephone: etab!.telephone, modeles: etab!.modeles } });
     });
     return rep.type('application/pdf').header('content-disposition', 'inline; filename="bulletins.pdf"').send(Buffer.from(pdf));
   });

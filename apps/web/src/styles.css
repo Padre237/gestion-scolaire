@@ -506,3 +506,36 @@ body.tiroir-ouvert { overflow: hidden; }
   background: var(--panneau); color: var(--texte); font: inherit; text-align: left; cursor: pointer; }
 .action-eleve:hover, .action-eleve:focus-visible { border-color: var(--accent); background: var(--accent-fond); }
 .responsable-maj { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--bord); border-radius: 12px; }
+
+/* ---------------------------------------------------------------- modèles d'impression et page « Vérifier » (D-44) */
+.gabarit-document { display: flex; flex-direction: column; gap: 10px; padding-top: 14px; border-top: 1px solid var(--bord); }
+.gabarits { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.gabarit { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.gabarit > button[role="radio"] { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 12px; border-radius: 12px; border: 1px solid var(--bord-fort);
+  background: var(--panneau); color: var(--texte); font: inherit; text-align: left; cursor: pointer; }
+.gabarit > button[role="radio"]:disabled { cursor: default; }
+.gabarit.choisi > button[role="radio"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-fond); }
+.vignette { position: relative; display: flex; flex-direction: column; gap: 6px; width: 100%; height: 92px; padding: 0 0 8px; border-radius: 6px; border: 1px solid var(--bord); background: #FFFFFF; overflow: hidden; }
+.vignette-tete { display: flex; align-items: center; gap: 6px; padding: 8px; }
+.vignette-logo { width: 18px; height: 18px; border-radius: 4px; background: #1D4ED8; flex: none; }
+.vignette-lignes { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.vignette-lignes i, .vignette-corps i { display: block; height: 4px; border-radius: 2px; background: #C9D3E6; }
+.vignette-lignes i:first-child { width: 70%; background: #0B1F4B; } .vignette-lignes i:last-child { width: 45%; }
+.vignette-corps { display: flex; flex-direction: column; gap: 4px; padding: 0 8px; width: 70%; }
+.vignette-qr { position: absolute; right: 8px; bottom: 8px; width: 20px; height: 20px; background: repeating-linear-gradient(90deg, #0B1F4B 0 3px, #FFFFFF 3px 5px); }
+.vignette-classique .vignette-tete { justify-content: center; border-bottom: 1px solid #C9D3E6; }
+.vignette-bandeau .vignette-tete { background: #1D4ED8; border-bottom: 2px solid #FACC15; }
+.vignette-bandeau .vignette-logo { background: #FFFFFF; }
+.vignette-bandeau .vignette-lignes i { background: #C7D6FF; } .vignette-bandeau .vignette-lignes i:first-child { background: #FFFFFF; }
+.vignette-epure .vignette-tete { flex-direction: column; border-bottom: 1px solid #222; }
+.vignette-epure .vignette-logo { background: #222; } .vignette-epure .vignette-lignes i:first-child { background: #222; }
+.vignette-epure .vignette-qr { background: repeating-linear-gradient(90deg, #222 0 3px, #FFFFFF 3px 5px); }
+.verif { display: flex; flex-direction: column; gap: 14px; }
+.verif-statut { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-radius: 12px; font-size: 22px; font-weight: 800; }
+.verif-statut.succes { background: var(--succes-fond); color: var(--succes); }
+.verif-statut.attention { background: var(--attention-fond); color: var(--attention); }
+.verif-statut.danger { background: var(--danger-fond); color: var(--danger); }
+.verif-lignes { margin: 0; display: flex; flex-direction: column; }
+.verif-lignes div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--bord); }
+.verif-lignes dt { color: var(--doux); }
+.verif-lignes dd { margin: 0; font-weight: 600; text-align: right; }

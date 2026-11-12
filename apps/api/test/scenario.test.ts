@@ -3,6 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Client, connecter, connecterParent, preparer, auj, jourSemaine } from './aide.ts';
 import { FORMULAIRE_PAR_DEFAUT } from '@gs/shared';
+import { sql } from '../src/core/bd.ts';
 
 type Env = Awaited<ReturnType<typeof preparer>>;
 let env: Env;
@@ -568,6 +569,15 @@ describe('Données et clôture : import, sauvegardes, accès en lecture, clôtur
     expect(String(r.entetes['content-type'])).toContain('application/pdf');
     expect(r.brut.subarray(0, 4).toString()).toBe('%PDF');
     expect((await eco.get(`/scolarite/classes/${ids['classe:CM2 A']}/document?type=cartes`)).status).toBe(403);
+    // QR code de vérification (D-44) : un code par carte, lisible sans connexion, informations réduites ; code inconnu : 404.
+    const v = await env.bd.lireUn<{ code: string }>(sql`SELECT v.code FROM scolarite.verification v JOIN scolarite.inscription i ON i.id = v.objet_id
+                                                        WHERE v.type = 'carte' AND i.classe_id = ${ids['classe:CM2 A']} LIMIT 1`);
+    expect(v?.code).toMatch(/^[A-Z2-7]{12}$/);
+    const pub = await new Client(env.app).get(`/verification/${v!.code}`);
+    expect(pub.status).toBe(200);
+    expect(pub.corps.valide).toBe(true);
+    expect(pub.corps.lignes.map((l: { libelle: string }) => l.libelle)).toEqual(['Élève', 'Matricule', 'Classe', 'Année scolaire']);
+    expect((await new Client(env.app).get('/verification/AAAAAAAAAAAA')).status).toBe(404);
   });
   it('modèles de documents : lus avec le paramétrage, modifiés par la secrétaire seule (403)', async () => {
     const corps = { fr: { entete: 'RÉPUBLIQUE DU CAMEROUN · Paix – Travail – Patrie', mentions: 'Les frais versés ne sont pas remboursables.' },

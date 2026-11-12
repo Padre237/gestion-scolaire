@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, ErreurApi, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
 import { PanneauFormulaire } from './formulaire-inscription.tsx';
+import { PanneauGabarits } from './gabarits.tsx';
 import { useMoi, useSession } from '../core/session.tsx';
 import { choisirFichier } from '../core/documents.ts';
 import { jjmmaaaa, pluriel, versEntier, versIso } from '../core/format.ts';
@@ -474,8 +475,9 @@ export function EcranEtablissement() {
           </Panneau> },
       { titre: 'Formulaire d’inscription', sous: 'Questions posées à l’inscription', faite: true,
         contenu: <PanneauFormulaire modifiable={moi.a('structure.etablissement.modifier')} /> },
-      { titre: 'Documents', sous: 'Facultatif : numérotation, en-têtes et mentions', faite: true,
-        contenu: <><Panneau>
+      { titre: 'Documents', sous: 'Modèles d’impression, numérotation, en-têtes et mentions', faite: true,
+        contenu: <><PanneauGabarits modifiable={moi.a('structure.etablissement.modifier')} />
+          <Panneau>
             <TitrePanneau titre="Numérotation" />
             <Tableau
               colonnes={[{ titre: 'Document et format', mobile: 'entete' }, { titre: 'Prochain numéro', droite: true }]}

@@ -90,3 +90,17 @@ describe('Cartes du tableau de bord : toutes les combinaisons répondent', () =>
     }
   });
 });
+
+describe('Modèles d’impression (D-44)', () => {
+  it('choix du modèle par document, adresse de vérification, aperçu des neuf modèles', async () => {
+    const g = await sec.get('/structure/gabarits');
+    expect(g.corps).toMatchObject({ fiche: 'classique', carte: 'classique', bulletin: 'classique' });
+    expect((await sec.put('/structure/gabarits', { fiche: 'epure', carte: 'bandeau', bulletin: 'bandeau', adresseVerification: 'ecole' })).status).toBe(400);
+    expect((await sec.put('/structure/gabarits', { fiche: 'epure', carte: 'bandeau', bulletin: 'bandeau', adresseVerification: 'https://ecole.example.cm' })).status).toBe(200);
+    expect((await sec.get('/structure/gabarits')).corps).toMatchObject({ fiche: 'epure', carte: 'bandeau', adresseVerification: 'https://ecole.example.cm' });
+    for (const document of ['fiche', 'carte', 'bulletin']) for (const gabarit of ['classique', 'bandeau', 'epure']) {
+      const r = await sec.get(`/structure/gabarits/apercu?document=${document}&gabarit=${gabarit}`);
+      expect([document, gabarit, r.status, r.brut.subarray(0, 4).toString()]).toEqual([document, gabarit, 200, '%PDF']);
+    }
+  });
+});

@@ -71,3 +71,17 @@ export async function classeInfo(bdOuTx: Bd | Tx, id: string, etab: string): Pro
   if (bdOuTx instanceof Object && 'lireUn' in bdOuTx) return (bdOuTx as Bd).lireUn<ClasseInfo>(requete);
   return ligne<ClasseInfo>(bdOuTx as Tx, requete);
 }
+
+// ---------------------------------------------------------------- modèles d'impression (D-44)
+export type Gabarit = 'classique' | 'bandeau' | 'epure';
+export interface HabillageImpression { gabarit: Gabarit; logo: Buffer | null; adresse: string | null }
+/** Modèle choisi pour un document, logo et adresse publique de la page « Vérifier ». */
+export async function habillageImpression(bd: Bd, etab: string, document: 'fiche' | 'carte' | 'bulletin'): Promise<HabillageImpression> {
+  const e = await bd.lireUn<{ gabarits: Record<string, string> | null; logo: Buffer | null; adresse_verification: string | null }>(sql`
+    SELECT gabarits, logo, adresse_verification FROM structure.etablissement WHERE id = ${etab}`);
+  const g = e?.gabarits?.[document];
+  return { gabarit: g === 'bandeau' || g === 'epure' ? g : 'classique', logo: e?.logo ?? null, adresse: e?.adresse_verification ?? null };
+}
+/** Adresse de la page « Vérifier » imprimée dans les QR codes : celle réglée par l'établissement, sinon celle du poste qui imprime. */
+export const baseVerification = (adresse: string | null, req: { protocol: string; headers: { host?: string } }) =>
+  adresse?.trim().replace(/\/+$/, '') || `${req.protocol}://${req.headers.host ?? 'localhost'}`;

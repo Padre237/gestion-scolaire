@@ -1118,6 +1118,55 @@ export function EcranConnexionSekou() {
   );
 }
 
+// ===================================================================== page publique « Vérifier » (QR codes, D-44)
+
+interface Verification { valide: boolean; type: string; titre: string; etablissement: string; alerte: string | null; lignes: { libelle: string; valeur: string }[] }
+
+/** Ouverte en scannant le QR code d'une carte scolaire ou d'un bulletin, sans connexion. */
+export function EcranVerifier() {
+  const { code = '' } = useParams();
+  const d = useDonnees(() => api.get<Verification>(`/verification/${encodeURIComponent(code)}`), [code]);
+  useCouleurBarre();
+  const maintenant = new Date().toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Douala' });
+  return (
+    <div className="m-app">
+      <StyleMobile />
+      <div className="m-connexion">
+        <div className="m-connexion-haut">
+          <div><img src="/marque/sekou-logo-signature-sombre.svg" alt="Sekou, logiciel de gestion scolaire" width={212} height={44} /></div>
+          <div className="m-titre">
+            <span className="m-trait" aria-hidden="true" />
+            <h1>Vérification</h1>
+            <p>{d.d?.etablissement ?? 'Document scolaire'}</p>
+          </div>
+        </div>
+        <main className="m-connexion-corps">
+          <section className="m-carte" aria-live="polite">
+            {!d.d && !d.erreur ? <Chargement /> : !d.d ? (
+              <div className="verif">
+                <div className="verif-statut danger"><Icone nom="alerte" taille={28} /><span>Document non reconnu</span></div>
+                <p className="doux">Ce code ne correspond à aucun document. Scannez de nouveau le QR code, ou vérifiez l’adresse saisie.</p>
+              </div>
+            ) : (
+              <div className="verif">
+                <div className={`verif-statut ${d.d.valide ? 'succes' : 'attention'}`}>
+                  <Icone nom={d.d.valide ? 'cercleCoche' : 'alerte'} taille={28} /><span>{d.d.valide ? 'Vérifié' : 'Non valable'}</span>
+                </div>
+                <span className="gras" style={{ fontSize: 17 }}>{d.d.titre}</span>
+                {d.d.alerte && <div className="m-alerte" role="alert"><Icone nom="alerte" taille={18} /><span>{d.d.alerte}</span></div>}
+                <dl className="verif-lignes">
+                  {d.d.lignes.map((l) => <div key={l.libelle}><dt>{l.libelle}</dt><dd>{l.valeur}</dd></div>)}
+                </dl>
+                <p className="doux petit">Document émis par {d.d.etablissement}. Vérifié le {maintenant}, d’après les registres de l’établissement.</p>
+              </div>
+            )}
+          </section>
+        </main>
+      </div>
+    </div>
+  );
+}
+
 // ===================================================================== parent : enfants
 
 interface Enfant { eleveId: string; prenom: string; nom: string; classe: string }
@@ -1891,6 +1940,7 @@ function EcranVieScolaireParent() {
 }
 
 export const routes: RouteEcran[] = [
+  { path: '/verifier/:code', element: <EcranVerifier /> },
   { path: '/connexion', element: <EcranConnexionSekou /> },
   { path: '/instituteur/connexion', element: <Navigate to="/connexion" replace /> },
   { path: '/instituteur/notes', element: <EcranNotesInstituteur /> },

@@ -26,6 +26,7 @@ describe('Déclaration des permissions', () => {
   });
   it('les routes publiques se limitent à la connexion', () => {
     const publiques = env.app.inventaireRoutes.filter((r) => (r.config as { public?: boolean }).public && r.methode !== 'HEAD').map((r) => `${r.methode} ${r.url}`).sort();
-    expect(publiques).toEqual(['GET /api/v1/auth/accueil', 'POST /api/v1/auth/connexion', 'POST /api/v1/auth/connexion-parent']);
+    // La page « Vérifier » des QR codes imprimés (D-44) est publique : un code aléatoire, des informations réduites.
+    expect(publiques).toEqual(['GET /api/v1/auth/accueil', 'GET /api/v1/verification/:code', 'POST /api/v1/auth/connexion', 'POST /api/v1/auth/connexion-parent']);
   });
 });

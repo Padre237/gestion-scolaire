@@ -21,6 +21,8 @@ function Garde({ children }: { children: ReactNode }) {
   const { moi, pret } = useSession();
   const p = useLocation().pathname;
   if (!pret) return <Chargement />;
+  // Page « Vérifier » des QR codes imprimés (D-44) : ouverte à tous, connecté ou non.
+  if (p.startsWith('/verifier/')) return <>{children}</>;
   // Une seule page de connexion pour tous (D-38) ; chacun est ensuite conduit vers son espace.
   if (!moi) return PUBLIQUES.includes(p) ? <>{children}</> : <Navigate to="/connexion" replace />;
   // RG-35 : le compte famille n'ouvre que l'application du parent.

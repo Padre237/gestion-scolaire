@@ -8,6 +8,7 @@ import { exiger } from '../../../core/session.ts';
 import { journaliser } from '../../../core/audit.ts';
 import { emettre } from '../../../core/evenements.ts';
 import { anneeOuverte, cleCompteur, FORMATS, numeroSuivant } from '../index.ts';
+import { routesGabarits } from './gabarits.ts';
 
 const Id = z.object({ id: z.uuid() });
 const Date_ = z.iso.date();
@@ -42,6 +43,7 @@ const Identite = z.object({
 
 export async function routesStructure(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
+  await routesGabarits(app);
 
   r.get('/structure/etablissement', { config: { permission: 'structure.consulter' }, schema: { tags: ['structure'] } }, async (req) => {
     const ctx = exiger(req);

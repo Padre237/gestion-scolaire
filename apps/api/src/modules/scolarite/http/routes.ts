@@ -11,12 +11,13 @@ import { emettre } from '../../../core/evenements.ts';
 import { classesAccessibles } from '../../../core/perimetre.ts';
 import { hacher, motDePasseAleatoire } from '../../../core/motdepasse.ts';
 import { versCsv } from '../../../core/csv.ts';
-import { classeInfo, cleCompteur, exigerAnneeOuverte, FORMATS, prochainNumero, anneeOuverteTx } from '../../structure/index.ts';
-import { chiffres, formatTelephone, inscription } from '../index.ts';
+import { baseVerification, classeInfo, cleCompteur, exigerAnneeOuverte, FORMATS, habillageImpression, prochainNumero, anneeOuverteTx } from '../../structure/index.ts';
+import { chiffres, codesVerification, formatTelephone, inscription } from '../index.ts';
 import '../index.ts';
 import { pdfCartesScolaires, pdfCertificat, pdfFicheInscription, pdfListeClasse, pdfTableau } from '@gs/print';
 import { joindrePieces, preparerRenseignements, renseignementsLisibles, routesFormulaire } from './formulaire.ts';
 import { routesFiche } from './fiche.ts';
+import { routesVerification } from './verification.ts';
 
 const Uuid = z.uuid();
 const LIENS: Record<string, string> = { mere: 'Mère', pere: 'Père', tuteur: 'Tuteur' };
@@ -42,6 +43,7 @@ const NouvelEleve = z.object({
 export async function routesScolarite(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
   await routesFormulaire(app);
+  await routesVerification(app);
 
   const filtreClasses = async (ctx: Contexte) => classesAccessibles(app.bd, ctx, 'scolarite.eleve.consulter');
 
@@ -520,7 +522,8 @@ export async function routesScolarite(app: FastifyInstance) {
       SELECT r.nom, er.lien, r.telephone, er.payeur FROM scolarite.eleve_responsable er JOIN scolarite.responsable r ON r.id = er.responsable_id
        WHERE er.eleve_id = ${d['eleve_id']} ORDER BY er.payeur DESC, er.ordre`);
     const blocs = await renseignementsLisibles((q) => app.bd.lire(q), ctx.etablissementId, (d['renseignements'] ?? {}) as unknown as Record<string, unknown>);
-    const pdf = await pdfFicheInscription({ ...d, telephoneConnexion: formatTelephone(d['identifiant'] ?? ''), motDePasse: req.body.motDePasse ?? null,
+    const h = await habillageImpression(app.bd, ctx.etablissementId, 'fiche');
+    const pdf = await pdfFicheInscription({ ...d, gabarit: h.gabarit, logo: h.logo, telephoneConnexion: formatTelephone(d['identifiant'] ?? ''), motDePasse: req.body.motDePasse ?? null,
       responsables: responsables.map((x) => ({ nom: x.nom, lien: LIENS[x.lien] ?? x.lien, telephone: formatTelephone(x.telephone), payeur: x.payeur })),
       blocs: blocs.map((b) => ({ libelle: b.libelle, lignes: b.lignes.map((l) => ({ libelle: l.libelle, valeur: l.valeur })) })) } as never);
     return rep.type('application/pdf').header('content-disposition', `inline; filename="fiche-${d['matricule']}.pdf"`).send(Buffer.from(pdf));
@@ -676,13 +679,19 @@ export async function routesScolarite(app: FastifyInstance) {
         .send(versCsv(eleves.map((e, i) => ({ 'N°': i + 1, Matricule: e.matricule, Nom: e.nom, Prénoms: e.prenoms, Sexe: e.sexe, 'Né(e) le': e.naissance }))));
     }
     if (req.query.type === 'cartes') {
-      const photos = await app.bd.lire<{ matricule: string; photo: Buffer | null }>(sql`
-        SELECT e.matricule, e.photo FROM scolarite.inscription i JOIN scolarite.eleve e ON e.id = i.eleve_id
+      const photos = await app.bd.lire<{ matricule: string; photo: Buffer | null; inscription_id: string }>(sql`
+        SELECT e.matricule, e.photo, i.id AS inscription_id FROM scolarite.inscription i JOIN scolarite.eleve e ON e.id = i.eleve_id
          WHERE i.classe_id = ${req.params.id} AND i.statut IN ('attente', 'validee')`);
-      const logo = await app.bd.lireUn<{ logo: Buffer | null }>(sql`SELECT logo FROM structure.etablissement WHERE id = ${ctx.etablissementId}`);
-      const parMatricule = new Map(photos.map((x) => [x.matricule, x.photo]));
-      const cartes = await pdfCartesScolaires({ etablissement: etab!, classe: c.nom, annee: c.annee, logo: logo?.logo ?? null,
-        eleves: eleves.map((e) => ({ ...e, photo: parMatricule.get(e.matricule) ?? null })) });
+      const h = await habillageImpression(app.bd, ctx.etablissementId, 'carte');
+      // Un code de vérification par carte (inscription), réutilisé d'une impression à l'autre (D-44).
+      const codes = await app.bd.transaction(ctx.compteId, (tx) => codesVerification(tx, ctx.etablissementId, 'carte', photos.map((x) => x.inscription_id)));
+      const base = baseVerification(h.adresse, req);
+      const parMatricule = new Map(photos.map((x) => [x.matricule, x]));
+      const cartes = await pdfCartesScolaires({ etablissement: etab!, classe: c.nom, annee: c.annee, logo: h.logo, gabarit: h.gabarit,
+        eleves: eleves.map((e) => {
+          const x = parMatricule.get(e.matricule);
+          return { ...e, photo: x?.photo ?? null, verification: x ? `${base}/verifier/${codes.get(x.inscription_id)}` : undefined };
+        }) });
       return rep.type('application/pdf').header('content-disposition', `inline; filename="cartes-${c.nom}.pdf"`).send(Buffer.from(cartes));
     }
     const pdf = req.query.type === 'liste'

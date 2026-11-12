@@ -1,7 +1,8 @@
 // Documents imprimés (conception § 9.2) : un objet de données, deux rendus pour le reçu
 // (PDF 240 × 140 mm et ESC/P 80 colonnes en CP850), PDF A4 pour les autres documents (décision D-18).
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
+import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from 'pdf-lib';
 import iconv from 'iconv-lite';
+import QRCode from 'qrcode';
 
 const MM = 72 / 25.4;
 const ENCRE = rgb(0.043, 0.122, 0.294); // #0B1F4B
@@ -98,6 +99,114 @@ function enteteA4(page: PDFPage, p: Polices, e: Etablissement, titre: string, so
   page.drawLine({ start: { x: 40, y: height - 88 }, end: { x: width - 40, y: height - 88 }, thickness: 0.8, color: TRAIT });
   texteCentre(page, titre, width / 2, height - 112, p.gras, 15);
   if (sousTitre) texteCentre(page, sousTitre, width / 2, height - 130, p.normal, 10, DOUX);
+}
+
+// ---------------------------------------------------------------- modèles d'impression (D-44) : trois habillages, logo, QR code
+
+/** Classique : bandeau bleu encre ou filets, logo à gauche ; Bandeau : bandeau bleu savoir de la charte ; Épuré : noir et blanc. */
+export type Gabarit = 'classique' | 'bandeau' | 'epure';
+export const GABARITS: [Gabarit, string][] = [['classique', 'Classique'], ['bandeau', 'Bandeau'], ['epure', 'Épuré']];
+const SAVOIR = rgb(0.114, 0.306, 0.847); // #1D4ED8
+const CRAIE = rgb(0.98, 0.8, 0.082);     // #FACC15 : filet sous le bandeau, jamais un aplat
+const NOIR = rgb(0.08, 0.08, 0.08);
+const BLANC = rgb(1, 1, 1);
+
+async function imageDe(doc: PDFDocument, b: Uint8Array | null | undefined): Promise<PDFImage | null> {
+  if (!b || b.length < 8) return null;
+  try { return b[0] === 0x89 ? await doc.embedPng(b) : await doc.embedJpg(b); } catch { return null; }
+}
+/** Image dans un cadre, sans la déformer. */
+function dansCadre(page: PDFPage, img: PDFImage, x: number, y: number, l: number, h: number) {
+  const r = Math.min(l / img.width, h / img.height);
+  page.drawImage(img, { x: x + (l - img.width * r) / 2, y: y + (h - img.height * r) / 2, width: img.width * r, height: img.height * r });
+}
+const initialesEtab = (e: Etablissement) => e.nom_fr.split(/\s+/).filter((m) => m.length > 2 && m[0] === m[0]!.toUpperCase()).slice(0, 3).map((m) => m[0]).join('') || e.nom_fr.slice(0, 2).toUpperCase();
+
+/**
+ * QR code de vérification (correction H : jusqu'à 30 % du code peut être caché), logo de l'établissement au centre.
+ * Le lien mène à la page « Vérifier » de l'établissement.
+ */
+function dessinerQr(page: PDFPage, p: Polices, lien: string, x: number, y: number, taille: number, logo: PDFImage | null, initiales: string, couleur = ENCRE) {
+  const qr = QRCode.create(lien, { errorCorrectionLevel: 'H' });
+  const n = qr.modules.size;
+  const m = taille / (n + 2);
+  page.drawRectangle({ x, y, width: taille, height: taille, color: BLANC });
+  for (let ligne = 0; ligne < n; ligne++) {
+    let c = 0;
+    while (c < n) {
+      if (!qr.modules.get(ligne, c)) { c++; continue; }
+      let k = c;
+      while (k + 1 < n && qr.modules.get(ligne, k + 1)) k++;
+      page.drawRectangle({ x: x + (c + 1) * m, y: y + taille - (ligne + 2) * m, width: (k - c + 1) * m, height: m, color: couleur });
+      c = k + 1;
+    }
+  }
+  const cs = taille * 0.24;
+  const cx = x + (taille - cs) / 2, cy = y + (taille - cs) / 2;
+  page.drawRectangle({ x: cx - m, y: cy - m, width: cs + 2 * m, height: cs + 2 * m, color: BLANC });
+  if (logo) dansCadre(page, logo, cx, cy, cs, cs);
+  else texteCentre(page, initiales, x + taille / 2, y + taille / 2 - cs * 0.17, p.gras, cs * 0.42, couleur);
+}
+
+export interface Habillage {
+  gabarit?: Gabarit;
+  /** Logo de l'établissement (PNG ou JPEG), sur les bulletins, les cartes et les fiches. */
+  logo?: Uint8Array | null;
+}
+
+/** En-tête A4 selon le modèle choisi ; renvoie l'ordonnée sous l'en-tête. */
+function enteteDocument(page: PDFPage, p: Polices, e: Etablissement, titre: string, sousTitre: string | undefined, g: Gabarit, logo: PDFImage | null, type?: TypeModele): number {
+  const { width, height } = page.getSize();
+  const m = type ? e.modeles?.[type] : undefined;
+  const coord = [e.ville_bp, e.telephone ? `Tél. ${e.telephone}` : null].filter(Boolean).join(' · ');
+  if (type) mentionsModele(page, p, m, 40, 26, width - 80);
+  if (g === 'bandeau') {
+    const hb = 96;
+    page.drawRectangle({ x: 0, y: height - hb, width, height: hb, color: SAVOIR });
+    page.drawRectangle({ x: 0, y: height - hb - 3, width, height: 3, color: CRAIE });
+    let xt = 40;
+    if (logo) {
+      page.drawRectangle({ x: 40, y: height - hb + 16, width: 64, height: 64, color: BLANC });
+      dansCadre(page, logo, 44, height - hb + 20, 56, 56);
+      xt = 118;
+    }
+    if (m?.fr?.entete?.trim()) texte(page, m.fr.entete.split('\n')[0]!.trim(), xt, height - 26, p.gras, 7, rgb(0.78, 0.84, 1));
+    texte(page, e.nom_fr.toUpperCase(), xt, height - 44, p.gras, 13, BLANC, width - xt - 40);
+    texte(page, e.nom_en, xt, height - 60, p.normal, 10, BLANC, width - xt - 40);
+    if (coord) texte(page, coord, xt, height - 76, p.normal, 8.5, rgb(0.78, 0.84, 1), width - xt - 40);
+    texte(page, titre, 40, height - hb - 32, p.gras, 15);
+    if (sousTitre) texte(page, sousTitre, 40, height - hb - 48, p.normal, 10, DOUX);
+    return height - hb - 70;
+  }
+  if (g === 'epure') {
+    let y = height - 34;
+    if (type) { enteteModele(page, p, m, width / 2, height - 14); y -= 6; }
+    if (logo) { dansCadre(page, logo, width / 2 - 20, y - 40, 40, 40); y -= 48; }
+    texteCentre(page, e.nom_fr.toUpperCase(), width / 2, y - 10, p.gras, 12, NOIR);
+    texteCentre(page, [e.nom_en, coord].filter(Boolean).join(' · '), width / 2, y - 24, p.normal, 8.5, NOIR);
+    page.drawLine({ start: { x: 40, y: y - 34 }, end: { x: width - 40, y: y - 34 }, thickness: 0.6, color: NOIR });
+    texte(page, titre, 40, y - 56, p.gras, 13, NOIR);
+    if (sousTitre) texteDroite(page, sousTitre, width - 40, y - 56, p.normal, 9.5, NOIR);
+    return y - 80;
+  }
+  // Classique : l'en-tête d'origine, logo à gauche.
+  if (type) enteteModele(page, p, m, width / 2, height - 14);
+  if (logo) dansCadre(page, logo, 40, height - 92, 56, 56);
+  texteCentre(page, `${e.nom_fr.toUpperCase()} · ${e.nom_en.toUpperCase()}`, width / 2, height - 50, p.gras, 13);
+  if (coord) texteCentre(page, coord, width / 2, height - 66, p.normal, 9, DOUX);
+  if (e.devise) texteCentre(page, e.devise, width / 2, height - 78, p.normal, 8, DOUX);
+  page.drawLine({ start: { x: 40, y: height - 98 }, end: { x: width - 40, y: height - 98 }, thickness: 0.8, color: TRAIT });
+  texteCentre(page, titre, width / 2, height - 122, p.gras, 15);
+  if (sousTitre) texteCentre(page, sousTitre, width / 2, height - 140, p.normal, 10, DOUX);
+  return height - 170;
+}
+
+/** Bloc de vérification en bas de page : QR code, logo au centre, et mention. */
+function blocVerification(page: PDFPage, p: Polices, lien: string | undefined, x: number, y: number, logo: PDFImage | null, e: Etablissement, g: Gabarit) {
+  if (!lien) return;
+  dessinerQr(page, p, lien, x, y, 70, logo, initialesEtab(e), g === 'epure' ? NOIR : ENCRE);
+  texteCentre(page, 'Vérifier ce document', x + 35, y - 10, p.gras, 7, g === 'epure' ? NOIR : DOUX);
+  texteCentre(page, 'Scannez le code', x + 35, y - 19, p.normal, 6.5, DOUX);
 }
 
 interface Colonne { titre: string; largeur: number; droite?: boolean }
@@ -288,16 +397,16 @@ export async function pdfCertificat(d: { etablissement: Etablissement; classe: s
 
 // ---------------------------------------------------------------- cartes scolaires (maquette Classes, « Cartes scolaires »)
 
-export interface CarteEleve extends EleveListe { photo: Uint8Array | null }
+export interface CarteEleve extends EleveListe { photo: Uint8Array | null; /** Lien de vérification (QR code). */ verification?: string }
 
 /** Cartes au format carte bancaire (85,6 × 54 mm), dix par page A4, bordées pour la découpe. */
-export async function pdfCartesScolaires(d: { etablissement: Etablissement; classe: string; annee: string; logo: Uint8Array | null; eleves: CarteEleve[] }) {
+export async function pdfCartesScolaires(d: { etablissement: Etablissement; classe: string; annee: string; logo: Uint8Array | null; eleves: CarteEleve[]; gabarit?: Gabarit }) {
   const { doc, polices: p } = await nouveauDocument(`Cartes scolaires ${d.classe}`);
-  const image = async (b: Uint8Array | null) => {
-    if (!b || b.length < 8) return null;
-    try { return b[0] === 0x89 ? await doc.embedPng(b) : await doc.embedJpg(b); } catch { return null; }
-  };
+  const image = (b: Uint8Array | null) => imageDe(doc, b);
   const logo = await image(d.logo);
+  const g = d.gabarit ?? 'classique';
+  const fondBande = g === 'bandeau' ? SAVOIR : g === 'epure' ? BLANC : ENCRE;
+  const texteBande = g === 'epure' ? NOIR : rgb(1, 1, 1);
   const L = 85.6 * MM, H = 54 * MM, colonnes = 2, rangees = 5;
   const mx = (595 - colonnes * L) / (colonnes + 1), my = (842 - rangees * H) / (rangees + 1);
   let page = doc.addPage([595, 842]);
@@ -307,20 +416,21 @@ export async function pdfCartesScolaires(d: { etablissement: Etablissement; clas
     if (i > 0 && k === 0) page = doc.addPage([595, 842]);
     const x = mx + (k % colonnes) * (L + mx);
     const y = 842 - my - (Math.floor(k / colonnes) + 1) * H - Math.floor(k / colonnes) * my;
-    page.drawRectangle({ x, y, width: L, height: H, borderColor: TRAIT, borderWidth: 0.8 });
-    // Bandeau : établissement, en français et en anglais.
+    page.drawRectangle({ x, y, width: L, height: H, borderColor: g === 'epure' ? NOIR : TRAIT, borderWidth: 0.8 });
+    // Bandeau : établissement, en français et en anglais (modèle choisi : bleu encre, bleu savoir et filet jaune, ou noir et blanc).
     const bande = 12 * MM;
-    page.drawRectangle({ x, y: y + H - bande, width: L, height: bande, color: ENCRE });
+    page.drawRectangle({ x, y: y + H - bande, width: L, height: bande, color: fondBande });
+    if (g === 'bandeau') page.drawRectangle({ x, y: y + H - bande - 0.8 * MM, width: L, height: 0.8 * MM, color: CRAIE });
+    if (g === 'epure') page.drawLine({ start: { x: x + 2 * MM, y: y + H - bande }, end: { x: x + L - 2 * MM, y: y + H - bande }, thickness: 0.5, color: NOIR });
     let xt = x + 3 * MM;
     if (logo) {
       const h = 9 * MM, w = Math.min(14 * MM, (logo.width / logo.height) * h);
       page.drawImage(logo, { x: x + 2 * MM, y: y + H - bande + 1.5 * MM, width: w, height: h });
       xt = x + 3.5 * MM + w;
     }
-    const blanc = rgb(1, 1, 1);
-    texte(page, d.etablissement.nom_fr.toUpperCase(), xt, y + H - 5 * MM, p.gras, 6.6, blanc, x + L - xt - 2 * MM);
-    texte(page, d.etablissement.nom_en, xt, y + H - 8.6 * MM, p.normal, 6, blanc, x + L - xt - 2 * MM);
-    texte(page, 'CARTE SCOLAIRE · SCHOOL ID CARD', x + 3 * MM, y + H - bande - 4.2 * MM, p.gras, 6.5, rgb(0.114, 0.306, 0.847));
+    texte(page, d.etablissement.nom_fr.toUpperCase(), xt, y + H - 5 * MM, p.gras, 6.6, texteBande, x + L - xt - 2 * MM);
+    texte(page, d.etablissement.nom_en, xt, y + H - 8.6 * MM, p.normal, 6, texteBande, x + L - xt - 2 * MM);
+    texte(page, 'CARTE SCOLAIRE · SCHOOL ID CARD', x + 3 * MM, y + H - bande - 4.2 * MM, p.gras, 6.5, g === 'epure' ? NOIR : SAVOIR);
     texteDroite(page, d.annee, x + L - 3 * MM, y + H - bande - 4.2 * MM, p.gras, 6.5);
     // Photo d'identité, ou initiales.
     const pw = 21 * MM, ph = 26 * MM, px = x + 3 * MM, py = y + 5 * MM;
@@ -334,8 +444,13 @@ export async function pdfCartesScolaires(d: { etablissement: Etablissement; clas
       page.drawRectangle({ x: px, y: py, width: pw, height: ph, color: rgb(0.945, 0.957, 0.98), borderColor: TRAIT, borderWidth: 0.6 });
       texteCentre(page, `${e.nom.charAt(0)}${e.prenoms.charAt(0)}`.toUpperCase(), px + pw / 2, py + ph / 2 - 5, p.gras, 15, DOUX);
     }
-    // Identité.
-    const tx = px + pw + 3.5 * MM, tl = x + L - tx - 3 * MM;
+    // Identité, et QR code de vérification à droite (logo au centre).
+    const qr = e.verification ? 15 * MM : 0;
+    const tx = px + pw + 3.5 * MM, tl = x + L - tx - 3 * MM - (qr ? qr + 2 * MM : 0);
+    if (e.verification) {
+      dessinerQr(page, p, e.verification, x + L - 3 * MM - qr, py + 2 * MM, qr, logo, initialesEtab(d.etablissement), g === 'epure' ? NOIR : ENCRE);
+      texteCentre(page, 'Vérifier · Verify', x + L - 3 * MM - qr / 2, py, p.normal, 4.6, DOUX);
+    }
     let ty = py + ph - 3.2 * MM;
     texte(page, e.nom.toUpperCase(), tx, ty, p.gras, 9.5, ENCRE, tl); ty -= 3.6 * MM;
     texte(page, e.prenoms, tx, ty, p.normal, 8.5, ENCRE, tl); ty -= 4.4 * MM;
@@ -359,12 +474,12 @@ export interface FicheInscriptionDetail {
 }
 
 /** Fiche d'inscription détaillée : identité, classe, responsables, renseignements du formulaire, accès à l'espace parents. Aucun montant. */
-export async function pdfFicheInscription(d: Record<string, string> & { motDePasse: string | null; telephoneConnexion: string } & FicheInscriptionDetail) {
+export async function pdfFicheInscription(d: Record<string, string> & { motDePasse: string | null; telephoneConnexion: string } & FicheInscriptionDetail & Habillage) {
   const { doc, polices: p } = await nouveauDocument(`Fiche d'inscription ${d['matricule']}`);
   let page = doc.addPage([595, 842]);
-  enteteA4(page, p, { nom_fr: d['nom_fr']!, nom_en: d['nom_en']!, ville_bp: d['ville_bp'] || null, telephone: d['telephone'] || null },
-    "FICHE D'INSCRIPTION", `Registration form · ${d['annee']}`);
-  let y = 842 - 170;
+  const logo = await imageDe(doc, d.logo);
+  let y = enteteDocument(page, p, { nom_fr: d['nom_fr']!, nom_en: d['nom_en']!, ville_bp: d['ville_bp'] || null, telephone: d['telephone'] || null },
+    "FICHE D'INSCRIPTION", `Registration form · ${d['annee']}`, d.gabarit ?? 'classique', logo);
   const place = (h: number) => { if (y - h < 60) { page = doc.addPage([595, 842]); y = 842 - 60; } };
   const section = (titre: string) => {
     place(40);
@@ -407,6 +522,8 @@ export async function pdfFicheInscription(d: Record<string, string> & { motDePas
 // ---------------------------------------------------------------- bulletins et procès-verbal (CU-21, CU-22)
 
 export interface BulletinPdf {
+  /** Lien de vérification (QR code) de cette version du bulletin. */
+  verification?: string;
   etablissement: string; periodeFr: string; periodeEn: string; annee: string; version: number; statut: string; modele?: ModeleDoc;
   eleve: string; matricule: string; classe: string; effectif: number; naissance: string;
   matieres: { libelle: string; coefficient: number; moyenne: number | null; points: number | null; moyenneClasse: number | null; appreciation: string | null }[];
@@ -416,16 +533,17 @@ export interface BulletinPdf {
 
 const note = (n: number | null) => (n === null ? '–' : n.toFixed(2).replace('.', ','));
 
-export async function pdfBulletins(bulletins: BulletinPdf[]): Promise<Uint8Array> {
+export async function pdfBulletins(bulletins: BulletinPdf[], h: Habillage & { etablissement?: Etablissement } = {}): Promise<Uint8Array> {
   const { doc, polices: p } = await nouveauDocument('Bulletins');
+  const logo = await imageDe(doc, h.logo);
+  const g = h.gabarit ?? 'classique';
   for (const b of bulletins) {
     const page = doc.addPage([595, 842]);
-    enteteModele(page, p, b.modele, 297, 828);
-    mentionsModele(page, p, b.modele, 50, 26, 495);
-    texteCentre(page, b.etablissement.toUpperCase(), 297, 790, p.gras, 13);
-    texteCentre(page, `Bulletin du ${b.periodeFr} · ${b.periodeEn} report · ${b.annee}`, 297, 772, p.normal, 10, DOUX);
-    texteDroite(page, `${b.statut === 'publie' ? 'Publié' : 'Brouillon'} · version ${b.version}`, 545, 752, p.normal, 8.5, DOUX);
-    let y = 730;
+    const e: Etablissement = h.etablissement ?? { nom_fr: b.etablissement, nom_en: '', ville_bp: null, telephone: null };
+    let y = enteteDocument(page, p, { ...e, modeles: { ...(e.modeles ?? {}), bulletin: b.modele ?? e.modeles?.bulletin } },
+      g === 'classique' ? 'BULLETIN DE NOTES' : 'Bulletin de notes', `${b.periodeFr} · ${b.periodeEn} report · ${b.annee}`, g, logo, 'bulletin');
+    texteDroite(page, `${b.statut === 'publie' ? 'Publié' : 'Brouillon'} · version ${b.version}`, 545, y + 14, p.normal, 8.5, DOUX);
+    y -= 4;
     for (const [k, v] of [['Élève', b.eleve], ['Matricule', b.matricule], ['Classe', `${b.classe} · ${b.effectif} élèves`], ['Né(e) le', b.naissance]] as [string, string][]) {
       texte(page, k, 50, y, p.normal, 9.5, DOUX); texte(page, v, 140, y, p.gras, 9.5); y -= 14;
     }
@@ -444,7 +562,8 @@ export async function pdfBulletins(bulletins: BulletinPdf[]): Promise<Uint8Array
       texte(page, 'Appréciation générale', 50, y, p.normal, 10, DOUX); y -= 15;
       for (const l of lignesDe(b.appreciationGenerale, p.normal, 10, 495)) { texte(page, l, 50, y, p.normal, 10); y -= 14; }
     }
-    for (const [i, s] of ["L'instituteur principal", 'Le directeur · cachet', 'Le parent'].entries()) texte(page, s, 50 + i * 175, 90, p.normal, 9, DOUX);
+    for (const [i, s] of ["L'instituteur principal", 'Le directeur · cachet', 'Le parent'].entries()) texte(page, s, 50 + i * (b.verification ? 140 : 175), 90, p.normal, 9, DOUX);
+    blocVerification(page, p, b.verification, 475, 70, logo, e, g);
   }
   if (!bulletins.length) doc.addPage([595, 842]);
   return doc.save();

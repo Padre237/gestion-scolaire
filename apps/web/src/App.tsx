@@ -28,7 +28,9 @@ function Garde({ children }: { children: ReactNode }) {
     return <Navigate to="/connexion" replace />;
   }
   // Page de connexion de l'autre espace (parent ou instituteur) : toujours accessible, la nouvelle connexion remplace la session ouverte.
-  if (moi.famille ? p === '/instituteur/connexion' : p === '/parent/connexion') return <>{children}</>;
+  const instituteur = moi.role('instituteur_principal') || moi.role('instituteur_matiere');
+  if (p === '/parent/connexion' && !moi.famille) return <>{children}</>;
+  if (p === '/instituteur/connexion' && !instituteur) return <>{children}</>;
   // RG-35 : le compte famille n'ouvre que l'application du parent.
   if (moi.famille) return p.startsWith('/parent') && p !== '/parent/connexion' ? <>{children}</> : <Navigate to="/parent/accueil" replace />;
   if (p === '/' || p === '/connexion') return <Navigate to={accueilDe(moi)} replace />;

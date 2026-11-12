@@ -1,6 +1,6 @@
-// Maquette Etablissement : identité et coordonnées, logo, cachet et signature, années scolaires, périodes d'évaluation,
-// cycles, niveaux et classes, numérotation des documents, modèles de documents.
-import { useState, type CSSProperties } from 'react';
+// Configuration de l'établissement, en assistant par rubriques (lot 1, D-40) : identité et logo, année scolaire et périodes,
+// sections et classes, documents. Une rubrique s'ouvre quand les champs obligatoires des précédentes sont remplis.
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ErreurApi, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
@@ -8,7 +8,7 @@ import { useMoi, useSession } from '../core/session.tsx';
 import { choisirFichier } from '../core/documents.ts';
 import { jjmmaaaa, pluriel, versEntier, versIso } from '../core/format.ts';
 import {
-  agir, Bascules, Bouton, Cel2, Champ, Chargement, Colonnes, confirmer, Doux, Erreur, Etiquette, Grille, LigneListe, Liste, Note,
+  agir, Bascules, Bouton, Cel2, Champ, Chargement, confirmer, Doux, Erreur, Etiquette, Grille, Icone, LigneListe, Liste, Note,
   ouvrirFormulaire, Panneau, Pastille, PiedFenetre, signaler, Tableau, TitrePanneau, useDonnees, useRaccourci, type Ton,
 } from '../core/ui.tsx';
 
@@ -113,6 +113,8 @@ function PanneauIdentite({ identite, modifiable, apres }: { identite: Identite; 
     const e: Record<string, string> = {};
     if (v.nomFr.trim().length < 2) e['nomFr'] = 'Nom requis.';
     if (v.nomEn.trim().length < 2) e['nomEn'] = 'Name required.';
+    if (v.villeBp.trim().length < 2) e['villeBp'] = 'Ville requise.';
+    if (v.telephone.replace(/\D/g, '').length < 8) e['telephone'] = 'Téléphone requis.';
     const seuil = v.seuil.trim() ? versEntier(v.seuil) : null;
     if (v.seuil.trim() && (seuil === null || seuil < 0)) e['seuil'] = 'Montant entier en FCFA.';
     setErreurs(e);
@@ -140,15 +142,15 @@ function PanneauIdentite({ identite, modifiable, apres }: { identite: Identite; 
   );
   return (
     <Panneau>
-      <TitrePanneau titre="Identité" action={modifiable && <span className="pleine-mobile" style={{ display: 'inline-flex' }}><Bouton variante="principal" pleine touches={['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer</Bouton></span>} />
+      <TitrePanneau titre="Identité" sous="* champ obligatoire" action={modifiable && <span className="pleine-mobile" style={{ display: 'inline-flex' }}><Bouton variante="principal" pleine touches={['Ctrl', 'S']} charge={charge} onClick={enregistrer}>Enregistrer</Bouton></span>} />
       {Object.keys(erreurs).length > 0 && <span role="alert" style={INVISIBLE}>{Object.values(erreurs).join(' ')}</span>}
       {/* Une seule colonne sur téléphone (.pile-mobile), grille souple ailleurs. */}
       <div className="grille pile-mobile" style={{ ['--min' as string]: '240px', gap: 14 }}>
-        {champ('nomFr', 'Nom (français)')}
-        {champ('nomEn', 'Name (English)')}
+        {champ('nomFr', 'Nom (français) *')}
+        {champ('nomEn', 'Name (English) *')}
+        {champ('villeBp', 'Ville et boîte postale *', 'Ville · BP')}
+        {champ('telephone', 'Téléphone *')}
         {champ('devise', 'Devise', 'Devise de l’établissement')}
-        {champ('villeBp', 'Ville et boîte postale', 'Ville · BP')}
-        {champ('telephone', 'Téléphone')}
         {champ('seuil', 'Réductions sans validation jusqu’à (FCFA)')}
       </div>
       <div className="grille pile-mobile" style={{ ['--min' as string]: '180px', gap: 14 }}>
@@ -288,47 +290,55 @@ function FenetreCycle({ fermer, existants }: { fermer: (ok?: boolean) => void; e
   );
 }
 
+/** Nom que l'application attribuera (même règle que le serveur) : « CM2 », puis « CM2 A » et « CM2 B », et ainsi de suite. */
+function nomAttribue(n: Niveau, existants: string[]): { nom: string; renomme: string | null } {
+  if (existants.length === 0) return { nom: n.code, renomme: null };
+  const seule = existants.length === 1 && existants[0] === n.code;
+  const pris = new Set(seule ? [`${n.code} A`] : existants);
+  const lettre = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').find((l) => !pris.has(`${n.code} ${l}`)) ?? String(existants.length + 1);
+  return { nom: `${n.code} ${lettre}`, renomme: seule ? `${n.code} A` : null };
+}
+
 function FenetreClasse({ fermer, s }: { fermer: (ok?: boolean) => void; s: Structure }) {
   const annees = s.annees.filter((a) => a.statut !== 'cloturee');
-  const optionsNiveaux: [string, string][] = s.cycles.flatMap((c) => s.niveaux.filter((n) => n.cycleId === c.id).sort((a, b) => a.rang - b.rang)
-    .map((n): [string, string] => [n.id, `${libelleCycle(c)} · ${n.libelle}`]));
   const [anneeId, setAnneeId] = useState<string | null>(annees.find((a) => a.statut === 'ouverte')?.id ?? annees[0]?.id ?? null);
-  const [niveauId, setNiveauId] = useState<string | null>(optionsNiveaux[0]?.[0] ?? null);
-  // Les classes connues ici sont celles de l'année affichée ; pour une autre année, la première lettre est proposée.
-  const nomPropose = (id: string | null, annee: string | null) => {
-    const n = s.niveaux.find((x) => x.id === id);
-    if (!n) return '';
-    const prises = new Set(annee === s.anneePeriodes ? s.cycles.flatMap((c) => c.classes).map((k) => k.nom) : []);
-    const lettre = 'ABCDEFGHIJ'.split('').find((l) => !prises.has(`${n.code} ${l}`)) ?? 'A';
-    return /^(Class|Form|Nursery)\b/.test(n.code) ? n.code : `${n.code} ${lettre}`;
-  };
-  const [nom, setNom] = useState(nomPropose(niveauId, anneeId));
+  const [section, setSection] = useState<SousSysteme>('francophone');
+  const niveauxSection = s.cycles.filter((c) => c.sousSysteme === section)
+    .flatMap((c) => s.niveaux.filter((n) => n.cycleId === c.id).sort((a, b) => a.rang - b.rang));
+  const [niveauId, setNiveauId] = useState<string | null>(niveauxSection[0]?.id ?? null);
   const [effectif, setEffectif] = useState('40');
   const [erreur, setErreur] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
+  const niveau = s.niveaux.find((n) => n.id === niveauId);
+  // Les classes connues ici sont celles de l'année affichée à l'écran.
+  const existants = anneeId === s.anneePeriodes ? s.cycles.flatMap((c) => c.classes).filter((k) => k.niveauId === niveauId).map((k) => k.nom) : null;
+  const apercu = niveau && existants ? nomAttribue(niveau, existants) : null;
   const valider = async () => {
     const max = versEntier(effectif);
     if (!niveauId || !anneeId) return setErreur('Choisissez l’année et le niveau.');
-    if (!nom.trim()) return setErreur('Nom de la classe requis.');
     if (max === null || max < 1 || max > 200) return setErreur('Effectif maximal entre 1 et 200.');
     setCharge(true);
     try {
-      await api.post('/structure/classes', { niveauId, nom: nom.trim(), effectifMax: max, anneeId });
+      await api.post('/structure/classes', { niveauId, effectifMax: max, anneeId });
       fermer(true);
     } catch (e) { setErreur(erreurDe(e)); setCharge(false); }
   };
-  if (!optionsNiveaux.length) {
-    return <><Note ton="attention">Ajoutez d’abord un cycle : ses niveaux permettent de créer les classes.</Note><div className="pied"><Bouton onClick={() => fermer()}>Fermer</Bouton></div></>;
+  if (!s.niveaux.length) {
+    return <><Note ton="attention">Aucune section n’est installée : ajoutez d’abord un cycle.</Note><div className="pied"><Bouton onClick={() => fermer()}>Fermer</Bouton></div></>;
   }
   return (
     <>
-      <Liste libelle="Année scolaire" value={anneeId} options={annees.map((a): [string, string] => [a.id, `${a.libelle} · ${STATUT_ANNEE[a.statut][0].toLowerCase()}`])}
-        onChange={(x) => { setAnneeId(x); setNom(nomPropose(niveauId, x)); }} />
-      <Liste libelle="Niveau" value={niveauId} options={optionsNiveaux} onChange={(x) => { setNiveauId(x); setNom(nomPropose(x, anneeId)); }} />
-      <Grille min={160} ecart={12}>
-        <Champ libelle="Nom de la classe" value={nom} onChange={setNom} />
-        <Champ libelle="Effectif maximal" inputMode="numeric" value={effectif} onChange={setEffectif} droite />
-      </Grille>
+      <Liste libelle="Année scolaire" value={anneeId} options={annees.map((a): [string, string] => [a.id, `${a.libelle} · ${STATUT_ANNEE[a.statut][0].toLowerCase()}`])} onChange={setAnneeId} />
+      <div className="champ-groupe"><span className="libelle">Section</span>
+        <Bascules options={SOUS_SYSTEMES} valeur={section} onChange={(x) => {
+          setSection(x);
+          const premier = s.cycles.filter((c) => c.sousSysteme === x).flatMap((c) => s.niveaux.filter((n) => n.cycleId === c.id).sort((a, b) => a.rang - b.rang))[0];
+          setNiveauId(premier?.id ?? null);
+        }} />
+      </div>
+      <Liste libelle="Niveau" value={niveauId} options={niveauxSection.map((n): [string, string] => [n.id, n.code === n.libelle ? n.code : `${n.code} · ${n.libelle}`])} onChange={setNiveauId} />
+      <Champ libelle="Effectif maximal" inputMode="numeric" value={effectif} onChange={setEffectif} droite />
+      {apercu && <Note ton="accent">La nouvelle classe s’appellera <b>{apercu.nom}</b>{apercu.renomme ? <> ; la classe {niveau!.code} devient <b>{apercu.renomme}</b></> : ''}.</Note>}
       {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Ajouter la classe" onAction={valider} charge={charge} />
     </>
@@ -336,27 +346,22 @@ function FenetreClasse({ fermer, s }: { fermer: (ok?: boolean) => void; s: Struc
 }
 
 function FenetreModifierClasse({ fermer, classe }: { fermer: (ok?: boolean) => void; classe: ClasseCycle }) {
-  const [nom, setNom] = useState(classe.nom);
   const [effectif, setEffectif] = useState(String(classe.effectifMax));
   const [erreur, setErreur] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
   const valider = async () => {
     const max = versEntier(effectif);
-    if (!nom.trim()) return setErreur('Nom de la classe requis.');
     if (max === null || max < 1 || max > 200) return setErreur('Effectif maximal entre 1 et 200.');
     setCharge(true);
     try {
-      await api.patch(`/structure/classes/${classe.id}`, { nom: nom.trim(), effectifMax: max });
+      await api.patch(`/structure/classes/${classe.id}`, { effectifMax: max });
       fermer(true);
     } catch (e) { setErreur(erreurDe(e)); setCharge(false); }
   };
   return (
     <>
       <Doux>{pluriel(classe.effectif, 'élève inscrit', 'élèves inscrits')} cette année.</Doux>
-      <Grille min={160} ecart={12}>
-        <Champ libelle="Nom de la classe" value={nom} onChange={setNom} autoFocus />
-        <Champ libelle="Effectif maximal" inputMode="numeric" value={effectif} onChange={setEffectif} droite />
-      </Grille>
+      <Champ libelle="Effectif maximal" inputMode="numeric" value={effectif} onChange={setEffectif} droite autoFocus />
       {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Enregistrer" onAction={valider} charge={charge} />
     </>
@@ -370,6 +375,7 @@ export function EcranEtablissement() {
   const { charger } = useSession();
   const naviguer = useNavigate();
   const st = useDonnees(() => api.get<Structure>('/structure/etablissement'));
+  const [etape, setEtape] = useState<number | null>(null);
   const recharger = () => { void st.recharger(); };
   const s = st.d;
   const contenu = (() => {
@@ -402,11 +408,13 @@ export function EcranEtablissement() {
     const modifierClasse = async (k: ClasseCycle) => {
       if (await ouvrirFormulaire<boolean>(`Modifier · ${k.nom}`, ({ fermer }) => <FenetreModifierClasse fermer={fermer} classe={k} />, 460)) { signaler('Classe enregistrée'); recharger(); }
     };
-    return (
-      <Colonnes colonnes={[
-        { flex: 3, min: 600, enfants: <>
-          <PanneauIdentite key={s.identite.version} identite={s.identite} modifiable={moi.a('structure.etablissement.modifier')} apres={recharger} />
-          <Panneau>
+    // Rubriques de l'assistant : une rubrique est terminée quand ses champs obligatoires sont enregistrés.
+    const id = s.identite;
+    const rubriques: { titre: string; sous: string; faite: boolean; contenu: ReactNode }[] = [
+      { titre: 'Identité', sous: 'Nom, ville, téléphone, logo', faite: !!(id.nomFr && id.nomEn && id.villeBp && (id.telephone ?? '').replace(/\D/g, '').length >= 8),
+        contenu: <PanneauIdentite key={s.identite.version} identite={s.identite} modifiable={moi.a('structure.etablissement.modifier')} apres={recharger} /> },
+      { titre: 'Année scolaire', sous: 'Dates et périodes d’évaluation', faite: s.annees.some((a) => a.statut !== 'cloturee') && s.periodes.length > 0,
+        contenu: <><Panneau>
             <TitrePanneau titre="Années scolaires" action={moi.a('structure.annee.cloturer') && <Bouton variante="lien" onClick={() => naviguer('/parametres/cloture')}>Clôture d'année</Bouton>} />
             <div>
               {s.annees.map((a) => (
@@ -432,10 +440,9 @@ export function EcranEtablissement() {
               vide="Aucune période : elles sont créées avec l’année scolaire."
               lignes={s.periodes.map((p) => [<Cel2 gras haut={p.libelleFr} bas={p.libelleEn} />, jjmmaaaa(p.dateDebut), jjmmaaaa(p.dateFin), p.sequences || '–'])}
             />
-          </Panneau>
-        </> },
-        { flex: 2, min: 380, enfants: <>
-          <Panneau>
+          </Panneau></> },
+      { titre: 'Sections et classes', sous: 'Classes et effectifs', faite: s.cycles.some((c) => c.classes.length > 0),
+        contenu: <Panneau>
             <TitrePanneau titre="Cycles, niveaux et classes" sous={anneePeriodes ? `Classes de ${anneePeriodes.libelle}` : undefined} />
             {s.cycles.map((c) => (
               <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -463,8 +470,9 @@ export function EcranEtablissement() {
               </div>
             )}
             <Doux>Cycles disponibles : maternelle, primaire et secondaire, dans les deux sous-systèmes.</Doux>
-          </Panneau>
-          <Panneau>
+          </Panneau> },
+      { titre: 'Documents', sous: 'Facultatif : numérotation, en-têtes et mentions', faite: true,
+        contenu: <><Panneau>
             <TitrePanneau titre="Numérotation" />
             <Tableau
               colonnes={[{ titre: 'Document et format', mobile: 'entete' }, { titre: 'Prochain numéro', droite: true }]}
@@ -472,9 +480,31 @@ export function EcranEtablissement() {
             />
             <Doux>Numéros attribués sans trou ni doublon, même si deux postes enregistrent en même temps.</Doux>
           </Panneau>
-          <PanneauModeles modifiable={moi.a('core.modele.modifier')} />
-        </> },
-      ]} />
+          <PanneauModeles modifiable={moi.a('core.modele.modifier')} /></> },
+    ];
+    const accessible = (k: number) => rubriques.slice(0, k).every((x) => x.faite);
+    const premiere = rubriques.findIndex((r) => !r.faite);
+    const i = Math.min(etape ?? (premiere < 0 ? 0 : premiere), rubriques.length - 1);
+    const r = rubriques[i]!;
+    return (
+      <>
+        <nav className="etapes" aria-label="Rubriques de la configuration">
+          {rubriques.map((x, k) => (
+            <button key={x.titre} type="button" className={`etape${k === i ? ' actif' : ''}${x.faite ? ' fait' : ''}`} disabled={!accessible(k)}
+              aria-current={k === i ? 'step' : undefined} onClick={() => setEtape(k)}>
+              <span className="etape-numero" aria-hidden="true">{x.faite && k !== i ? <Icone nom="coche" taille={16} /> : k + 1}</span>
+              <span className="etape-texte"><span className="gras">{x.titre}</span>
+                <span className="doux petit">{x.faite ? 'Terminée' : accessible(k) ? 'À compléter' : 'Après la rubrique précédente'}</span></span>
+            </button>
+          ))}
+        </nav>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>{r.contenu}</div>
+        <div className="etapes-pied">
+          {i > 0 && <Bouton onClick={() => setEtape(i - 1)}>Rubrique précédente</Bouton>}
+          <span className="doux petit" style={{ flex: 1, textAlign: 'right' }}>{r.faite ? '' : 'Remplissez et enregistrez les champs obligatoires pour passer à la suite.'}</span>
+          {i < rubriques.length - 1 && <Bouton variante="principal" disabled={!r.faite} onClick={() => { setEtape(i + 1); window.scrollTo({ top: 0 }); }}>Rubrique suivante · {rubriques[i + 1]!.titre}</Bouton>}
+        </div>
+      </>
     );
   })();
   return <Coque module="parametres">{contenu}</Coque>;

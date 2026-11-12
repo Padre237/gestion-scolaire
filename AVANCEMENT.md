@@ -22,3 +22,16 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - Évaluation par compétences (E-26 : aucune règle dans le cahier).
 - Assistant : l'appel au service d'IA reste désactivé (E-37).
 - Contrôle de fidélité image par image (`tools/controle/src/capturer.ts`), à relancer sur l'application React.
+
+## Lots demandés le 12 novembre 2026
+
+- [x] Connexion unique, page de connexion Sekou (D-38, D-39) ; interface du bureau à la charte Sekou (D-39).
+- [x] Lot 1 · configuration par rubriques, sections, classes et matières préinstallées, noms de classe attribués (D-40). Le logo de l'école figure déjà sur les cartes scolaires.
+- [ ] Lot 2 · formulaire d'inscription configurable.
+- [ ] Lot 3 · liste des élèves : fenêtre détail / mise à jour, historique, recherche instantanée.
+- [ ] Lot 4 · modèles d'impression (3 par document), logo sur les bulletins, QR code de vérification.
+- [ ] Lot 5 · tableau de bord personnalisable (6 cartes par utilisateur).
+- [ ] Lot 6 · rôles et droits sur mesure (directeur).
+- [ ] Lot 7 · retrait de l'accès direct à la base dans Données.
+- [ ] Lot 8 · Assistant par OpenRouter (aucune donnée personnelle envoyée).
+- [ ] Lot 9 · application hybride, synchronisation (essai local d'abord).

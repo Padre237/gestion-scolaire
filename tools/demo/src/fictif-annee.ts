@@ -83,10 +83,15 @@ export async function fondation(ctx: Contexte, a: Annee) {
 /** Crée une année (ouverte tout de suite pour la première, en préparation sinon), ses périodes et ses classes. */
 export async function creerAnnee(ctx: Contexte, a: Annee, quand: Date, ouvrir: boolean) {
   const { sec, horloge } = ctx;
-  a.id = (await horloge.a(quand, () => sec.post<{ id: string }>('/structure/annees', { libelle: a.libelle, dateDebut: a.rentree, dateFin: a.fin, ouvrir }))).id;
+  // Première année : classes et matières créées ici ; année suivante : préremplie par l'application (classes et programme repris).
+  a.id = (await horloge.a(quand, () => sec.post<{ id: string }>('/structure/annees', { libelle: a.libelle, dateDebut: a.rentree, dateFin: a.fin, ouvrir, preremplir: !ouvrir }))).id;
   // Trimestres : le premier s'achève début décembre (composition le 30/11, maquette Notes).
   for (const [i, [d, f]] of bornesPeriodes(a).entries()) {
     await ctx.proprio.query('UPDATE structure.periode SET date_debut = $1, date_fin = $2 WHERE annee_id = $3 AND ordre = $4', [d, f, a.id, i + 1]);
+  }
+  if (!ouvrir) {
+    for (const r of (await ctx.proprio.query<{ id: string; nom: string }>('SELECT id, nom FROM structure.classe WHERE annee_id = $1', [a.id])).rows) a.classes[r.nom] = r.id;
+    return;
   }
   await horloge.a(new Date(quand.getTime() + 20 * 60_000), async () => {
     for (const c of CLASSES) a.classes[c.nom] = (await sec.post<{ id: string }>('/structure/classes', { niveauId: ctx.niveaux[c.niveau], nom: c.nom, effectifMax: 40, anneeId: a.id })).id;

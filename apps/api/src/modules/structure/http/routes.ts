@@ -6,6 +6,7 @@ import { sql, ligne, lignes, type Tx } from '../../../core/bd.ts';
 import { ErreurMetier, interdit, introuvable } from '../../../core/erreurs.ts';
 import { exiger } from '../../../core/session.ts';
 import { journaliser } from '../../../core/audit.ts';
+import { emettre } from '../../../core/evenements.ts';
 import { anneeOuverte, cleCompteur, FORMATS, numeroSuivant } from '../index.ts';
 
 const Id = z.object({ id: z.uuid() });
@@ -186,7 +187,9 @@ export async function routesStructure(app: FastifyInstance) {
 
   r.post('/structure/annees', {
     config: { permission: 'structure.annee.gerer' },
-    schema: { tags: ['structure'], body: z.object({ libelle: z.string().regex(/^\d{4}\/\d{4}$/), dateDebut: Date_, dateFin: Date_, ouvrir: z.boolean().default(false) }) },
+    schema: { tags: ['structure'], body: z.object({ libelle: z.string().regex(/^\d{4}\/\d{4}$/), dateDebut: Date_, dateFin: Date_, ouvrir: z.boolean().default(false),
+      /** Classes et programme repris de l'année précédente, ou classes et programme préinstallés pour une première année. */
+      preremplir: z.boolean().default(true) }) },
   }, async (req) => {
     const ctx = exiger(req);
     const b = req.body;
@@ -196,6 +199,20 @@ export async function routesStructure(app: FastifyInstance) {
         INSERT INTO structure.annee_scolaire (etablissement_id, libelle, date_debut, date_fin, statut, cree_par)
         VALUES (${ctx.etablissementId}, ${b.libelle}, ${b.dateDebut}, ${b.dateFin}, 'preparation', ${ctx.compteId}) RETURNING id`);
       await creerPeriodesParDefaut(tx, ctx.etablissementId, a!.id, b.dateDebut, b.dateFin);
+      if (b.preremplir) {
+        const prec = await ligne<{ id: string }>(tx, sql`
+          SELECT id FROM structure.annee_scolaire WHERE etablissement_id = ${ctx.etablissementId} AND id <> ${a!.id} ORDER BY date_debut DESC LIMIT 1`);
+        // Mêmes classes que l'année précédente ; pour une première année, une classe par niveau (« CM2 », « Class 4 »).
+        const copiees = prec ? (await tx.execute(sql`
+          INSERT INTO structure.classe (etablissement_id, annee_id, niveau_id, nom, effectif_max, cree_par)
+          SELECT etablissement_id, ${a!.id}, niveau_id, nom, effectif_max, ${ctx.compteId} FROM structure.classe WHERE annee_id = ${prec.id}`)).rowCount ?? 0 : 0;
+        if (!copiees) {
+          await tx.execute(sql`
+            INSERT INTO structure.classe (etablissement_id, annee_id, niveau_id, nom, effectif_max, cree_par)
+            SELECT etablissement_id, ${a!.id}, id, code, 40, ${ctx.compteId} FROM structure.niveau WHERE etablissement_id = ${ctx.etablissementId}`);
+        }
+        await emettre(tx, ctx, 'annee.creee', { anneeId: a!.id, precedenteId: prec?.id ?? null });
+      }
       await journaliser(tx, ctx, { action: 'Création', objetType: 'Année scolaire', objetLibelle: `Année ${b.libelle}`,
         avant: '–', apres: 'En préparation', ligneId: a!.id, table: 'structure.annee_scolaire' });
       if (b.ouvrir) await ouvrirAnnee(tx, ctx, a!.id);
@@ -259,7 +276,7 @@ export async function routesStructure(app: FastifyInstance) {
 
   r.post('/structure/classes', {
     config: { permission: 'structure.classe.gerer' },
-    schema: { tags: ['structure'], body: z.object({ niveauId: z.uuid(), nom: z.string().trim().min(1).max(40), effectifMax: z.number().int().min(1).max(200), anneeId: z.uuid().optional() }) },
+    schema: { tags: ['structure'], body: z.object({ niveauId: z.uuid(), nom: z.string().trim().min(1).max(40).optional(), effectifMax: z.number().int().min(1).max(200), anneeId: z.uuid().optional() }) },
   }, async (req) => {
     const ctx = exiger(req);
     const b = req.body;
@@ -268,14 +285,24 @@ export async function routesStructure(app: FastifyInstance) {
         SELECT id FROM structure.annee_scolaire WHERE etablissement_id = ${ctx.etablissementId} AND statut IN ('ouverte', 'preparation')
          ORDER BY (statut = 'ouverte') DESC, date_debut LIMIT 1`))?.id;
       if (!annee) throw new ErreurMetier('STR_AUCUNE_ANNEE', 422, 'Créez d\'abord une année scolaire.');
-      const niveau = await ligne(tx, sql`SELECT id FROM structure.niveau WHERE id = ${b.niveauId} AND etablissement_id = ${ctx.etablissementId}`);
+      const niveau = await ligne<{ id: string; code: string }>(tx, sql`SELECT id, code FROM structure.niveau WHERE id = ${b.niveauId} AND etablissement_id = ${ctx.etablissementId}`);
       if (!niveau) throw introuvable('Niveau');
+      // Nom attribué par l'application (lot 1) : « CM2 », puis « CM2 A » et « CM2 B » dès la deuxième classe du niveau, et ainsi de suite.
+      let nom = b.nom;
+      if (!nom) {
+        const autres = await lignes<{ id: string; nom: string }>(tx, sql`
+          SELECT id, nom FROM structure.classe WHERE annee_id = ${annee} AND niveau_id = ${b.niveauId} ORDER BY nom`);
+        const seule = autres.length === 1 && autres[0]!.nom === niveau.code ? autres[0]! : null;
+        if (seule) await tx.execute(sql`UPDATE structure.classe SET nom = ${`${niveau.code} A`} WHERE id = ${seule.id}`);
+        const pris = new Set(autres.map((k) => (k === seule ? `${niveau.code} A` : k.nom)));
+        nom = autres.length === 0 ? niveau.code : `${niveau.code} ${'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').find((l) => !pris.has(`${niveau.code} ${l}`)) ?? autres.length + 1}`;
+      }
       const c = await ligne<{ id: string }>(tx, sql`
         INSERT INTO structure.classe (etablissement_id, annee_id, niveau_id, nom, effectif_max, cree_par)
-        VALUES (${ctx.etablissementId}, ${annee}, ${b.niveauId}, ${b.nom}, ${b.effectifMax}, ${ctx.compteId}) RETURNING id`);
-      await journaliser(tx, ctx, { action: 'Création', objetType: 'Classe', objetLibelle: `Classe · ${b.nom}`,
+        VALUES (${ctx.etablissementId}, ${annee}, ${b.niveauId}, ${nom}, ${b.effectifMax}, ${ctx.compteId}) RETURNING id`);
+      await journaliser(tx, ctx, { action: 'Création', objetType: 'Classe', objetLibelle: `Classe · ${nom}`,
         avant: '–', apres: `${b.effectifMax} places`, ligneId: c!.id, table: 'structure.classe' });
-      return { id: c!.id };
+      return { id: c!.id, nom };
     });
   });
 

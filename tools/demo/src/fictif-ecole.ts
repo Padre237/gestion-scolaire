@@ -2,6 +2,7 @@
 // sur trois années scolaires (les deux dernières complètes, l'année en cours jusqu'à aujourd'hui).
 // Rien ici ne touche à la base : ce sont des données en mémoire, que fictif-annee.ts fait entrer par l'API.
 import { DEBUT, choisir, entier, hasard, jj, melanger, type Eleve, type Famille, type Passage, type Profil } from './fictif-outils.ts';
+import { GROUPES_MATIERES, programmeDuNiveau } from '@gs/shared';
 
 // ---------------------------------------------------------------- noms (inventés, plausibles au Cameroun)
 export const NOMS_FR = ['ABENA', 'AMOUGOU', 'ATANGANA', 'BELINGA', 'EBODE', 'EKANI', 'ESSOMBA', 'ETOUNDI', 'EWANE', 'KAMDEM', 'KENMOGNE', 'MBALLA',
@@ -117,40 +118,15 @@ export const matieresPar = (debut: number): [string, string, string[]][] => [
 ];
 
 // ---------------------------------------------------------------- matières (maquette Matieres)
-export const GROUPES: [string, string][] = [['Langues', 'Languages'], ['Sciences', 'Sciences'], ['Sciences humaines', 'Humanities'], ['Activités', 'Activities']];
-// libellé, libellé anglais, abrégé, abrégé anglais, groupe, coefficient (francophone), coefficient (anglophone)
-type DefMatiere = [string, string, string | null, string | null, string, number, number];
-const MATIERES: DefMatiere[] = [
-  ['Français', 'French', null, null, 'Langues', 4, 2],
-  ['Mathématiques', 'Mathematics', 'Maths', 'Maths', 'Sciences', 4, 4],
-  ['Anglais', 'English', null, null, 'Langues', 2, 4],
-  ['Sciences et technologie', 'Science and Technology', 'Sciences', 'Science', 'Sciences', 2, 2],
-  ['Histoire et géographie', 'History and Geography', 'Histoire-géo.', 'History-Geo.', 'Sciences humaines', 2, 2],
-  ['Éducation civique et morale', 'Civics and Moral Education', 'Éd. civique', 'Civics', 'Sciences humaines', 1, 1],
-  ['Éducation physique et sportive', 'Physical Education', 'EPS', 'PE', 'Activités', 1, 1],
-  ['Arts et travaux manuels', 'Arts and Crafts', 'Arts', 'Arts', 'Activités', 1, 1],
-];
-const INFORMATIQUE: DefMatiere = ['Informatique', 'Computer Science', null, null, 'Sciences', 1, 1];
-const MATERNELLE: DefMatiere[] = [
-  ['Langage', 'Language', null, null, 'Langues', 2, 2],
-  ['Graphisme et écriture', 'Pre-writing', 'Graphisme', 'Writing', 'Langues', 1, 1],
-  ['Pré-mathématiques', 'Pre-mathematics', 'Pré-maths', 'Pre-maths', 'Sciences', 2, 2],
-  ['Éveil au milieu', 'Discovery of the Environment', 'Éveil', 'Discovery', 'Sciences humaines', 1, 1],
-  ['Motricité', 'Motor Skills', null, null, 'Activités', 1, 1],
-  ['Arts plastiques', 'Arts', 'Arts plast.', 'Arts', 'Activités', 1, 1],
-];
-const AVEC_INFORMATIQUE = ['CE2', 'CM1'];
+export const GROUPES = GROUPES_MATIERES;
 export const ABREGES: Record<string, string> = { Maths: 'Mathématiques', Français: 'Français', Anglais: 'Anglais', Sciences: 'Sciences et technologie',
   'Histoire-géo.': 'Histoire et géographie', 'Éd. civique': 'Éducation civique et morale', EPS: 'Éducation physique et sportive', Arts: 'Arts et travaux manuels',
   Informatique: 'Informatique', Langage: 'Langage', Graphisme: 'Graphisme et écriture', 'Pré-maths': 'Pré-mathématiques', Éveil: 'Éveil au milieu',
   Motricité: 'Motricité', 'Arts plast.': 'Arts plastiques' };
 
-export const matieresDuNiveau = (niveau: string) => {
-  const anglo = anglophone(niveau);
-  const base = maternelle(niveau) ? [...MATERNELLE] : anglo ? [MATIERES[2]!, MATIERES[1]!, MATIERES[0]!, ...MATIERES.slice(3)] : [...MATIERES];
-  if (AVEC_INFORMATIQUE.includes(niveau)) base.push(INFORMATIQUE);
-  return base.map((m) => ({ libelle: m[0], en: m[1], abrege: m[2], abregeEn: m[3], groupe: m[4], coefficient: anglo ? m[6] : m[5] }));
-};
+/** Matières du niveau : le programme préinstallé de l'application (packages/shared). */
+export const matieresDuNiveau = (niveau: string) => programmeDuNiveau(niveau, anglophone(niveau) ? 'anglophone' : 'francophone', maternelle(niveau) ? 'maternelle' : 'primaire')
+  .map((m) => ({ libelle: m.libelleFr, en: m.libelleEn, abrege: m.abregeFr, abregeEn: m.abregeEn, groupe: m.groupe, coefficient: m.coefficient }));
 
 // ---------------------------------------------------------------- grille des frais (inscription, tranches 1 à 3), par niveau et par année
 const GRILLE_BASE: Record<string, number[]> = {

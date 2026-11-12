@@ -9,6 +9,45 @@ import { journaliser } from '../../../core/audit.ts';
 import { exigerAnneeOuverte } from '../../structure/index.ts';
 import { classesAnnee, classesEtMatieres } from '../../personnel/http/routes.ts';
 import { titulairesClasse } from '../index.ts';
+import { surEvenement } from '../../../core/evenements.ts';
+import { codeMatiere, GROUPES_MATIERES, programmeDuNiveau } from '@gs/shared';
+
+// Programme de la nouvelle année : celui de l'année précédente, sinon le programme préinstallé de chaque niveau (lot 1, D-40).
+surEvenement('annee.creee', async (tx, ctx, d) => {
+  const compte = ctx?.compteId ?? null;
+  const etab = (await ligne<{ etablissement_id: string }>(tx, sql`SELECT etablissement_id FROM structure.annee_scolaire WHERE id = ${d.anneeId}`))!.etablissement_id;
+  if (d.precedenteId) {
+    const r = await tx.execute(sql`
+      INSERT INTO pedagogie.programme_niveau (etablissement_id, annee_id, niveau_id, matiere_id, coefficient, bareme, ordre_bulletin, cree_par)
+      SELECT etablissement_id, ${d.anneeId}, niveau_id, matiere_id, coefficient, bareme, ordre_bulletin, ${compte}
+        FROM pedagogie.programme_niveau WHERE annee_id = ${d.precedenteId}
+      ON CONFLICT (annee_id, niveau_id, matiere_id) DO NOTHING`);
+    if ((r.rowCount ?? 0) > 0) return;
+  }
+  const niveaux = await lignes<{ id: string; code: string; sous_systeme: 'francophone' | 'anglophone'; ordre: string }>(tx, sql`
+    SELECT n.id, n.code, cy.sous_systeme, cy.ordre_enseignement AS ordre FROM structure.niveau n JOIN structure.cycle cy ON cy.id = n.cycle_id
+     WHERE n.etablissement_id = ${etab}`);
+  if (!niveaux.length) return;
+  const groupes = new Map<string, string>();
+  for (const [i, [fr, en]] of GROUPES_MATIERES.entries()) {
+    const g = await ligne<{ id: string }>(tx, sql`SELECT id FROM pedagogie.groupe_matiere WHERE etablissement_id = ${etab} AND libelle_fr = ${fr}`)
+      ?? await ligne<{ id: string }>(tx, sql`INSERT INTO pedagogie.groupe_matiere (etablissement_id, libelle_fr, libelle_en, ordre, cree_par)
+                                             VALUES (${etab}, ${fr}, ${en}, ${i + 1}, ${compte}) RETURNING id`);
+    groupes.set(fr, g!.id);
+  }
+  for (const n of niveaux) {
+    for (const [i, m] of programmeDuNiveau(n.code, n.sous_systeme, n.ordre).entries()) {
+      const mat = await ligne<{ id: string }>(tx, sql`
+        INSERT INTO pedagogie.matiere (etablissement_id, code, libelle_fr, libelle_en, abrege_fr, abrege_en, groupe_id, cree_par)
+        VALUES (${etab}, ${codeMatiere(m.libelleFr)}, ${m.libelleFr}, ${m.libelleEn}, ${m.abregeFr}, ${m.abregeEn}, ${groupes.get(m.groupe) ?? null}, ${compte})
+        ON CONFLICT (etablissement_id, code) DO UPDATE SET code = EXCLUDED.code RETURNING id`);
+      await tx.execute(sql`
+        INSERT INTO pedagogie.programme_niveau (etablissement_id, annee_id, niveau_id, matiere_id, coefficient, bareme, ordre_bulletin, cree_par)
+        VALUES (${etab}, ${d.anneeId}, ${n.id}, ${mat!.id}, ${m.coefficient}, 20, ${i + 1}, ${compte})
+        ON CONFLICT (annee_id, niveau_id, matiere_id) DO NOTHING`);
+    }
+  }
+});
 
 export async function routesParametrage(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
@@ -132,7 +171,7 @@ export async function routesParametrage(app: FastifyInstance) {
     const ctx = exiger(req);
     const b = req.body;
     return app.bd.transaction(ctx.compteId, async (tx) => {
-      const code = b.libelleFr.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 20);
+      const code = codeMatiere(b.libelleFr);
       const m = await ligne<{ id: string }>(tx, sql`
         INSERT INTO pedagogie.matiere (etablissement_id, code, libelle_fr, libelle_en, abrege_fr, abrege_en, groupe_id, cree_par)
         VALUES (${ctx.etablissementId}, ${code}, ${b.libelleFr}, ${b.libelleEn}, ${b.abregeFr ?? null}, ${b.abregeEn ?? null}, ${b.groupeId ?? null}, ${ctx.compteId})

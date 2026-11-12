@@ -13,6 +13,8 @@ export interface Evenements {
   'absence.justifiee': { inscriptionId: string; jour: string };
   'relance.sms': { inscriptionIds: string[]; compteId: string };
   'bulletins.publies': { classeId: string; periodeId: string | null; inscriptionIds: string[] };
+  /** Nouvelle année préremplie (lot 1) : classes et programme repris de la précédente, ou programme préinstallé. */
+  'annee.creee': { anneeId: string; precedenteId: string | null };
   'inscription.reportee': { ancienneInscriptionId: string; nouvelleInscriptionId: string; libelleAnnee: string; dateLimite: string };
 }
 

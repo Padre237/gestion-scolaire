@@ -61,11 +61,14 @@ await migrer(config.pg, config.pg.base, (m) => console.log(`  ${m}`));
 const pool = creerPool(config.pg);
 const bd = new Bd(pool);
 await creerEtablissement(bd, { nomFr, nomEn, secretaire: { identifiant, nomAffiche, motDePasse } });
-if (demandes.length) {
+{
   const app = await construireApp({ bd, dossierWeb: '/inexistant', journal: false });
   await app.ready();
   try {
     const sec = await connecter(app, identifiant, motDePasse);
+    // Sections préinstallées (lot 1, D-40) : maternelle et primaire, francophones et anglophones, avec leurs niveaux.
+    // Les classes et les matières viennent avec la première année scolaire, créée dans l'assistant de configuration.
+    for (const sousSysteme of ['francophone', 'anglophone']) for (const ordreEnseignement of ['maternelle', 'primaire']) await sec.post('/structure/cycles', { sousSysteme, ordreEnseignement });
     const roles = await sec.get<{ id: string; code: string }[]>('/core/roles');
     for (const d of demandes) {
       const fiche = await sec.post<{ id: string }>('/personnel', { nomAffiche: d.nom, fonction: d.a.fonction, statut: 'permanent' });

@@ -259,8 +259,8 @@ function elevesNommes(familles: Famille[]): Eleve[] {
  * précédentes en remontant le parcours de chacun (niveau précédent, redoublement), complétées par les élèves partis
  * (fin de cycle, transferts) pour que chaque classe passée ait aussi 25 à 30 élèves.
  */
-export function genererEcole(petit: boolean): Ecole {
-  const annees = [DEBUT - 2, DEBUT - 1, DEBUT];
+export function genererEcole(petit: boolean, nbAnnees = 3): Ecole {
+  const annees = nbAnnees === 2 ? [DEBUT - 1, DEBUT] : [DEBUT - 2, DEBUT - 1, DEBUT];
   const taille = () => (petit ? entier(7, 9) : entier(25, 30));
   const familles: Famille[] = [];
   const pris = new Set<string>();
@@ -326,9 +326,24 @@ export function genererEcole(petit: boolean): Ecole {
     }
   }
   for (const e of eleves) remonter(e, DEBUT);
+  // Une classe passée alimentée par plusieurs classes de l'année suivante (GS A → SIL A et B) ne dépasse pas sa taille :
+  // les élèves en trop sont arrivés l'année suivante.
+  const plafond = petit ? 9 : 30;
+  for (const a of annees.slice(0, -1).reverse()) {
+    for (const c of CLASSES) {
+      const liste = eleves.filter((e) => e.parcours[a]?.classe === c.nom && e.parcours[a + 1] && !nommes.includes(e));
+      const total = eleves.filter((e) => e.parcours[a]?.classe === c.nom).length;
+      for (let k = 0; k < total - plafond && liste.length; k++) {
+        const e = liste.splice(Math.floor(hasard() * liste.length), 1)[0]!;
+        for (const x of Object.keys(e.parcours).map(Number)) if (x <= a) delete e.parcours[x];
+        e.parcours[a + 1]!.type = 'nouvelle';
+        e.entree = a + 1;
+      }
+    }
+  }
 
   // 2. Années passées : les élèves partis complètent chaque classe jusqu'à sa taille.
-  for (const a of [DEBUT - 1, DEBUT - 2]) {
+  for (const a of annees.slice(0, -1).reverse()) {
     for (const c of CLASSES) {
       const n = taille();
       const deja = eleves.filter((e) => e.parcours[a]?.classe === c.nom).length;

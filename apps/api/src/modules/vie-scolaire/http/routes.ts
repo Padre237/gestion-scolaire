@@ -141,7 +141,7 @@ export async function routesVieScolaire(app: FastifyInstance) {
           const a = await ligne<{ id: string; cree: boolean }>(tx, sql`
             INSERT INTO vie_scolaire.absence (etablissement_id, inscription_id, fiche_id, jour, debut, duree_minutes)
             VALUES (${ctx.etablissementId}, ${p.inscriptionId}, ${req.params.id}, ${f.jour}, ${f.debut}, ${duree})
-            ON CONFLICT (fiche_id) DO UPDATE SET duree_minutes = EXCLUDED.duree_minutes RETURNING id, (xmax = 0) AS cree`);
+            ON CONFLICT (fiche_id, inscription_id) DO UPDATE SET duree_minutes = EXCLUDED.duree_minutes RETURNING id, (xmax = 0) AS cree`);
           if (a!.cree) nouvelles.push(a!.id);
         } else {
           // Une absence corrigée disparaît, et son SMS avec elle (maquette Appel).

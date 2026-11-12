@@ -572,7 +572,7 @@ export function grilleEdt(classe: string, a: Annee, avantModification = false): 
   return g;
 }
 
-export async function emploiDuTemps(ctx: Contexte, a: Annee) {
+export async function emploiDuTemps(ctx: Contexte, a: Annee, concurrence = 1) {
   const { pre, horloge } = ctx;
   const edt = await pre.get<{ creneaux: { id: string; debut: string; type: string }[] }>(`/pedagogie/edt?classeId=${a.classes['CM2 A']}`);
   const creneau = (h: string) => edt.creneaux.find((c) => c.debut === h && c.type === 'cours')!.id;
@@ -581,7 +581,7 @@ export async function emploiDuTemps(ctx: Contexte, a: Annee) {
     const matiere = ABREGES[v];
     await cl.put('/pedagogie/edt/cours', { classeId: a.classes[classe], jour: j + 1, creneauId: creneau(HEURES[h]!), matiereId: matiere ? ctx.matieres[matiere] : null, libelle: matiere ? null : v });
   };
-  for (const [i, c] of CLASSES.entries()) {
+  const classe = async ([i, c]: [number, (typeof CLASSES)[number]]) => {
     const cl = principalDe(ctx, c.nom);
     const g = grilleEdt(c.nom, a, true);
     await horloge.a(aLHeure(plusJours(a.rentree, -3), hhmm(9 * 60 + i * 5)), async () => {
@@ -589,7 +589,11 @@ export async function emploiDuTemps(ctx: Contexte, a: Annee) {
       await cl.post(`/pedagogie/edt/${a.classes[c.nom]}/soumission`);
     });
     await horloge.a(aLHeure(plusJours(a.rentree, -2), hhmm(10 * 60 + i * 3)), () => pre.post(`/pedagogie/edt/${a.classes[c.nom]}/publication`, {}));
-  }
+  };
+  // Classes en parallèle seulement sans horloge réelle (générateur rapide) : l'horloge décale les dates opération par opération.
+  const liste = [...CLASSES.entries()];
+  let k = 0;
+  await Promise.all(Array.from({ length: concurrence }, async () => { while (k < liste.length) await classe(liste[k++]!); }));
   if (a.courante) {
     // Modification de CM2 A par M. ONANA, soumise au préfet (maquette : étape « Validation »).
     const onana = ctx.comptes['onana.b']!;

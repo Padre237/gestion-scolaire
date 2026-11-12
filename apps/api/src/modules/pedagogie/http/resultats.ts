@@ -572,16 +572,31 @@ export async function routesResultats(app: FastifyInstance) {
 }
 
 /** Enregistre (ou remplace) les bulletins en brouillon de la classe ; un bulletin publié reste figé (RG-27). */
+/** Texte canonique (clés triées) : jsonb ne conserve pas l'ordre des clés, la comparaison doit en être indépendante. */
+const canonique = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === 'object' && !Array.isArray(x)
+  ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+
 export async function enregistrerBrouillons(tx: Tx, ctx: Contexte, classeId: string, periodeId: string | null): Promise<number> {
   const resultats = await calculerClasse(tx, ctx.etablissementId, classeId, periodeId);
+  // Versions publiée et brouillon de toute la classe, lues en une requête ; seuls les bulletins qui changent sont réécrits
+  // (calcul, transmission et publication enregistrent tour à tour les mêmes brouillons).
+  const existants = await lignes<{ inscription_id: string; statut: string; version: number; resultats: ResultatBulletin }>(tx, sql`
+    SELECT inscription_id, statut, version, resultats FROM pedagogie.bulletin
+     WHERE inscription_id = ANY(${tableau(resultats.map((r) => r.eleve.inscriptionId))}::uuid[])
+       AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid AND statut IN ('publie', 'brouillon')`);
+  const version = (id: string, statut: string) => existants.find((b) => b.inscription_id === id && b.statut === statut);
   for (const r of resultats) {
-    const publie = await ligne<{ version: number; resultats: ResultatBulletin }>(tx, sql`
-      SELECT version, resultats FROM pedagogie.bulletin WHERE inscription_id = ${r.eleve.inscriptionId}
-         AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid AND statut = 'publie'`);
-    await tx.execute(sql`DELETE FROM pedagogie.bulletin WHERE inscription_id = ${r.eleve.inscriptionId}
-                           AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid AND statut = 'brouillon'`);
+    const publie = version(r.eleve.inscriptionId, 'publie');
+    const brouillon = version(r.eleve.inscriptionId, 'brouillon');
+    const texte = canonique(r);
+    // Brouillon déjà à jour : rien à réécrire.
+    if (brouillon && canonique(brouillon.resultats) === texte) continue;
+    if (brouillon) {
+      await tx.execute(sql`DELETE FROM pedagogie.bulletin WHERE inscription_id = ${r.eleve.inscriptionId}
+                             AND periode_id IS NOT DISTINCT FROM ${periodeId}::uuid AND statut = 'brouillon'`);
+    }
     // Rien n'a changé depuis la publication : pas de nouvelle version.
-    if (publie && JSON.stringify(publie.resultats) === JSON.stringify(r)) continue;
+    if (publie && canonique(publie.resultats) === texte) continue;
     await tx.execute(sql`
       INSERT INTO pedagogie.bulletin (etablissement_id, inscription_id, periode_id, version, statut, resultats, moyenne, rang, effectif, appreciation_generale)
       VALUES (${ctx.etablissementId}, ${r.eleve.inscriptionId}, ${periodeId}, ${(publie?.version ?? 0) + 1}, 'brouillon', ${JSON.stringify(r)}::jsonb,

@@ -9,7 +9,8 @@
     "sauvegarde": "tsx src/sauvegarde.ts",
     "restaurer": "tsx src/restaurer.ts",
     "lancer": "tsx src/lancer.ts",
-    "progression": "tsx src/progression.ts"
+    "progression": "tsx src/progression.ts",
+    "donnees": "tsx src/rapide.ts"
   },
   "dependencies": {
     "@gs/db": "workspace:*",

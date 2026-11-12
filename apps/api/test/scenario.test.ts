@@ -196,6 +196,27 @@ describe('Étape 2 · inscriptions et compte famille (CU-06, CU-07, RG-04 à RG-
     // Retour au formulaire proposé : les inscriptions suivantes n'ont pas de champ obligatoire.
     expect((await sec.put('/scolarite/formulaire', { champs: FORMULAIRE_PAR_DEFAUT })).status).toBe(200);
   });
+  it('mise à jour de la fiche : rien n’est effacé, l’historique garde chaque valeur précédente (D-43)', async () => {
+    const id = ids['eleve:loic'];
+    const m = await sec.patch(`/scolarite/eleves/${id}`, { lieuNaissance: 'Douala', renseignements: { groupe_sanguin: 'A+', perso_bus: null } });
+    expect(m.status).toBe(200);
+    expect(m.corps.modifies).toEqual(expect.arrayContaining(['lieu de naissance', 'groupe sanguin']));
+    const e = await sec.get(`/scolarite/eleves/${id}`);
+    expect(e.corps.lieuNaissance).toBe('Douala');
+    expect(e.corps.renseignementsBruts.groupe_sanguin).toBe('A+');
+    expect(e.corps.renseignementsBruts.acte_naissance.piece).toBeTruthy(); // la pièce jointe reste
+    const rid = e.corps.responsables[0].id;
+    expect((await sec.patch(`/scolarite/eleves/${id}/responsables/${rid}`, { recoitSms: false })).status).toBe(200);
+    expect((await sec.patch(`/scolarite/eleves/${id}/responsables/${rid}`, { recoitSms: true })).status).toBe(200);
+    const v = (await sec.get(`/scolarite/eleves/${id}/variations`)).corps.variations;
+    expect(v).toEqual(expect.arrayContaining([
+      expect.objectContaining({ champ: 'Lieu de naissance', avant: 'Yaoundé', apres: 'Douala' }),
+      expect.objectContaining({ champ: 'Groupe sanguin', avant: 'O+', apres: 'A+' }),
+      expect.objectContaining({ champ: 'Reçoit les SMS', avant: 'Oui', apres: 'Non' }),
+    ]));
+    // Sans la permission de mise à jour : refus côté serveur.
+    expect((await pre.patch(`/scolarite/eleves/${id}`, { lieuNaissance: 'Kribi' })).status).toBe(403);
+  });
   it('RG-09 : signale et refuse un doublon tant qu\'il n\'est pas écarté', async () => {
     const d = await sec.get('/scolarite/doublons?nom=KENFACK&prenoms=Steeve&dateNaissance=2017-01-05');
     expect(d.corps[0].nom).toBe('KENFACK');

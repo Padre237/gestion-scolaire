@@ -15,7 +15,8 @@ import { classeInfo, cleCompteur, exigerAnneeOuverte, FORMATS, prochainNumero, a
 import { chiffres, formatTelephone, inscription } from '../index.ts';
 import '../index.ts';
 import { pdfCartesScolaires, pdfCertificat, pdfFicheInscription, pdfListeClasse, pdfTableau } from '@gs/print';
-import { enregistrerRenseignements, renseignementsLisibles, routesFormulaire } from './formulaire.ts';
+import { joindrePieces, preparerRenseignements, renseignementsLisibles, routesFormulaire } from './formulaire.ts';
+import { routesFiche } from './fiche.ts';
 
 const Uuid = z.uuid();
 const LIENS: Record<string, string> = { mere: 'Mère', pere: 'Père', tuteur: 'Tuteur' };
@@ -135,6 +136,7 @@ export async function routesScolarite(app: FastifyInstance) {
       SELECT 1 FROM scolarite.inscription WHERE eleve_id = ${eleveId} AND statut IN ('attente', 'validee') AND classe_id = ANY(${tableau(classes)}::uuid[])`);
     if (!i) throw interdit('scolarite.eleve.consulter');
   }
+  await routesFiche(app, exigerEleveAccessible);
 
   r.get('/scolarite/eleves/:id', { config: { permission: 'scolarite.eleve.consulter' }, schema: { tags: ['scolarite'], params: z.object({ id: Uuid }) } }, async (req) => {
     const ctx = exiger(req);
@@ -144,6 +146,8 @@ export async function routesScolarite(app: FastifyInstance) {
              e.photo IS NOT NULL AS "aPhoto", e.famille_id AS "familleId", e.renseignements
         FROM scolarite.eleve e WHERE e.id = ${req.params.id} AND e.etablissement_id = ${ctx.etablissementId}`);
     if (!e) throw introuvable('Élève');
+    // Réponses brutes (formulaire de mise à jour) et lisibles, bloc par bloc (fiche).
+    e['renseignementsBruts'] = e['renseignements'] ?? {};
     e['renseignements'] = await renseignementsLisibles((q) => app.bd.lire(q), ctx.etablissementId, (e['renseignements'] ?? {}) as Record<string, unknown>);
     const insc = await app.bd.lireUn<Record<string, unknown>>(sql`
       SELECT i.id, i.classe_id AS "classeId", c.nom AS classe, cy.sous_systeme AS "sousSysteme", i.type, i.tarif, i.statut,
@@ -325,12 +329,13 @@ export async function routesScolarite(app: FastifyInstance) {
         matricule = FORMATS.matricule(annee.annee_civile, classe.code_section, numero);
       }
       const photo = ev.photo ? Buffer.from(ev.photo, 'base64') : null;
+      // Formulaire configuré par l'établissement : contrôlé et écrit avec la fiche, pour une inscription faite à l'écran (pas pour l'import).
+      const rens = options.formulaire ? await preparerRenseignements(tx, ctx.etablissementId, b.renseignements ?? {}) : { valeurs: {}, pieces: [] };
       eleveId = (await ligne<{ id: string }>(tx, sql`
-        INSERT INTO scolarite.eleve (etablissement_id, matricule, nom, prenoms, sexe, date_naissance, lieu_naissance, photo, famille_id, cree_par)
+        INSERT INTO scolarite.eleve (etablissement_id, matricule, nom, prenoms, sexe, date_naissance, lieu_naissance, photo, famille_id, renseignements, cree_par)
         VALUES (${ctx.etablissementId}, ${matricule}, ${ev.nom}, ${ev.prenoms}, ${ev.sexe}, ${ev.dateNaissance}, ${ev.lieuNaissance ?? null},
-                ${photo}, ${familleId}, ${ctx.compteId}) RETURNING id`))!.id;
-      // Formulaire configuré par l'établissement : contrôlé et enregistré pour une inscription faite à l'écran (pas pour l'import).
-      if (options.formulaire) await enregistrerRenseignements(tx, ctx, eleveId, b.renseignements ?? {});
+                ${photo}, ${familleId}, ${JSON.stringify(rens.valeurs)}::jsonb, ${ctx.compteId}) RETURNING id`))!.id;
+      await joindrePieces(tx, ctx, eleveId, rens.pieces);
       let ordre = 1;
       for (const resp of b.responsables!) {
         let rid = (await ligne<{ id: string }>(tx, sql`

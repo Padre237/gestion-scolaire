@@ -5,6 +5,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { ChampsDuBloc, erreursFormulaire, valeursAEnvoyer, type Formulaire, type Valeurs } from './formulaire-inscription.tsx';
+import { ouvrirActionsEleve, ouvrirMiseAJour } from './eleve-maj.tsx';
 import { api, ErreurApi, requete, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
@@ -78,6 +79,52 @@ const Gris = ({ children }: { children: ReactNode }) => <Doux petit={false}>{chi
 
 const TAILLE = 12;
 
+/** Recherche d'un élève : propositions pendant la frappe (nom, matricule, téléphone), bouton « Rechercher » pour filtrer la liste. */
+function RechercheAvecPropositions({ valeur, setValeur, lancer, choisir }: { valeur: string; setValeur: (v: string) => void; lancer: () => void; choisir: (l: any) => void }) {
+  const [props, setProps] = useState<any[]>([]);
+  const [ouvert, setOuvert] = useState(false);
+  const [actif, setActif] = useState(-1);
+  useEffect(() => {
+    const t = valeur.trim();
+    if (t.length < 2) { setProps([]); return; }
+    let ok = true;
+    const h = setTimeout(() => {
+      api.get(`/scolarite/eleves${requete({ q: t, taille: 8 })}`).then((d) => { if (ok) { setProps(d.lignes ?? []); setActif(-1); } }).catch(() => undefined);
+    }, 120);
+    return () => { ok = false; clearTimeout(h); };
+  }, [valeur]);
+  const visibles = ouvert && props.length > 0;
+  const prendre = (l: any) => { setOuvert(false); choisir(l); };
+  return (
+    <div className="recherche-eleves">
+      <label className="libelle" htmlFor="recherche-eleves">Rechercher</label>
+      <div className="recherche-ligne">
+        <input id="recherche-eleves" className="champ" role="combobox" autoComplete="off" aria-expanded={visibles} aria-controls="propositions-eleves" aria-autocomplete="list"
+          aria-activedescendant={visibles && actif >= 0 ? `proposition-${actif}` : undefined} placeholder="Nom, matricule ou téléphone du responsable" value={valeur} style={{ fontSize: 16 }}
+          onChange={(e) => { setValeur(e.target.value); setOuvert(true); }} onFocus={() => setOuvert(true)} onBlur={() => setTimeout(() => setOuvert(false), 150)}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown' && props.length) { e.preventDefault(); setOuvert(true); setActif((i) => Math.min(props.length - 1, i + 1)); }
+            else if (e.key === 'ArrowUp' && props.length) { e.preventDefault(); setActif((i) => Math.max(-1, i - 1)); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (visibles && actif >= 0) prendre(props[actif]); else { setOuvert(false); lancer(); } }
+            else if (e.key === 'Escape') setOuvert(false);
+          }} />
+        <Bouton icone="recherche" onClick={() => { setOuvert(false); lancer(); }}>Rechercher</Bouton>
+      </div>
+      {visibles && (
+        <ul id="propositions-eleves" role="listbox" className="propositions" aria-label="Élèves proposés">
+          {props.map((p, i) => (
+            <li key={p.inscriptionId} id={`proposition-${i}`} role="option" aria-selected={i === actif} className={i === actif ? 'actif' : ''}
+              onMouseEnter={() => setActif(i)} onMouseDown={(e) => { e.preventDefault(); prendre(p); }}>
+              <span className="gras">{p.nom}</span>
+              <span className="doux petit">{[p.matricule, p.classe, p.payeur ? `${p.payeur}${p.payeurTelephone ? ` · ${p.payeurTelephone}` : ''}` : null].filter(Boolean).join(' · ')}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function EcranEleves() {
   const moi = useMoi();
   const naviguer = useNavigate();
@@ -90,11 +137,9 @@ function EcranEleves() {
   const zoneRecherche = useRef<HTMLDivElement>(null);
   const focaliser = () => zoneRecherche.current?.querySelector('input')?.focus();
 
-  // Recherche au fil de la frappe, après 250 ms de pause.
-  useEffect(() => {
-    const t = setTimeout(() => { setQ(saisie.trim()); setPage(1); }, 250);
-    return () => clearTimeout(t);
-  }, [saisie]);
+  // La liste se filtre au bouton « Rechercher » ou à Entrée ; les propositions s'affichent pendant la frappe. Champ vidé : liste complète.
+  const lancer = () => { setQ(saisie.trim()); setPage(1); };
+  useEffect(() => { if (!saisie.trim() && q) { setQ(''); setPage(1); } }, [saisie, q]);
 
   // Ctrl K, ici ou depuis un autre écran (« ?recherche=1 ») : le curseur va dans la recherche.
   useEffect(() => {
@@ -112,14 +157,21 @@ function EcranEleves() {
   const lignes: any[] = d?.lignes ?? [];
   const total: number = d?.total ?? 0;
   const filtre = Boolean(q || classe || situation);
+  const droits = { majEleve: moi.a('scolarite.inscription.creer'), majResponsables: moi.a('scolarite.responsable.gerer') };
+  // Clic sur une ligne (ou une proposition) : fenêtre « Voir le détail » ou « Mettre à jour ».
+  const ouvrirLigne = async (l: any) => {
+    const choix = await ouvrirActionsEleve(l, droits);
+    if (choix === 'detail') naviguer(`/scolarite/eleves/${l.eleveId}`);
+    if (choix === 'maj' && (await ouvrirMiseAJour(l.eleveId, l.nom, droits))) void recharger();
+  };
 
   return (
     <Coque module="eleves" titre="Élèves">
       <StyleElv />
       <Filtres
         champs={<>
-          <div ref={zoneRecherche} style={{ flex: '2 1 300px', minWidth: 0 }}>
-            <Champ libelle="Rechercher" value={saisie} onChange={setSaisie} placeholder="Nom, matricule ou téléphone du responsable" />
+          <div ref={zoneRecherche} style={{ flex: '2 1 360px', minWidth: 0 }}>
+            <RechercheAvecPropositions valeur={saisie} setValeur={setSaisie} lancer={lancer} choisir={ouvrirLigne} />
           </div>
           <Case flex="1 1 170px"><Liste libelle="Classe" value={classe} options={classes} onChange={(v) => { setClasse(v); setPage(1); }} /></Case>
           <Case flex="1 1 150px"><Liste libelle="Situation" value={situation} options={FILTRE_SITUATION} onChange={(v) => { setSituation(v); setPage(1); }} /></Case>
@@ -141,11 +193,12 @@ function EcranEleves() {
               { titre: 'Responsable payeur' }, { titre: 'Situation' }, { titre: 'Reste dû', droite: true }]}
             vide={filtre ? 'Aucun élève ne correspond à ces critères' : 'Aucun élève inscrit pour l’instant'}
             cles={lignes.map((e) => e.inscriptionId)}
+            onLigne={(i) => { void ouvrirLigne(lignes[i]); }}
             lignes={lignes.map((e) => {
               const [libelle, ton] = SITUATIONS[e.situation] ?? SITUATIONS['a_jour']!;
               return [
                 <Gris>{e.matricule}</Gris>,
-                <Lien onClick={() => naviguer(`/scolarite/eleves/${e.eleveId}`)}>{e.nom}</Lien>,
+                <span className="gras" style={{ color: 'var(--accent)' }}>{e.nom}</span>,
                 e.classe,
                 e.sexe,
                 jjmmaaaa(e.dateNaissance),
@@ -201,6 +254,7 @@ function EcranFicheEleve() {
   const ligne = [e.matricule, insc?.classe, fille ? 'Fille' : 'Garçon',
     `${fille ? 'née le' : 'né le'} ${jjmmaaaa(e.dateNaissance)}${e.lieuNaissance ? ` à ${e.lieuNaissance}` : ''}`, typeInsc].filter(Boolean).join(' · ');
   const reste: number | null = ech?.totaux?.reste ?? null;
+  const droitsMaj = { majEleve: moi.a('scolarite.inscription.creer'), majResponsables: moi.a('scolarite.responsable.gerer') };
 
   return (
     <Coque module="eleves" titre="Fiche élève">
@@ -225,6 +279,8 @@ function EcranFicheEleve() {
                 </span>
               </div>
             )}
+            <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj, 'historique')) void recharger(); }}>Historique des modifications</Bouton>
+            {(droitsMaj.majEleve || droitsMaj.majResponsables) && <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj)) void recharger(); }}>Mettre à jour</Bouton>}
             {peutEncaisser && <Bouton variante="principal" icone="fraisCaisse" touches={['Ctrl', 'E']} onClick={encaisser}>Encaisser</Bouton>}
           </div>
         </div>

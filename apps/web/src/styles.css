@@ -492,3 +492,17 @@ body.tiroir-ouvert { overflow: hidden; }
 .question-ordre button:disabled { opacity: 0.3; cursor: default; }
 .question-texte { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; line-height: 1.35; }
 .question-reglages { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+
+/* ---------------------------------------------------------------- liste des élèves : recherche, fenêtre d'actions, mise à jour (D-43) */
+.recherche-eleves { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.recherche-ligne { display: flex; gap: 8px; }
+.recherche-ligne .champ { flex: 1; min-width: 0; }
+.propositions { position: absolute; z-index: 30; top: 100%; left: 0; right: 0; margin: 4px 0 0; padding: 6px; list-style: none; background: var(--panneau);
+  border: 1px solid var(--bord-fort); border-radius: 12px; box-shadow: 0 8px 24px rgba(11,31,75,0.16); max-height: 360px; overflow-y: auto; }
+.propositions li { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; min-height: 44px; border-radius: 8px; cursor: pointer; }
+.propositions li.actif { background: var(--accent-fond); }
+.actions-eleve { display: grid; gap: 10px; }
+.action-eleve { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px 16px; min-height: 64px; border-radius: 12px; border: 1px solid var(--bord-fort);
+  background: var(--panneau); color: var(--texte); font: inherit; text-align: left; cursor: pointer; }
+.action-eleve:hover, .action-eleve:focus-visible { border-color: var(--accent); background: var(--accent-fond); }
+.responsable-maj { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--bord); border-radius: 12px; }

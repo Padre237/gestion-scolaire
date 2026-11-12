@@ -40,18 +40,22 @@ function lirePhoto(v: unknown, libelle: string): { octets: Buffer; type: string;
   return { octets, type, nom: typeof o.nom === 'string' ? o.nom.slice(0, 120) : null };
 }
 
+export interface Piece { id: string; code: string; octets: Buffer; type: string; nom: string | null }
+
 /**
- * Contrôle les réponses d'une inscription faite à l'écran et les enregistre : valeurs dans eleve.renseignements, photos dans piece_eleve.
- * Les champs obligatoires actifs doivent être remplis ; chaque valeur doit correspondre au type du champ.
+ * Contrôle les réponses et prépare leur enregistrement : valeurs à écrire dans eleve.renseignements et photos à joindre
+ * (identifiants attribués d'avance, pour que la fiche soit écrite en une fois à l'inscription).
+ * Inscription : les champs obligatoires actifs doivent être remplis. Mise à jour (partiel) : seules les réponses envoyées sont contrôlées.
  */
-export async function enregistrerRenseignements(tx: Tx, ctx: Contexte, eleveId: string, valeurs: Record<string, unknown>) {
-  const { champs } = await champsFormulaire((q) => lignes(tx, q), ctx.etablissementId);
+export async function preparerRenseignements(tx: Tx, etab: string, valeurs: Record<string, unknown>, options: { partiel?: boolean } = {}) {
+  const { champs } = await champsFormulaire((q) => lignes(tx, q), etab);
   const r: Record<string, unknown> = {};
-  for (const c of champs.filter((x) => x.actif)) {
+  const pieces: Piece[] = [];
+  for (const c of champs.filter((x) => (options.partiel ? x.code in valeurs : x.actif))) {
     const v = valeurs[c.code];
     const vide = v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
     if (vide) {
-      if (c.obligatoire) throw new ErreurMetier('SCO_RENSEIGNEMENT_REQUIS', 422, `${c.libelle} : réponse obligatoire.`, `renseignements.${c.code}`);
+      if (c.obligatoire && c.actif) throw new ErreurMetier('SCO_RENSEIGNEMENT_REQUIS', 422, `${c.libelle} : réponse obligatoire.`, `renseignements.${c.code}`);
       continue;
     }
     const refus = (m: string) => new ErreurMetier('SCO_RENSEIGNEMENT', 422, `${c.libelle} : ${m}.`, `renseignements.${c.code}`);
@@ -66,21 +70,36 @@ export async function enregistrerRenseignements(tx: Tx, ctx: Contexte, eleveId: 
         break;
       case 'photo': {
         const p = lirePhoto(v, c.libelle);
-        const piece = await ligne<{ id: string }>(tx, sql`
-          INSERT INTO scolarite.piece_eleve (etablissement_id, eleve_id, champ_code, nom_fichier, type_mime, taille, contenu, cree_par)
-          VALUES (${ctx.etablissementId}, ${eleveId}, ${c.code}, ${p.nom}, ${p.type}, ${p.octets.length}, ${p.octets}, ${ctx.compteId}) RETURNING id`);
-        r[c.code] = { piece: piece!.id, nom: p.nom };
+        const id = (await ligne<{ id: string }>(tx, sql`SELECT core.uuid_v7() AS id`))!.id;
+        pieces.push({ id, code: c.code, octets: p.octets, type: p.type, nom: p.nom });
+        r[c.code] = { piece: id, nom: p.nom };
         break;
       }
     }
   }
-  if (Object.keys(r).length) await tx.execute(sql`UPDATE scolarite.eleve SET renseignements = renseignements || ${JSON.stringify(r)}::jsonb WHERE id = ${eleveId}`);
+  return { valeurs: r, pieces };
+}
+
+export async function joindrePieces(tx: Tx, ctx: Contexte, eleveId: string, pieces: Piece[]) {
+  for (const p of pieces) {
+    await tx.execute(sql`
+      INSERT INTO scolarite.piece_eleve (id, etablissement_id, eleve_id, champ_code, nom_fichier, type_mime, taille, contenu, cree_par)
+      VALUES (${p.id}, ${ctx.etablissementId}, ${eleveId}, ${p.code}, ${p.nom}, ${p.type}, ${p.octets.length}, ${p.octets}, ${ctx.compteId})`);
+  }
+}
+
+/** Libellés de tous les champs connus, y compris ceux retirés du formulaire (leurs réponses restent lisibles). */
+export async function libellesChamps(lire: Lire, etab: string) {
+  const rows = await lire<{ code: string; bloc: string; libelle: string; type: string }>(sql`
+    SELECT code, bloc, libelle, type FROM scolarite.champ_inscription WHERE etablissement_id = ${etab}`);
+  const m = new Map<string, { code: string; bloc: string; libelle: string; type: string }>(BIBLIOTHEQUE.map((c) => [c.code, c]));
+  for (const c of rows) m.set(c.code, c);
+  return m;
 }
 
 /** Réponses lisibles, bloc par bloc (fiche de l'élève, fiche d'inscription imprimée). */
 export async function renseignementsLisibles(lire: Lire, etab: string, renseignements: Record<string, unknown>) {
-  const { champs } = await champsFormulaire(lire, etab);
-  const connus = new Map([...BIBLIOTHEQUE, ...champs].map((c) => [c.code, c]));
+  const connus = await libellesChamps(lire, etab);
   return BLOCS.map(([bloc, libelle]) => ({
     bloc, libelle,
     lignes: Object.entries(renseignements).map(([code, v]) => ({ c: connus.get(code), v })).filter((x) => x.c?.bloc === bloc)

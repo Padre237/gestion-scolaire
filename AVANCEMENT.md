@@ -28,7 +28,7 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - [x] Connexion unique, page de connexion Sekou (D-38, D-39) ; interface du bureau à la charte Sekou (D-39).
 - [x] Lot 1 · configuration par rubriques, sections, classes et matières préinstallées, noms de classe attribués (D-40). Le logo de l'école figure déjà sur les cartes scolaires.
 - [x] Lot 2 · formulaire d'inscription configurable, sans paiement ; fiche imprimée détaillée (D-42).
-- [ ] Lot 3 · liste des élèves : fenêtre détail / mise à jour, historique, recherche instantanée.
+- [x] Lot 3 · liste des élèves : fenêtre détail / mise à jour, historique des modifications, recherche avec propositions ; liste 15 fois plus rapide (D-43).
 - [ ] Lot 4 · modèles d'impression (3 par document), logo sur les bulletins, QR code de vérification.
 - [x] Lot 5 · tableau de bord personnalisable (6 cartes par utilisateur, D-41) ; barre haute fixe au défilement.
 - [ ] Lot 6 · rôles et droits sur mesure (directeur).

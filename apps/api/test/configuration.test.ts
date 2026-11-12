@@ -51,3 +51,42 @@ describe('Configuration de l’établissement (lot 1)', () => {
     expect(await n(r.corps.id)).toBe(await n(a1));
   });
 });
+
+describe('Tableau de bord personnalisable (D-41)', () => {
+  it('cartes par défaut, données d’une carte, enregistrement de six cartes au plus, retour aux cartes par défaut', async () => {
+    const d = await sec.get<{ cartes: { indicateur: string }[]; catalogue: { code: string }[]; personnalise: boolean }>('/pilotage/cartes');
+    expect(d.status).toBe(200);
+    expect(d.corps.personnalise).toBe(false);
+    expect(d.corps.catalogue.map((c) => c.code)).toContain('effectifs');
+    // Chaque carte ne propose que les indicateurs permis à l'utilisateur.
+    expect(d.corps.cartes.every((c) => d.corps.catalogue.some((k) => k.code === c.indicateur))).toBe(true);
+    const pts = await sec.get<{ unite: string; points: unknown[] }>('/pilotage/cartes/donnees?indicateur=effectifs&par=classe&section=francophone');
+    expect(pts.status).toBe(200);
+    expect(pts.corps.unite).toBe('élèves');
+    const carte = { id: 'a', indicateur: 'effectifs', par: 'sexe', forme: 'anneau' };
+    expect((await sec.put('/pilotage/cartes', { cartes: Array.from({ length: 7 }, (_, i) => ({ ...carte, id: `c${i}` })) })).status).toBe(400);
+    expect((await sec.put('/pilotage/cartes', { cartes: [{ ...carte, par: 'mode' }] })).status).toBe(422);
+    expect((await sec.put('/pilotage/cartes', { cartes: [carte] })).status).toBe(200);
+    const apres = await sec.get<{ cartes: { par: string }[]; personnalise: boolean }>('/pilotage/cartes');
+    expect(apres.corps.personnalise).toBe(true);
+    expect(apres.corps.cartes).toHaveLength(1);
+    expect(apres.corps.cartes[0]!.par).toBe('sexe');
+    expect((await sec.delete('/pilotage/cartes')).status).toBe(200);
+    expect((await sec.get<{ personnalise: boolean }>('/pilotage/cartes')).corps.personnalise).toBe(false);
+  });
+});
+
+describe('Cartes du tableau de bord : toutes les combinaisons répondent', () => {
+  it('chaque indicateur, chaque regroupement permis (compte du directeur : tous les indicateurs)', async () => {
+    const roles = (await sec.get<{ id: string; code: string }[]>('/core/roles')).corps;
+    const dir = roles.find((r) => r.code === 'directeur')!;
+    expect((await sec.post('/core/comptes', { identifiant: 'dir.test', nomAffiche: 'Directeur test', roles: [{ roleId: dir.id }], motDePasse: 'mdp-directeur-1' })).status).toBe(200);
+    const directeur = await connecter(env.app, 'dir.test', 'mdp-directeur-1');
+    const d = await directeur.get<{ catalogue: { code: string; par: { code: string }[] }[] }>('/pilotage/cartes');
+    expect(d.corps.catalogue).toHaveLength(6);
+    for (const i of d.corps.catalogue) for (const p of i.par) {
+      const r = await directeur.get(`/pilotage/cartes/donnees?indicateur=${i.code}&par=${p.code}&duree=30j`);
+      expect([i.code, p.code, r.status]).toEqual([i.code, p.code, 200]);
+    }
+  });
+});

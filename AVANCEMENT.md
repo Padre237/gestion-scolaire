@@ -30,7 +30,7 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - [ ] Lot 2 · formulaire d'inscription configurable.
 - [ ] Lot 3 · liste des élèves : fenêtre détail / mise à jour, historique, recherche instantanée.
 - [ ] Lot 4 · modèles d'impression (3 par document), logo sur les bulletins, QR code de vérification.
-- [ ] Lot 5 · tableau de bord personnalisable (6 cartes par utilisateur).
+- [x] Lot 5 · tableau de bord personnalisable (6 cartes par utilisateur, D-41) ; barre haute fixe au défilement.
 - [ ] Lot 6 · rôles et droits sur mesure (directeur).
 - [ ] Lot 7 · retrait de l'accès direct à la base dans Données.
 - [ ] Lot 8 · Assistant par OpenRouter (aucune donnée personnelle envoyée).

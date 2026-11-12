@@ -1,124 +1,115 @@
-// Maquette Main (tableau de bord). Écran de référence pour les autres modules ; la connexion est dans mobile.tsx (charte Sekou).
-import { useNavigate } from 'react-router-dom';
+// Tableau de bord personnalisable (D-41) : jusqu'à six cartes propres à chaque utilisateur. Chaque carte choisit son indicateur,
+// son regroupement, ses filtres et sa forme (barres, courbe, anneau, tableau), indépendamment des autres.
+// La connexion est dans mobile.tsx (charte Sekou).
+import { useState } from 'react';
 import type { RouteEcran } from '../App.tsx';
 import { api } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
-import { fcfa, heure, jjmm, montant, pluriel } from '../core/format.ts';
-import { Bouton, CarteChiffre, Colonnes, Doux, Icone, LigneListe, Panneau, Pastille, TitrePanneau, useDonnees, BarreProgression, Chargement, Erreur } from '../core/ui.tsx';
-import { useEtroit } from './admin-commun.tsx';
+import { Anneau, Barres, Courbe, TableauPoints, type Point } from '../core/graphiques.tsx';
+import { agir, Bascules, Bouton, Chargement, confirmer, Doux, Erreur, Icone, Liste, ouvrirFormulaire, Panneau, PiedFenetre, TitrePanneau, useDonnees } from '../core/ui.tsx';
 
+type Forme = 'barres' | 'courbe' | 'anneau' | 'tableau';
+type Section = 'toutes' | 'francophone' | 'anglophone';
+type Duree = '7j' | '30j' | '90j' | 'annee';
+interface Carte { id: string; indicateur: string; par: string; forme: Forme; section: Section; classeId: string | null; duree: Duree; periodeId: string | null }
+interface Indicateur { code: string; libelle: string; unite: string; periode: 'duree' | 'periode' | null; par: { code: string; libelle: string }[] }
+interface Config { personnalise: boolean; cartes: Carte[]; catalogue: Indicateur[]; classes: { id: string; nom: string; section: Section }[]; periodes: { id: string; libelle: string }[] }
 
-// ===================================================================== tableau de bord
+const MAX = 6;
+const FORMES: [Forme, string][] = [['barres', 'Barres'], ['courbe', 'Courbe'], ['anneau', 'Anneau'], ['tableau', 'Tableau']];
+const SECTIONS: [Section, string][] = [['toutes', 'Toutes'], ['francophone', 'Francophone'], ['anglophone', 'Anglophone']];
+const DUREES: [Duree, string][] = [['7j', '7 jours'], ['30j', '30 jours'], ['90j', '3 mois'], ['annee', 'Depuis la rentrée']];
+/** Les regroupements qui n'ont pas de sens avec un filtre de classe (la classe est déjà le regroupement). */
+const SANS_CLASSE = ['classe', 'niveau', 'section'];
 
-function Courbe({ jours }: { jours: { jour: string; montant: number; versements: number }[] }) {
-  const etroit = useEtroit();
-  const max = Math.max(1, ...jours.map((x) => x.montant));
-  const total = jours.reduce((s, x) => s + x.montant, 0);
-  const nb = jours.reduce((s, x) => s + x.versements, 0);
+function FenetreCarte({ carte, cfg, fermer }: { carte: Carte; cfg: Config; fermer: (c?: Carte) => void }) {
+  const [c, setC] = useState<Carte>(carte);
+  const ind = cfg.catalogue.find((i) => i.code === c.indicateur) ?? cfg.catalogue[0]!;
+  const maj = (x: Partial<Carte>) => setC((v) => ({ ...v, ...x }));
+  const classes = cfg.classes.filter((k) => c.section === 'toutes' || k.section === c.section);
   return (
-    <Panneau>
-      <TitrePanneau titre="Encaissements · 14 derniers jours" sous={`${fcfa(total)} · ${pluriel(nb, 'versement')}`} />
-      <div role="img" aria-label={`Encaissements des 14 derniers jours : ${jours.map((j) => `${j.jour} ${montant(j.montant)}`).join(', ')} FCFA`}
-        style={{ height: 200, display: 'flex', alignItems: 'flex-end', gap: etroit ? 4 : 8 }}>
-        {jours.map((j, i) => {
-          const dernier = i === jours.length - 1;
-          // Sous 640 px, un libellé de jour sur deux est masqué (le dernier reste) ; la place du libellé est conservée pour aligner les barres.
-          const libelleMasque = !dernier && (jours.length - 1 - i) % 2 === 1;
-          return (
-            <div key={i} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', gap: 6 }}>
-              {dernier && <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{montant(j.montant)}</span>}
-              <div style={{ width: '100%', maxWidth: 38, height: Math.max(2, (j.montant / max) * 140), borderRadius: '4px 4px 0 0', background: dernier ? 'var(--eclat)' : 'var(--accent)' }} />
-              <span style={{ fontSize: 11, lineHeight: '16px', minHeight: 16, color: dernier ? 'var(--texte)' : 'var(--doux)', fontWeight: dernier ? 700 : 400 }}>
-                <span className={libelleMasque ? 'cache-mobile' : ''}>{j.jour}</span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
+    <>
+      <Liste libelle="Donnée affichée" value={c.indicateur} options={cfg.catalogue.map((i): [string, string] => [i.code, i.libelle])}
+        onChange={(x) => { const n = cfg.catalogue.find((i) => i.code === x)!; maj({ indicateur: x, par: n.par.some((p) => p.code === c.par) ? c.par : n.par[0]!.code }); }} />
+      <Liste libelle="Regrouper par" value={c.par} options={ind.par.map((p): [string, string] => [p.code, p.libelle])}
+        onChange={(x) => maj({ par: x, classeId: SANS_CLASSE.includes(x) ? null : c.classeId, forme: (x === 'jour' || x === 'mois') && c.forme === 'anneau' ? 'courbe' : c.forme })} />
+      <div className="champ-groupe"><span className="libelle">Forme</span><Bascules options={FORMES} valeur={c.forme} onChange={(x) => maj({ forme: x })} /></div>
+      <div className="champ-groupe"><span className="libelle">Section</span><Bascules options={SECTIONS} valeur={c.section} onChange={(x) => maj({ section: x, classeId: null })} /></div>
+      {!SANS_CLASSE.includes(c.par) && (
+        <Liste libelle="Classe" value={c.classeId} options={[[null, 'Toutes les classes'], ...classes.map((k): [string, string] => [k.id, k.nom])]} onChange={(x) => maj({ classeId: x })} />
+      )}
+      {ind.periode === 'duree' && <div className="champ-groupe"><span className="libelle">Période</span><Bascules options={DUREES} valeur={c.duree} onChange={(x) => maj({ duree: x })} /></div>}
+      {ind.periode === 'periode' && (
+        <Liste libelle="Période d’évaluation" value={c.periodeId} options={[[null, 'Dernière période publiée'], ...cfg.periodes.map((p): [string, string] => [p.id, p.libelle])]} onChange={(x) => maj({ periodeId: x })} />
+      )}
+      <PiedFenetre fermer={() => fermer()} action="Enregistrer la carte" onAction={() => fermer(c)} />
+    </>
+  );
+}
+
+function CarteTableau({ carte, cfg, modifier, retirer }: { carte: Carte; cfg: Config; modifier: () => void; retirer: () => void }) {
+  const ind = cfg.catalogue.find((i) => i.code === carte.indicateur);
+  const par = ind?.par.find((p) => p.code === carte.par);
+  const q = new URLSearchParams({ indicateur: carte.indicateur, par: carte.par, section: carte.section, duree: carte.duree });
+  if (carte.classeId) q.set('classeId', carte.classeId);
+  if (carte.periodeId) q.set('periodeId', carte.periodeId);
+  const d = useDonnees(() => api.get<{ unite: string; sous: string; points: Point[] }>(`/pilotage/cartes/donnees?${q}`), [q.toString()]);
+  const filtres = [carte.section !== 'toutes' ? SECTIONS.find(([v]) => v === carte.section)![1] : null, carte.classeId ? cfg.classes.find((k) => k.id === carte.classeId)?.nom : null, d.d?.sous]
+    .filter(Boolean).join(' · ');
+  const corps = !d.d ? (d.erreur ? <Doux>{d.erreur}</Doux> : <Chargement />)
+    : carte.forme === 'barres' ? <Barres points={d.d.points} unite={d.d.unite} />
+      : carte.forme === 'courbe' ? <Courbe points={d.d.points} unite={d.d.unite} />
+        : carte.forme === 'anneau' ? <Anneau points={d.d.points} unite={d.d.unite} />
+          : <TableauPoints points={d.d.points} unite={d.d.unite} entete={par?.libelle ?? ''} />;
+  return (
+    <Panneau className="carte-tableau">
+      <TitrePanneau titre={`${ind?.libelle ?? ''}${par ? ` par ${par.libelle.toLowerCase()}` : ''}`} sous={filtres || undefined} action={
+        <span style={{ display: 'inline-flex', gap: 4 }}>
+          <button type="button" className="bouton bouton-icone petit-icone" aria-label="Modifier la carte" title="Modifier la carte" onClick={modifier}><Icone nom="parametres" /></button>
+          <button type="button" className="bouton bouton-icone petit-icone" aria-label="Retirer la carte" title="Retirer la carte" onClick={retirer}><Icone nom="fermer" /></button>
+        </span>} />
+      {corps}
     </Panneau>
   );
 }
 
-const A_TRAITER: Record<string, [string, string, 'attention' | 'danger' | 'neutre']> = {
-  validations: ['demandes à valider', '/finances/validations', 'attention'],
-  appels: ['appels non faits ce matin', '/vie-scolaire/appel', 'danger'],
-  notes: ['classes sans notes pour la', '/pedagogie/notes', 'danger'],
-  sms: ['SMS en attente d’internet', '/messages/sms', 'neutre'],
-};
-
 export function EcranTableauDeBord() {
-  const naviguer = useNavigate();
-  const etroit = useEtroit();
-  const { d, erreur, recharger } = useDonnees(() => api.get('/pilotage/tableau-de-bord'));
+  const st = useDonnees(() => api.get<Config>('/pilotage/cartes'));
+  const cfg = st.d;
+  const enregistrer = async (cartes: Carte[]) => {
+    if (await agir(() => api.put('/pilotage/cartes', { cartes }))) await st.recharger();
+  };
   const contenu = (() => {
-    if (erreur) return <Erreur message={erreur} recharger={recharger} />;
-    if (!d) return <Chargement />;
-    const cartes = [];
-    if (d.effectifs) cartes.push(<CarteChiffre key="e" etiquette="Élèves inscrits" valeur={montant(d.effectifs.eleves)} sous={pluriel(d.effectifs.classes, 'classe')} />);
-    if (d.jour) cartes.push(<CarteChiffre key="j" etiquette="Encaissé aujourd'hui" valeur={montant(d.jour.montant)} unite="FCFA" reperes sous={pluriel(d.jour.versements, 'versement')} />);
-    if (d.recouvrement) cartes.push(<CarteChiffre key="r" etiquette="Taux de recouvrement" valeur={`${d.recouvrement.du > 0 ? Math.floor((d.recouvrement.verse * 100) / d.recouvrement.du) : 0} %`}
-      sous={`${montant(d.recouvrement.verse)} sur ${montant(d.recouvrement.du)} FCFA`} />);
-    if (d.echu) cartes.push(<CarteChiffre key="x" etiquette="Échéances dépassées" valeur={montant(d.echu.montant)} unite="FCFA" couleur="var(--attention)" sous={`${pluriel(d.echu.eleves, 'élève')} en retard`} />);
-    const aTraiter = ((d.aTraiter ?? []) as { code: string; nombre: number; sequence?: string }[]).filter((a) => a.nombre > 0);
+    if (st.erreur && !cfg) return <Erreur message={st.erreur} recharger={st.recharger} />;
+    if (!cfg) return <Chargement />;
+    const ouvrir = async (carte: Carte, titre: string) => ouvrirFormulaire<Carte>(titre, ({ fermer }) => <FenetreCarte carte={carte} cfg={cfg} fermer={fermer} />, 560);
+    const ajouter = async () => {
+      const ind = cfg.catalogue[0]!;
+      const c = await ouvrir({ id: `c${Date.now()}`, indicateur: ind.code, par: ind.par[0]!.code, forme: 'barres', section: 'toutes', classeId: null, duree: '30j', periodeId: null }, 'Ajouter une carte');
+      if (c) await enregistrer([...cfg.cartes, c]);
+    };
+    const modifier = async (carte: Carte) => {
+      const c = await ouvrir(carte, 'Modifier la carte');
+      if (c) await enregistrer(cfg.cartes.map((x) => (x.id === carte.id ? c : x)));
+    };
+    const retirer = async (carte: Carte) => { await enregistrer(cfg.cartes.filter((x) => x.id !== carte.id)); };
+    const defaut = async () => {
+      if (!(await confirmer('Cartes par défaut', 'Vos cartes sont remplacées par les six cartes proposées par l’application.', 'Rétablir'))) return;
+      if (await agir(() => api.del('/pilotage/cartes'), 'Cartes par défaut rétablies')) await st.recharger();
+    };
+    if (!cfg.catalogue.length) return <Panneau><Doux>Aucune donnée du tableau de bord n’est ouverte à votre compte.</Doux></Panneau>;
     return (
       <>
-        {/* Deux cartes par rangée dès 320 px de large ; quatre sur un grand écran, comme la maquette. */}
-        {cartes.length > 0 && <div className="grille" style={{ ['--min' as string]: '150px', gap: etroit ? 12 : 20 }}>{cartes}</div>}
-        <Colonnes colonnes={[
-          { flex: 2, min: 600, enfants: <>
-            {d.courbe && <Courbe jours={d.courbe} />}
-            {d.parClasse && (
-              <Panneau>
-                <TitrePanneau titre="Recouvrement par classe" sous="Part versée, et reste dû en FCFA" />
-                {/* Grille sur grand écran ; liste pleine largeur sur téléphone (.pile-mobile). */}
-                <div className="grille pile-mobile" style={{ ['--min' as string]: '150px', gap: etroit ? 14 : 18 }}>
-                  {(d.parClasse as any[]).map((c) => (
-                    <div key={c.classe} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}><span className="gras">{c.classe}</span><span className="gras">{c.du > 0 ? Math.floor((c.verse * 100) / c.du) : 0} %</span></div>
-                      <BarreProgression valeur={c.du > 0 ? c.verse / c.du : 0} />
-                      <Doux>Reste {montant(c.reste)}</Doux>
-                    </div>
-                  ))}
-                </div>
-              </Panneau>
-            )}
-          </> },
-          { flex: 1, min: 300, enfants: <>
-            {d.derniers && (
-              <Panneau>
-                <TitrePanneau titre="Derniers versements" action={<Bouton variante="lien" onClick={() => naviguer('/finances/caisse')}>Caisse du jour</Bouton>} />
-                <div>
-                  {(d.derniers as any[]).map((v) => (
-                    <LigneListe key={v.numeroRecu} onClick={() => naviguer(`/scolarite/eleves/${v.eleveId}`)}>
-                      <div style={{ flex: '1 1 160px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                        <Doux>{v.numeroRecu}</Doux><span className="gras">{v.eleve}</span><Doux>{v.classe} · {jjmm(v.encaisseLe)} à {heure(v.encaisseLe)}</Doux>
-                      </div>
-                      <span className="gras" style={{ whiteSpace: 'nowrap' }}>{montant(v.montant)}</span>
-                    </LigneListe>
-                  ))}
-                  {d.derniers.length === 0 && <Doux>Aucun versement pour l’instant</Doux>}
-                </div>
-              </Panneau>
-            )}
-            {aTraiter.length > 0 && (
-              <Panneau>
-                <TitrePanneau titre="À traiter" />
-                <div>
-                  {aTraiter.map((a) => {
-                    const [texte, route, ton] = A_TRAITER[a.code] ?? A_TRAITER['sms']!;
-                    return (
-                      <LigneListe key={a.code} onClick={() => naviguer(route)}>
-                        <Pastille ton={ton}>{a.nombre}</Pastille>
-                        <span style={{ flex: '1 1 160px', minWidth: 0 }}>{texte}{a.code === 'notes' ? ` ${a.sequence ?? ''}` : ''}</span>
-                        <Icone nom="chevron" taille={16} style={{ color: 'var(--doux)' }} />
-                      </LigneListe>
-                    );
-                  })}
-                </div>
-              </Panneau>
-            )}
-          </> },
-        ]} />
+        <div className="rangee" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <Doux>{cfg.cartes.length} carte{cfg.cartes.length > 1 ? 's' : ''} sur {MAX} · chaque carte se règle avec son bouton <Icone nom="parametres" taille={14} /></Doux>
+          <span style={{ flex: 1 }} />
+          {cfg.personnalise && <Bouton onClick={defaut}>Cartes par défaut</Bouton>}
+          {cfg.cartes.length < MAX && <Bouton variante="principal" icone="ajouter" onClick={ajouter}>Ajouter une carte</Bouton>}
+        </div>
+        {cfg.cartes.length === 0 && <Panneau><Doux>Aucune carte : ajoutez-en jusqu’à six.</Doux></Panneau>}
+        <div className="cartes-grille">
+          {cfg.cartes.map((c) => <CarteTableau key={c.id + JSON.stringify(c)} carte={c} cfg={cfg} modifier={() => modifier(c)} retirer={() => retirer(c)} />)}
+        </div>
       </>
     );
   })();
@@ -129,5 +120,3 @@ export const routes: RouteEcran[] = [
   { path: '/', element: <EcranTableauDeBord /> },
   { path: '/tableau-de-bord', element: <EcranTableauDeBord /> },
 ];
-
-

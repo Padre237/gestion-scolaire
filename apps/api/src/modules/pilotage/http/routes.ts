@@ -10,9 +10,11 @@ import { versCsv } from '../../../core/csv.ts';
 import { anneeOuverte } from '../../structure/index.ts';
 import { classesAccessibles, perimetreEnseignant } from '../../../core/perimetre.ts';
 import { pdfTableau } from '@gs/print';
+import { routesCartes } from './cartes.ts';
 
 export async function routesPilotage(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
+  await routesCartes(app);
 
   // E-08 : le même écran pour tous ; chaque bloc n'apparaît qu'avec la permission sur ses données.
   r.get('/pilotage/tableau-de-bord', { config: { unePermissionParmi: ['pilotage.tableau.consulter', 'scolarite.eleve.consulter', 'caisse.consulter', 'finances.impaye.consulter'] }, schema: { tags: ['pilotage'] } }, async (req) => {

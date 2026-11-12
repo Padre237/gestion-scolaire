@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMoi, useSession, type Moi } from './session.tsx';
-import { Avatar, Icone, Pastille, useFocusPiege } from './ui.tsx';
+import { Avatar, Icone, useFocusPiege } from './ui.tsx';
 import type { NomIcone } from './icones-traces.ts';
 
 export type Module = 'tableau' | 'eleves' | 'frais' | 'notes' | 'edt' | 'vie' | 'messages' | 'personnel' | 'pilotage' | 'assistant' | 'parametres';
@@ -90,6 +90,22 @@ function Modules({ module, moi, modules, onClic }: { module: Module; moi: Moi; m
   );
 }
 
+/** Logo Sekou, version fond sombre (barre latérale bleu encre) ; symbole seul dans le rail d'icônes (charte § 5). */
+const LogoSekou = () => (
+  <div className="logo">
+    <img className="logo-long" src="/marque/sekou-logo-sombre.svg" alt="Sekou" width={99} height={32} />
+    <img className="logo-symbole" src="/marque/sekou-symbole-sombre.svg" alt="Sekou" width={36} height={36} />
+  </div>
+);
+const Etablissement = ({ nom, annee }: { nom: string; annee: string | null }) => (
+  <div className="etablissement-carte"><span className="gras">{nom}</span>{annee && <span className="petit">Année {annee}</span>}</div>
+);
+/** « Jeudi 12 novembre 2026 », à l'heure du Cameroun. */
+const dateDuJour = () => {
+  const t = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Douala' }).format(new Date());
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+
 export function Coque({ module, titre, children, route, sansOnglets }: { module: Module; titre?: string; children: ReactNode; route?: string; sansOnglets?: boolean }) {
   const moi = useMoi();
   const { mode, basculerMode, deconnecter } = useSession();
@@ -151,21 +167,22 @@ export function Coque({ module, titre, children, route, sansOnglets }: { module:
     <div className="app">
       <a href="#contenu" className="lien-evitement" onClick={(e) => { e.preventDefault(); document.getElementById('contenu')?.focus(); }}>Aller au contenu</a>
       <nav className="lateral" aria-label="Menu principal">
-        <div className="logo">
-          <div className="logo-pastille" aria-hidden="true"><Icone nom="logo" taille={20} /></div>
-          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-            <span className="gras">Gestion scolaire</span>
-            <span className="doux petit nom-etab">{moi.etablissement}</span>
-          </div>
-        </div>
+        <LogoSekou />
+        <Etablissement nom={moi.etablissement} annee={moi.annee} />
         <Modules module={module} moi={moi} modules={modules} />
+        <div className="lateral-pied">
+          <Avatar nom={moi.nom} />
+          <div className="lateral-personne"><span className="gras">{moi.nom}</span><span className="petit">{moi.libelleRoles}</span></div>
+          <button type="button" className="lateral-sortie" aria-label="Se déconnecter" title="Se déconnecter" onClick={seDeconnecter}><Icone nom="sortie" /></button>
+        </div>
       </nav>
       <main className="principal" id="contenu" tabIndex={-1}>
+        <div className="entete-zone">
         <header className="entete">
           <button ref={refBoutonMenu} type="button" className="bouton bouton-icone bouton-menu" aria-label="Menu" aria-expanded={tiroir} aria-controls="tiroir-menu" onClick={() => setTiroir(true)}>
             <IconeMenu />
           </button>
-          <div className="entete-titre"><h1 title={titreEcran}>{titreEcran}</h1>{moi.annee && <Pastille ton="accent">{moi.annee}</Pastille>}</div>
+          <div className="entete-titre"><h1 title={titreEcran}>{titreEcran}</h1><span className="sous-titre">{dateDuJour()}{moi.annee ? ` · année ${moi.annee}` : ''}</span></div>
           {moi.a('scolarite.eleve.consulter') && (
             <button type="button" className="recherche-globale" aria-label="Rechercher un élève" onClick={() => naviguer('/scolarite/eleves?recherche=1')}>
               <Icone nom="recherche" /><span>Rechercher un élève</span><kbd>Ctrl</kbd><kbd>K</kbd>
@@ -175,7 +192,7 @@ export function Coque({ module, titre, children, route, sansOnglets }: { module:
             aria-label={mode === 'nuit' ? 'Passer en mode Jour' : 'Passer en mode Nuit'} onClick={basculerMode}>
             <Icone nom={mode === 'nuit' ? 'soleil' : 'lune'} />
           </button>
-          <div ref={refMenu} style={{ position: 'relative' }}>
+          <div ref={refMenu} className="entete-compte" style={{ position: 'relative' }}>
             <button type="button" className="utilisateur" aria-haspopup="menu" aria-expanded={menu} aria-label={`Compte de ${moi.nom}`} onClick={() => setMenu((x) => !x)}>
               <Avatar nom={moi.nom} />
               <div className="utilisateur-nom" style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}><span className="gras" style={{ fontSize: 13 }}>{moi.nom}</span><span className="doux petit">{moi.libelleRoles}</span></div>
@@ -193,21 +210,17 @@ export function Coque({ module, titre, children, route, sansOnglets }: { module:
             {onglets.map((o) => <Link key={o.route} to={o.route} className={actif(o) ? 'actif' : ''} aria-current={actif(o) ? 'page' : undefined}>{o.libelle}</Link>)}
           </nav>
         )}
-        {children}
+        </div>
+        <div className="contenu">{children}</div>
       </main>
       {tiroir && (
         <div className="voile tiroir-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) setTiroir(false); }}>
           <nav ref={refTiroir} id="tiroir-menu" className="tiroir" role="dialog" aria-modal="true" aria-label="Menu principal" tabIndex={-1}>
             <div className="tiroir-entete">
-              <div className="logo">
-                <div className="logo-pastille" aria-hidden="true"><Icone nom="logo" taille={20} /></div>
-                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                  <span className="gras">Gestion scolaire</span>
-                  <span className="doux petit">{moi.etablissement}</span>
-                </div>
-              </div>
+              <LogoSekou />
               <button type="button" className="bouton bouton-icone" aria-label="Fermer le menu" onClick={() => setTiroir(false)}><Icone nom="fermer" /></button>
             </div>
+            <Etablissement nom={moi.etablissement} annee={moi.annee} />
             <Modules module={module} moi={moi} modules={modules} onClic={() => setTiroir(false)} />
                 <div className="tiroir-pied">
               <button type="button" className="bouton" onClick={basculerMode}>

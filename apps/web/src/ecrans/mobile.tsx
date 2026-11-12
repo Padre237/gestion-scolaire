@@ -12,6 +12,7 @@ import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } 
 import type { RouteEcran } from '../App.tsx';
 import { api, ErreurApi, requete } from '../core/api.ts';
 import { useMoi, useSession } from '../core/session.tsx';
+import { accueilDe } from '../core/coque.tsx';
 import { aujourdhuiIso, dateLocale, decimal, fcfa, heure, initiale, jjmm, jjmmaaaa, jourDate, montant, note2, pluriel, versDecimal } from '../core/format.ts';
 import { agir, Bouton, Champ, Chargement, Erreur, Icone, Note, ouvrirFenetre, ouvrirFormulaire, PiedFenetre, signaler, useDonnees } from '../core/ui.tsx';
 import type { NomIcone } from '../core/icones-traces.ts';
@@ -1023,6 +1024,100 @@ function EcranAppelInstituteur() {
   );
 }
 
+// ===================================================================== connexion unique (charte Sekou, D-38)
+
+const TEXTES_CONNEXION = {
+  fr: { titre: 'Connexion', sous: 'Direction, secrétariat, caisse, enseignants et parents : un seul accès.', identifiant: 'Identifiant ou numéro de téléphone',
+    exemple: 'prenom.n ou 6XX XX XX XX', motDePasse: 'Mot de passe', indice: 'Remis par l’école', connecter: 'Se connecter', oubli: 'Mot de passe oublié ?',
+    oubliTexte: 'Le secrétariat de l’école vous remet un nouveau mot de passe. Les parents présentent une pièce d’identité ; un seul compte par famille.',
+    note: 'Les parents se connectent avec leur numéro de téléphone, le personnel avec l’identifiant remis par le secrétariat.',
+    afficher: 'Afficher le mot de passe', masquer: 'Masquer le mot de passe', langue: 'Langue', fermer: 'Fermer', logo: 'Sekou, logiciel de gestion scolaire', annee: 'année scolaire' },
+  en: { titre: 'Sign in', sous: 'Management, office, cash desk, teachers and parents: one single access.', identifiant: 'Username or phone number',
+    exemple: 'firstname.i or 6XX XX XX XX', motDePasse: 'Password', indice: 'Given by the school', connecter: 'Sign in', oubli: 'Forgot your password?',
+    oubliTexte: 'The school office gives you a new password. Parents show an identity document; one account per family.',
+    note: 'Parents sign in with their phone number, staff with the username given by the school office.',
+    afficher: 'Show password', masquer: 'Hide password', langue: 'Language', fermer: 'Close', logo: 'Sekou, school management software', annee: 'school year' },
+};
+
+/** Page de connexion de tout le monde : chacun est ensuite conduit vers son espace (parent, instituteur, bureau). */
+export function EcranConnexionSekou() {
+  const { connecter } = useSession();
+  const naviguer = useNavigate();
+  const [identifiant, setIdentifiant] = useState('');
+  const [motDePasse, setMotDePasse] = useState('');
+  const [visible, setVisible] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [charge, setCharge] = useState(false);
+  const [langue, setLangue] = useState<'fr' | 'en'>('fr');
+  const [ecole, setEcole] = useState<{ nomFr: string; nomEn: string; annee: string | null } | null>(null);
+  useEffect(() => { api.get<{ nomFr: string; nomEn: string; annee: string | null }>('/auth/accueil').then(setEcole).catch(() => undefined); }, []);
+  useCouleurBarre();
+  const t = TEXTES_CONNEXION[langue];
+  const valider = async () => {
+    if (charge) return;
+    setCharge(true);
+    setErreur(null);
+    try {
+      const m = await connecter(identifiant.trim(), motDePasse);
+      naviguer(accueilDe(m), { replace: true });
+    } catch (e) {
+      setErreur(e instanceof ErreurApi ? e.message : String(e));
+    } finally {
+      setCharge(false);
+    }
+  };
+  const oubli = () => void ouvrirFenetre(t.oubli, (fermer) => (
+    <>
+      <p>{t.oubliTexte}</p>
+      <div className="pied"><Bouton variante="principal" onClick={() => fermer()}>{t.fermer}</Bouton></div>
+    </>
+  ), 420);
+  return (
+    <div className="m-app" lang={langue}>
+      <StyleMobile />
+      <div className="m-connexion">
+        <div className="m-connexion-haut">
+          <div><img src="/marque/sekou-logo-signature-sombre.svg" alt={t.logo} width={212} height={44} /></div>
+          <div className="m-titre">
+            <span className="m-trait" aria-hidden="true" />
+            <h1>{t.titre}</h1>
+            <p>{ecole ? `${langue === 'en' ? ecole.nomEn : ecole.nomFr}${ecole.annee ? ` · ${t.annee} ${ecole.annee}` : ''}` : t.sous}</p>
+          </div>
+        </div>
+        <main className="m-connexion-corps">
+          <section className="m-carte">
+            <form className="m-formulaire" noValidate onSubmit={(e) => { e.preventDefault(); void valider(); }}>
+              <div className="m-champ">
+                <label htmlFor="m-identifiant">{t.identifiant}</label>
+                <div className={`m-saisie ${erreur ? 'erreur' : ''}`}>
+                  <input id="m-identifiant" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder={t.exemple} autoFocus
+                    value={identifiant} onChange={(e) => setIdentifiant(e.target.value)} aria-invalid={erreur ? true : undefined} />
+                </div>
+              </div>
+              <div className="m-champ">
+                <label htmlFor="m-mot-de-passe">{t.motDePasse}</label>
+                <div className={`m-saisie ${erreur ? 'erreur' : ''}`}>
+                  <input id="m-mot-de-passe" type={visible ? 'text' : 'password'} autoComplete="current-password" placeholder={t.indice}
+                    value={motDePasse} onChange={(e) => setMotDePasse(e.target.value)} aria-invalid={erreur ? true : undefined} aria-describedby={erreur ? 'm-erreur-connexion' : undefined} />
+                  <button type="button" aria-label={visible ? t.masquer : t.afficher} aria-pressed={visible} onClick={() => setVisible((v) => !v)}><Icone nom="oeil" taille={20} /></button>
+                </div>
+              </div>
+              {erreur && <div id="m-erreur-connexion" className="m-alerte" role="alert" style={{ background: 'var(--danger-fond)', borderColor: 'var(--danger)' }}><Icone nom="alerte" taille={18} style={{ color: 'var(--danger)' }} /><span>{erreur}</span></div>}
+              <button type="submit" className="m-bouton" disabled={charge} aria-busy={charge || undefined}>{charge ? <span className="chargement" aria-hidden="true"><span /></span> : null}{t.connecter}</button>
+              <button type="button" className="m-lien" style={{ alignSelf: 'center', padding: 8 }} onClick={oubli}>{t.oubli}</button>
+            </form>
+          </section>
+          <p className="m-connexion-note">{t.note}</p>
+          <div className="m-langues" role="group" aria-label={t.langue}>
+            <button type="button" aria-pressed={langue === 'fr'} onClick={() => setLangue('fr')} lang="fr">{langue === 'fr' && <Icone nom="globe" taille={16} />}Français</button>
+            <button type="button" aria-pressed={langue === 'en'} onClick={() => setLangue('en')} lang="en">{langue === 'en' && <Icone nom="globe" taille={16} />}English</button>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
 // ===================================================================== parent : enfants
 
 interface Enfant { eleveId: string; prenom: string; nom: string; classe: string }
@@ -1796,6 +1891,7 @@ function EcranVieScolaireParent() {
 }
 
 export const routes: RouteEcran[] = [
+  { path: '/connexion', element: <EcranConnexionSekou /> },
   { path: '/instituteur/connexion', element: <Navigate to="/connexion" replace /> },
   { path: '/instituteur/notes', element: <EcranNotesInstituteur /> },
   { path: '/instituteur/appel', element: <EcranAppelInstituteur /> },

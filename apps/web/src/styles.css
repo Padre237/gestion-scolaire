@@ -1,8 +1,10 @@
-/* Charte « Aurore, édition scolaire » : valeurs relevées dans le CSS des maquettes. Jour par défaut, Nuit au choix du poste. */
+/* Charte « Aurore, édition scolaire », produit Sekou (charte-graphique.md, v1.4) : Jour par défaut, Nuit au choix du poste. */
 @font-face { font-family: 'Inter'; src: url('/polices/Inter-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
 @font-face { font-family: 'Inter'; src: url('/polices/Inter-Medium.ttf') format('truetype'); font-weight: 500; font-display: swap; }
 @font-face { font-family: 'Inter'; src: url('/polices/Inter-SemiBold.ttf') format('truetype'); font-weight: 600; font-display: swap; }
 @font-face { font-family: 'Inter'; src: url('/polices/Inter-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'Inter Display'; src: url('/polices/InterDisplay-SemiBold.ttf') format('truetype'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Inter Display'; src: url('/polices/InterDisplay-Bold.ttf') format('truetype'); font-weight: 700; font-display: swap; }
 
 :root {
   --fond: #F6F8FC; --panneau: #FFFFFF; --champ: #F1F4FA; --texte: #0B1F4B; --doux: #4B5B7A;
@@ -12,7 +14,9 @@
   --accent-fond: rgba(29,78,216,0.1); --accent-bord: rgba(29,78,216,0.3); --accent-barre: rgba(29,78,216,0.38); --accent-tiret: rgba(29,78,216,0.55);
   --attention-fond: rgba(168,54,10,0.1); --attention-bord: rgba(168,54,10,0.35);
   --danger-fond: rgba(185,28,28,0.1); --succes-fond: rgba(21,112,58,0.1); --succes-bord: rgba(21,112,58,0.35);
-  --ombre: 0 1px 3px rgba(11,31,75,0.10);
+  --ombre: 0 1px 2px rgba(11,31,75,0.08), 0 2px 6px rgba(11,31,75,0.06);
+  --lateral: #0B1F4B; --lateral-texte: #FFFFFF; --lateral-doux: #C7D6FF; --lateral-bord: #2A3F73; --lateral-survol: rgba(255,255,255,0.08);
+  --lateral-actif-fond: #1D4ED8; --lateral-actif-texte: #FFFFFF;
   --touche-accent-fond: rgba(255,255,255,0.14); --touche-accent-bord: rgba(255,255,255,0.45);
   color-scheme: light;
 }
@@ -25,6 +29,8 @@
   --attention-fond: rgba(253,186,116,0.14); --attention-bord: rgba(253,186,116,0.35);
   --danger-fond: rgba(252,165,165,0.14); --succes-fond: rgba(110,231,160,0.14); --succes-bord: rgba(110,231,160,0.35);
   --ombre: none;
+  --lateral: #171B23; --lateral-texte: #E8ECF3; --lateral-doux: #A9B2C2; --lateral-bord: #2A303C; --lateral-survol: rgba(255,255,255,0.06);
+  --lateral-actif-fond: rgba(163,193,255,0.16); --lateral-actif-texte: #A3C1FF;
   --touche-accent-fond: rgba(14,19,32,0.14); --touche-accent-bord: rgba(14,19,32,0.45);
   color-scheme: dark;
 }
@@ -33,8 +39,6 @@
 html, body { margin: 0; }
 body {
   background-color: var(--fond);
-  background-image: radial-gradient(circle at 1px 1px, var(--trame) 1px, transparent 0);
-  background-size: 24px 24px;
   color: var(--texte); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45;
   font-variant-numeric: tabular-nums slashed-zero;
 }
@@ -51,37 +55,52 @@ main.principal:focus { outline: none; }
 
 /* ---------------------------------------------------------------- coque */
 .app { min-height: 100vh; display: flex; flex-wrap: wrap; }
-.lateral { flex: 1 1 220px; max-width: 220px; padding: 20px 14px; display: flex; flex-direction: column; gap: 24px; background: var(--panneau); border-right: 1px solid var(--bord);
+.lateral { flex: 1 1 248px; max-width: 248px; padding: 20px 14px; display: flex; flex-direction: column; gap: 24px; background: var(--lateral); color: var(--lateral-texte); border-right: 1px solid var(--lateral-bord);
   position: sticky; top: 0; align-self: flex-start; height: 100vh; height: 100dvh; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .bouton.bouton-menu { display: none; }
 .menu-utilisateur-info { display: none; }
 .logo { display: flex; align-items: center; gap: 10px; padding: 0 6px; }
+.logo img { display: block; }
+.logo .logo-symbole { display: none; }
+.lateral :focus-visible, .tiroir :focus-visible { outline-color: var(--lateral-texte); }
+.etablissement-carte { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border: 1px solid var(--lateral-bord); border-radius: 12px; line-height: 1.3; }
+.etablissement-carte .petit { color: var(--lateral-doux); }
+.lateral-pied { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--lateral-survol); }
+.lateral-personne { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.lateral-personne .gras { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lateral-personne .petit { color: var(--lateral-doux); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lateral-pied .avatar { background: #1D4ED8; color: #FFFFFF; border-color: transparent; }
+.lateral-sortie { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--lateral-doux); cursor: pointer; }
+.lateral-sortie:hover { background: var(--lateral-survol); color: var(--lateral-texte); }
 .logo-pastille { flex: none; width: 34px; height: 34px; border-radius: 10px; background: var(--eclat); color: #0B1F4B; display: flex; align-items: center; justify-content: center; }
 .menu { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.menu a { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; border: 1px solid transparent; color: var(--texte); font-weight: 500; }
-.menu a svg { color: var(--doux); }
-.menu a.actif { border-color: var(--accent-bord); background: var(--accent-fond); color: var(--accent); font-weight: 600; }
-.menu a.actif svg { color: var(--accent); }
-.menu a:hover:not(.actif) { background: var(--neutre-fond); }
+.menu a { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; border: 1px solid transparent; color: var(--lateral-texte); font-weight: 500; }
+.menu a svg { color: var(--lateral-doux); }
+.menu a.actif { background: var(--lateral-actif-fond); color: var(--lateral-actif-texte); font-weight: 600; }
+.menu a.actif svg { color: var(--lateral-actif-texte); }
+.menu a:hover:not(.actif) { background: var(--lateral-survol); color: var(--lateral-texte); }
 .apercu { display: flex; flex-direction: column; gap: 6px; padding: 0 2px; }
 .apercu a { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border-radius: 8px; text-decoration: none; color: var(--texte); font-weight: 500; border: 1px dashed var(--bord-fort); }
-main.principal { flex: 999 1 560px; min-width: 0; padding: 20px 32px 32px; display: flex; flex-direction: column; gap: 20px; }
-.entete { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.entete-titre { flex: 1 1 260px; min-width: 0; display: flex; align-items: center; gap: 12px; }
-.entete-titre h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+main.principal { flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; }
+.entete-zone { background: var(--panneau); border-bottom: 1px solid var(--bord); padding: 20px 32px 0; display: flex; flex-direction: column; }
+.contenu { flex: 1; min-width: 0; padding: 24px 32px 32px; display: flex; flex-direction: column; gap: 20px; }
+.entete { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding-bottom: 20px; }
+.entete-titre { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.entete-titre h1 { margin: 0; font-family: 'Inter Display', Inter, system-ui, sans-serif; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.sous-titre { color: var(--doux); font-size: 13px; }
 .recherche-globale { flex: 0 1 300px; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--bord); background: var(--champ); color: var(--doux); text-decoration: none; cursor: pointer; }
 .recherche-globale span { flex: 1; text-align: left; }
 .utilisateur { display: flex; align-items: center; gap: 10px; position: relative; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; min-height: 44px; }
 .menu-utilisateur { position: absolute; right: 0; top: 50px; z-index: 30; background: var(--panneau); border: 1px solid var(--bord-fort); border-radius: 8px; box-shadow: var(--ombre); min-width: 200px; padding: 6px; }
 .menu-utilisateur button { display: block; width: 100%; text-align: left; height: 40px; padding: 0 12px; border: 0; background: none; border-radius: 6px; cursor: pointer; }
 .menu-utilisateur button:hover { background: var(--neutre-fond); }
-.onglets { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--bord); }
+.onglets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: -8px; }
 .onglets a { display: flex; align-items: center; height: 44px; padding: 0 14px; text-decoration: none; font-weight: 600; white-space: nowrap; border-bottom: 2px solid transparent; color: var(--doux); }
 .onglets a.actif { border-bottom-color: var(--accent); color: var(--accent); }
 
 /* ---------------------------------------------------------------- composants */
 .panneau { position: relative; background: var(--panneau); border: 1px solid var(--bord); border-radius: 12px; box-shadow: var(--ombre); padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.repere { position: absolute; width: 10px; height: 10px; pointer-events: none; }
+.repere { display: none; }
 .repere.hg { top: 8px; left: 8px; border-top: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); border-top-left-radius: 4px; }
 .repere.hd { top: 8px; right: 8px; border-top: 1.5px solid var(--accent); border-right: 1.5px solid var(--accent); border-top-right-radius: 4px; }
 .repere.bg { bottom: 8px; left: 8px; border-bottom: 1.5px solid var(--accent); border-left: 1.5px solid var(--accent); border-bottom-left-radius: 4px; }
@@ -233,22 +252,27 @@ table.tableau tbody tr.cliquable:hover { background: var(--neutre-fond); }
 @media (min-width: 900px) and (max-width: 1199px) {
   .lateral { flex: 0 0 76px; max-width: 76px; padding: 14px 4px; gap: 16px; align-items: stretch; }
   .lateral .logo { justify-content: center; padding: 0; }
-  .lateral .logo > div { display: none !important; }
+  .lateral .logo .logo-long, .lateral .etablissement-carte, .lateral .lateral-personne { display: none !important; }
+  .lateral .logo .logo-symbole { display: block; }
+  .lateral .lateral-pied { flex-direction: column; padding: 8px 4px; gap: 6px; }
   .lateral .menu a { flex-direction: column; justify-content: center; gap: 3px; height: auto; min-height: 56px; padding: 6px 2px; text-align: center; }
   .lateral .menu a span { font-size: 10.5px; line-height: 1.15; font-weight: 500; letter-spacing: -0.01em; max-width: 100%; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .lateral .menu a.actif span { font-weight: 600; }
 }
 @media (max-width: 1199px) {
   .menu-utilisateur-info { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px 10px; border-bottom: 1px solid var(--bord); margin-bottom: 4px; }
-  main.principal { padding: 20px 24px 28px; }
+  .entete-zone { padding: 16px 24px 0; }
+  .contenu { padding: 20px 24px 28px; }
 }
 @media (max-width: 899px) {
   .lateral { display: none; }
   .app { display: block; }
-  main.principal { padding: 0 16px 24px; gap: 16px; }
+  .entete-zone { padding: 0; }
+  .contenu { padding: 16px 16px 24px; gap: 16px; }
+  .sous-titre { display: none; }
   /* barre haute : une seule ligne, collante */
   .entete { position: sticky; top: 0; z-index: 25; display: grid; grid-template-columns: 44px minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
-    margin: 0 -16px; padding: 8px 12px; background: var(--panneau); border-bottom: 1px solid var(--bord); flex-wrap: nowrap; }
+    margin: 0; padding: 8px 12px; background: var(--panneau); border-bottom: 1px solid var(--bord); flex-wrap: nowrap; }
   .bouton.bouton-menu { display: inline-flex; border-color: transparent; background: transparent; color: var(--texte); }
   .entete-titre { flex: none; gap: 10px; }
   .entete-titre h1 { font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -261,9 +285,9 @@ table.tableau tbody tr.cliquable:hover { background: var(--neutre-fond); }
   .menu-utilisateur { top: 48px; }
   .bouton kbd { display: none; }
   /* onglets du module : bande défilante, onglet actif centré au montage, dégradé au bord qui montre la suite */
-  .onglets { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 0 -16px; padding: 0 16px;
-    background: linear-gradient(90deg, var(--fond) 40%, transparent) 0 0 / 32px 100% no-repeat local,
-      linear-gradient(270deg, var(--fond) 40%, transparent) 100% 0 / 32px 100% no-repeat local,
+  .onglets { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; scrollbar-width: none; margin: 0; padding: 0 16px;
+    background: linear-gradient(90deg, var(--panneau) 40%, transparent) 0 0 / 32px 100% no-repeat local,
+      linear-gradient(270deg, var(--panneau) 40%, transparent) 100% 0 / 32px 100% no-repeat local,
       linear-gradient(90deg, var(--bord-fort), transparent) 0 0 / 12px 100% no-repeat scroll,
       linear-gradient(270deg, var(--bord-fort), transparent) 100% 0 / 12px 100% no-repeat scroll; }
   .onglets::-webkit-scrollbar { display: none; }
@@ -273,8 +297,7 @@ table.tableau tbody tr.cliquable:hover { background: var(--neutre-fond); }
   .colonne { flex: none !important; width: 100%; }
 }
 @media (max-width: 399px) {
-  main.principal { padding-left: 12px; padding-right: 12px; }
-  .entete, .onglets { margin-left: -12px; margin-right: -12px; }
+  .contenu { padding-left: 12px; padding-right: 12px; }
   .onglets { padding: 0 12px; }
 }
 @media (max-width: 639px) {
@@ -285,15 +308,18 @@ table.tableau tbody tr.cliquable:hover { background: var(--neutre-fond); }
 
 /* ---------------------------------------------------------------- tiroir de navigation (< 900 px) */
 .voile.tiroir-voile { align-items: stretch; justify-content: flex-start; padding: 0; overflow: hidden; }
-.tiroir { width: min(320px, 86vw); height: 100vh; height: 100dvh; overflow-y: auto; overscroll-behavior: contain; background: var(--panneau); border-right: 1px solid var(--bord);
+.tiroir { width: min(320px, 86vw); height: 100vh; height: 100dvh; overflow-y: auto; overscroll-behavior: contain; background: var(--lateral); color: var(--lateral-texte); border-right: 1px solid var(--lateral-bord);
   box-shadow: 0 10px 30px rgba(11,31,75,0.25); display: flex; flex-direction: column; gap: 20px; padding: 14px 14px calc(14px + env(safe-area-inset-bottom)); animation: glisse 0.18s ease-out; outline: none; }
 @keyframes glisse { from { transform: translateX(-24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
 .tiroir-entete { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tiroir-entete .logo { min-width: 0; flex: 1; }
 .tiroir-entete .logo .doux { white-space: normal; }
 .tiroir .menu a { height: 48px; }
-.tiroir-pied { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--bord); }
+.tiroir-pied { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--lateral-bord); }
 .tiroir-pied .bouton { width: 100%; justify-content: flex-start; height: auto; min-height: 48px; padding: 6px 12px; }
+.tiroir .bouton { background: transparent; color: var(--lateral-texte); border-color: var(--lateral-bord); }
+.tiroir .bouton:hover:not(:disabled) { background: var(--lateral-survol); }
+.tiroir .doux { color: var(--lateral-doux); }
 .tiroir-deconnexion { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; }
 body.tiroir-ouvert { overflow: hidden; }
 
@@ -384,3 +410,6 @@ body.tiroir-ouvert { overflow: hidden; }
     linear-gradient(270deg, var(--bord-fort), transparent) 100% 0 / 10px 100% no-repeat scroll; }
 .defile-x > * { flex: none; scroll-snap-align: start; }
 .defile-x.bascules button { flex: none; }
+
+@media (min-width: 900px) { .entete-compte { display: none; } }
+.m-saisie input:focus, .m-saisie input:focus-visible { outline: none; }

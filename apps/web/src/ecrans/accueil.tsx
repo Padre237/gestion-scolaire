@@ -1,75 +1,12 @@
-// Maquettes Connexion (et Nuit-Connexion) et Main (tableau de bord). Écran de référence pour les autres modules.
-import { useEffect, useState, type CSSProperties } from 'react';
+// Maquette Main (tableau de bord). Écran de référence pour les autres modules ; la connexion est dans mobile.tsx (charte Sekou).
 import { useNavigate } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
-import { api, ErreurApi } from '../core/api.ts';
-import { accueilDe, Coque } from '../core/coque.tsx';
-import { useMoi, useSession } from '../core/session.tsx';
+import { api } from '../core/api.ts';
+import { Coque } from '../core/coque.tsx';
 import { fcfa, heure, jjmm, montant, pluriel } from '../core/format.ts';
-import { Bascules, Bouton, CarteChiffre, Champ, Colonnes, Doux, Icone, LigneListe, Panneau, Pastille, TitrePanneau, useDonnees, BarreProgression, Chargement, Erreur } from '../core/ui.tsx';
+import { Bouton, CarteChiffre, Colonnes, Doux, Icone, LigneListe, Panneau, Pastille, TitrePanneau, useDonnees, BarreProgression, Chargement, Erreur } from '../core/ui.tsx';
 import { useEtroit } from './admin-commun.tsx';
 
-/** Texte lu par les lecteurs d'écran sans être affiché (annonce d'une erreur déjà visible près du champ). */
-const INVISIBLE: CSSProperties = { position: 'absolute', width: 1, height: 1, margin: -1, padding: 0, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 };
-
-// ===================================================================== connexion
-
-export function EcranConnexion() {
-  const { connecter, mode, basculerMode } = useSession();
-  const naviguer = useNavigate();
-  const [identifiant, setIdentifiant] = useState('');
-  const [motDePasse, setMotDePasse] = useState('');
-  const [erreur, setErreur] = useState<string | null>(null);
-  const [charge, setCharge] = useState(false);
-  const [langue, setLangue] = useState<'fr' | 'en'>('fr');
-  const [accueil, setAccueil] = useState<{ nomFr: string; nomEn: string; annee: string | null } | null>(null);
-  useEffect(() => { api.get('/auth/accueil').then(setAccueil).catch(() => undefined); }, []);
-  const valider = async () => {
-    if (charge) return;
-    setCharge(true);
-    setErreur(null);
-    try {
-      const moi = await connecter(identifiant.trim(), motDePasse);
-      naviguer(accueilDe(moi), { replace: true });
-    } catch (e) {
-      setErreur(e instanceof ErreurApi ? e.message : String(e));
-    } finally {
-      setCharge(false);
-    }
-  };
-  const fr = langue !== 'en';
-  // Champs en 16 px : les téléphones n'agrandissent pas la page à la saisie. « safe center » : le panneau reste atteignable quand le clavier réduit la hauteur.
-  const champ16: CSSProperties = { fontSize: 16 };
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'safe center', justifyContent: 'center', padding: '32px 16px' }}>
-      <div style={{ width: '100%', maxWidth: 420 }}>
-        <Panneau reperes marge={28} ecart={18}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div className="logo-pastille" style={{ width: 46, height: 46, borderRadius: 14 }}><Icone nom="logo" taille={26} /></div>
-            <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-              <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.01em', margin: 0 }}>Gestion scolaire</h1>
-              <span className="doux">{fr ? 'Connectez-vous pour continuer' : 'Sign in to continue'}</span>
-            </div>
-          </div>
-          <form noValidate onSubmit={(e) => { e.preventDefault(); void valider(); }} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <Champ libelle={fr ? 'Identifiant ou numéro de téléphone' : 'Username or phone number'} value={identifiant} onChange={setIdentifiant} autoFocus style={champ16} />
-            <Champ libelle={fr ? 'Mot de passe' : 'Password'} type="password" value={motDePasse} onChange={setMotDePasse} erreur={erreur} style={champ16} />
-            {erreur && <span role="alert" style={INVISIBLE}>{erreur}</span>}
-            <Bouton type="submit" variante="principal" pleine touches={[fr ? 'Entrée' : 'Enter']} charge={charge}>{fr ? 'Se connecter' : 'Sign in'}</Bouton>
-          </form>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <div role="group" aria-label={fr ? 'Langue' : 'Language'}><Bascules options={[['fr', 'Français'], ['en', 'English']]} valeur={langue} onChange={setLangue} /></div>
-            <button type="button" className="bouton" style={{ padding: '0 14px', marginLeft: 'auto', borderColor: 'var(--bord)', background: 'transparent', color: 'var(--doux)' }}
-              aria-pressed={mode === 'nuit'} aria-label={mode === 'nuit' ? (fr ? 'Passer en mode Jour' : 'Switch to day mode') : (fr ? 'Passer en mode Nuit' : 'Switch to night mode')} onClick={basculerMode}>
-              <Icone nom={mode === 'nuit' ? 'soleil' : 'lune'} /><span>{mode === 'nuit' ? (fr ? 'Jour' : 'Day') : (fr ? 'Nuit' : 'Night')}</span>
-            </button>
-          </div>
-          {accueil && <Doux>{fr ? accueil.nomFr : accueil.nomEn}{accueil.annee ? ` · ${fr ? 'année scolaire' : 'school year'} ${accueil.annee}` : ''}</Doux>}
-        </Panneau>
-      </div>
-    </div>
-  );
-}
 
 // ===================================================================== tableau de bord
 
@@ -90,7 +27,7 @@ function Courbe({ jours }: { jours: { jour: string; montant: number; versements:
           return (
             <div key={i} style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', height: '100%', gap: 6 }}>
               {dernier && <span style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>{montant(j.montant)}</span>}
-              <div style={{ width: '100%', maxWidth: 38, height: Math.max(2, (j.montant / max) * 140), borderRadius: '4px 4px 0 0', background: dernier ? 'var(--eclat)' : 'var(--accent-barre)' }} />
+              <div style={{ width: '100%', maxWidth: 38, height: Math.max(2, (j.montant / max) * 140), borderRadius: '4px 4px 0 0', background: dernier ? 'var(--eclat)' : 'var(--accent)' }} />
               <span style={{ fontSize: 11, lineHeight: '16px', minHeight: 16, color: dernier ? 'var(--texte)' : 'var(--doux)', fontWeight: dernier ? 700 : 400 }}>
                 <span className={libelleMasque ? 'cache-mobile' : ''}>{j.jour}</span>
               </span>
@@ -190,7 +127,6 @@ export function EcranTableauDeBord() {
 
 export const routes: RouteEcran[] = [
   { path: '/', element: <EcranTableauDeBord /> },
-  { path: '/connexion', element: <EcranConnexion /> },
   { path: '/tableau-de-bord', element: <EcranTableauDeBord /> },
 ];
 

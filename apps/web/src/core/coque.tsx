@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useMoi, useSession, type Moi } from './session.tsx';
 import { Avatar, Icone, useFocusPiege } from './ui.tsx';
+import { BoutonInstaller } from './installation.tsx';
 import type { NomIcone } from './icones-traces.ts';
 
 export type Module = 'tableau' | 'eleves' | 'frais' | 'notes' | 'edt' | 'vie' | 'messages' | 'personnel' | 'pilotage' | 'assistant' | 'parametres';
@@ -224,6 +225,7 @@ export function Coque({ module, titre, children, route, sansOnglets }: { module:
             <Etablissement nom={moi.etablissement} annee={moi.annee} />
             <Modules module={module} moi={moi} modules={modules} onClic={() => setTiroir(false)} />
                 <div className="tiroir-pied">
+              <BoutonInstaller />
               <button type="button" className="bouton" onClick={basculerMode}>
                 <Icone nom={mode === 'nuit' ? 'soleil' : 'lune'} /><span>{mode === 'nuit' ? 'Passer en mode Jour' : 'Passer en mode Nuit'}</span>
               </button>

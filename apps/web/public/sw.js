@@ -1,11 +1,14 @@
 // Service worker de l'application installable : l'application (HTML, scripts, polices) est gardée sur le poste ;
 // les lectures de l'API passent par le réseau et, sans réseau, par la dernière réponse connue.
-const VERSION = 'gs-v2';
-const COQUE = ['/', '/index.html', '/manifest.webmanifest', '/icone.svg', '/icone-192.png', '/icone-512.png', '/marque/sekou-logo-sombre.svg', '/marque/sekou-logo-signature-sombre.svg', '/marque/sekou-logo.svg'];
+// Version remplacée à chaque construction (vite.config.ts) : un nouveau fichier déclenche la mise à jour.
+const VERSION = 'gs-__VERSION__';
+const COQUE = ['/', '/index.html', '/manifest.webmanifest', '/icone.svg', '/icone-192.png', '/icone-512.png', '/icone-masquable-192.png', '/icone-masquable-512.png', '/apple-touch-icon.png', '/marque/sekou-logo-sombre.svg', '/marque/sekou-logo-signature-sombre.svg', '/marque/sekou-logo.svg'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(COQUE)).then(() => self.skipWaiting()));
+  // Première installation : active tout de suite ; mise à jour : attend que la personne choisisse « Recharger » (D-50).
+  e.waitUntil(caches.open(VERSION).then((c) => c.addAll(COQUE)));
 });
+self.addEventListener('message', (e) => { if (e.data === 'ACTIVER') self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil(caches.keys().then((cles) => Promise.all(cles.filter((k) => k !== VERSION).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
 });

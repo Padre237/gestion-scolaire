@@ -539,3 +539,9 @@ body.tiroir-ouvert { overflow: hidden; }
 .verif-lignes div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--bord); }
 .verif-lignes dt { color: var(--doux); }
 .verif-lignes dd { margin: 0; font-weight: 600; text-align: right; }
+
+/* ---------------------------------------------------------------- application installable (D-50) */
+.mise-a-jour { position: fixed; z-index: 90; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(560px, calc(100vw - 32px));
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--panneau); color: var(--texte);
+  border: 1px solid var(--accent); box-shadow: 0 10px 30px rgba(11,31,75,0.25); }
+.mise-a-jour span { flex: 1 1 200px; font-weight: 600; }

@@ -42,6 +42,16 @@ pnpm demo:lancer
 
 Arrêt : `Ctrl C`.
 
+## Installer Sekou sur un téléphone
+
+Sekou est une application installable (PWA) : une seule application pour tout le monde, qui s'ouvre sur la connexion puis sur l'espace de chacun.
+
+- **Android** : ouvrir l'adresse de l'école dans Chrome, puis « Installer l'application » (bouton sur la page de connexion).
+- **iPhone** : ouvrir l'adresse dans Safari, puis Partager › « Sur l'écran d'accueil ».
+- L'adresse doit être sûre (https) : la version en ligne de l'école, ou, sur le réseau de l'école, `https://<adresse du poste>:8443` après avoir installé une fois le certificat de l'école (voir [DEMO.md](DEMO.md)).
+
+Sans réseau, l'application s'ouvre et affiche les dernières informations ; l'appel, les notes et les messages des parents se saisissent et partent d'eux-mêmes au retour du réseau. Une nouvelle version s'annonce par un bandeau « Recharger ».
+
 ## Version en ligne (application hybride)
 
 Le poste de l'école et une version en ligne échangent leurs modifications toutes les 30 à 60 secondes, dans les deux sens. Pour une même information modifiée des deux côtés, la plus récente l'emporte ; l'autre version est gardée (Paramètres › Données › Synchronisation). Sans internet, le poste continue de fonctionner et les modifications partent au retour de la connexion. Reçus, avis de paiement et matricules se créent au poste de l'école.

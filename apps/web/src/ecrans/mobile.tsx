@@ -13,6 +13,7 @@ import type { RouteEcran } from '../App.tsx';
 import { api, ErreurApi, requete } from '../core/api.ts';
 import { useMoi, useSession } from '../core/session.tsx';
 import { accueilDe } from '../core/coque.tsx';
+import { BoutonInstaller } from '../core/installation.tsx';
 import { aujourdhuiIso, dateLocale, decimal, fcfa, heure, initiale, jjmm, jjmmaaaa, jourDate, montant, note2, pluriel, versDecimal } from '../core/format.ts';
 import { agir, Bouton, Champ, Chargement, Erreur, Icone, Note, ouvrirFenetre, ouvrirFormulaire, PiedFenetre, signaler, useDonnees } from '../core/ui.tsx';
 import type { NomIcone } from '../core/icones-traces.ts';
@@ -412,6 +413,8 @@ function Mobile({ titre, sous, retour, actions, entete, trait, grand, bande, pie
   bande?: ReactNode; pied?: ReactNode; onglets: Onglet[]; actif: string; sansOnglets?: boolean; children: ReactNode;
 }) {
   const moi = useMoi();
+  // File des saisies gardées sur le téléphone (notes, appel, messages) : envoyée dès que le réseau revient, sur tous les écrans.
+  useSynchro();
   const ref = useRef<HTMLDivElement>(null);
   useClavier(ref);
   useCouleurBarre();
@@ -516,7 +519,8 @@ function Deconnexion({ vers }: { vers: string }) {
   const { deconnecter } = useSession();
   const naviguer = useNavigate();
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: '4px 0', order: 99 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 4, padding: '4px 0', order: 99 }}>
+      <BoutonInstaller className="lien-texte m-deconnexion" />
       <button type="button" className="lien-texte m-deconnexion" onClick={async () => { await deconnecter(); naviguer(vers, { replace: true }); }}>Se déconnecter</button>
     </div>
   );
@@ -565,6 +569,22 @@ interface Bilan { envoyees: string[]; horsLigne: boolean | null }
 const CLE_NOTES = 'gs.notes.attente';
 const CLE_APPEL = 'gs.appel.attente';
 const CLE_SYNCHRO = 'gs.synchro.derniere';
+/** Messages et justifications d'absence écrits sans réseau par un parent (D-50) : gardés sur le téléphone, envoyés au retour. */
+const CLE_MESSAGES = 'gs.messages.attente';
+interface EnvoiEnAttente { cle: string; compteId: string; chemin: string; corps: unknown; libelle: string; garde: string; eleveId?: string; destinataire?: string; texte?: string }
+/** Envoi d'un parent : tout de suite si le réseau répond, sinon gardé sur le téléphone (renvoie « attente »). */
+async function envoyerOuGarder(compteId: string, x: Omit<EnvoiEnAttente, 'cle' | 'compteId' | 'garde'>): Promise<'envoye' | 'attente'> {
+  try {
+    await api.post(x.chemin, x.corps);
+    return 'envoye';
+  } catch (e) {
+    if (!(e instanceof ErreurApi && (e.statut === 0 || e.code === 'RESEAU'))) throw e;
+    const entree: EnvoiEnAttente = { ...x, compteId, cle: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, garde: new Date().toISOString() };
+    ecrire(CLE_MESSAGES, [...lire<EnvoiEnAttente[]>(CLE_MESSAGES, []), entree]);
+    window.dispatchEvent(new CustomEvent(EVENEMENT, { detail: { envoyees: [], horsLigne: true } }));
+    return 'attente';
+  }
+}
 const EVENEMENT = 'gs-synchro';
 
 const horsReseau = (e: unknown) => e instanceof ErreurApi && (e.statut === 0 || e.code === 'RESEAU');
@@ -616,6 +636,22 @@ function synchroniser(compteId: string): Promise<Bilan> {
         }
       }
     }
+    if (horsLigne !== true) {
+      for (const x of lire<EnvoiEnAttente[]>(CLE_MESSAGES, []).filter((y) => y.compteId === compteId)) {
+        const celleCi = (y: EnvoiEnAttente) => y.cle === x.cle;
+        try {
+          await api.post(x.chemin, x.corps);
+          retirer(CLE_MESSAGES, celleCi);
+          envoyees.push(`message:${x.cle}`);
+          horsLigne = false;
+        } catch (e) {
+          if (arret(e)) { horsLigne = horsReseau(e); break; }
+          retirer(CLE_MESSAGES, celleCi);
+          signaler(`${x.libelle} : ${message(e)}`, true);
+          horsLigne = false;
+        }
+      }
+    }
     if (envoyees.length) ecrire(CLE_SYNCHRO, new Date().toISOString());
     const bilan = { envoyees, horsLigne };
     window.dispatchEvent(new CustomEvent<Bilan>(EVENEMENT, { detail: bilan }));
@@ -642,7 +678,8 @@ function useSynchro(): EtatSynchro {
     window.addEventListener('online', enligne);
     window.addEventListener('offline', horsligne);
     const enAttente = () => lire<NotesEnAttente[]>(CLE_NOTES, []).some((x) => x.compteId === moi.compteId)
-      || lire<AppelEnAttente[]>(CLE_APPEL, []).some((x) => x.compteId === moi.compteId);
+      || lire<AppelEnAttente[]>(CLE_APPEL, []).some((x) => x.compteId === moi.compteId)
+      || lire<EnvoiEnAttente[]>(CLE_MESSAGES, []).some((x) => x.compteId === moi.compteId);
     if (navigator.onLine && enAttente()) void synchroniser(moi.compteId);
     // Serveur de l'école injoignable sans perte du Wi-Fi (pas d'événement « online ») : nouvel essai toutes les 30 s.
     const essai = window.setInterval(() => { if (enAttente()) void synchroniser(moi.compteId); }, 30_000);
@@ -1108,6 +1145,7 @@ export function EcranConnexionSekou() {
             </form>
           </section>
           <p className="m-connexion-note">{t.note}</p>
+          <div style={{ display: 'flex', justifyContent: 'center' }}><BoutonInstaller className="m-lien" libelle={langue === 'en' ? 'Install the app on this phone' : 'Installer l’application sur ce téléphone'} /></div>
           <div className="m-langues" role="group" aria-label={t.langue}>
             <button type="button" aria-pressed={langue === 'fr'} onClick={() => setLangue('fr')} lang="fr">{langue === 'fr' && <Icone nom="globe" taille={16} />}Français</button>
             <button type="button" aria-pressed={langue === 'en'} onClick={() => setLangue('en')} lang="en">{langue === 'en' && <Icone nom="globe" taille={16} />}English</button>
@@ -1781,6 +1819,7 @@ function EcranMessagesParent() {
     () => Promise.all(conversations.map((c) => api.get<Conversation>(`/portail/conversations/${c.id}`))), [ids]);
   const [nonLus] = useState(() => new Set<string>());
   useEffect(() => { for (const c of vue?.conversations ?? []) if (c.nonLu && c.eleveId === eleveId) nonLus.add(c.destinataire); }, [vue, eleveId, nonLus]);
+  const moiParent = useMoi();
   const [texte, setTexte] = useState('');
   const [charge, setCharge] = useState(false);
   const bas = useRef<HTMLDivElement>(null);
@@ -1792,9 +1831,13 @@ function EcranMessagesParent() {
     if (!eleveId || charge) return;
     if (texte.trim().length < 2) { signaler('Écrivez votre message avant de l’envoyer.', true); return; }
     setCharge(true);
-    const r = await agir(() => api.post('/portail/messages', { destinataire: code, eleveId, texte: texte.trim() }), 'Message envoyé.');
-    setCharge(false);
-    if (r) { setTexte(''); await recharger(); void rechargerFil(); }
+    try {
+      const r = await envoyerOuGarder(moiParent.compteId, { chemin: '/portail/messages', corps: { destinataire: code, eleveId, texte: texte.trim() },
+        libelle: `Message ${role === 'Économe' ? 'à l’économe' : role === 'Secrétaire' ? 'au secrétariat' : `au ${role.toLowerCase()}`}`, eleveId, destinataire: code, texte: texte.trim() });
+      signaler(r === 'envoye' ? 'Message envoyé.' : 'Pas de réseau : le message est gardé sur le téléphone et partira tout seul.');
+      setTexte('');
+      if (r === 'envoye') { await recharger(); void rechargerFil(); }
+    } catch (e) { signaler(e instanceof ErreurApi ? e.message : String(e), true); } finally { setCharge(false); }
   };
   let jourPrecedent = '';
   return (
@@ -1847,6 +1890,12 @@ function EcranMessagesParent() {
               </Fragment>
             );
           })}
+          {lire<EnvoiEnAttente[]>(CLE_MESSAGES, []).filter((x) => x.compteId === moiParent.compteId && x.eleveId === eleveId && x.destinataire === code).map((x) => (
+            <div key={x.cle} className="m-bulle moi" style={{ opacity: 0.7 }}>
+              <span>{x.texte}</span>
+              <span>En attente du réseau</span>
+            </div>
+          ))}
           <div ref={bas} />
         </div>
       )}
@@ -1862,7 +1911,7 @@ function RedirectionEcrire() {
 
 // ===================================================================== parent : vie scolaire (absences, observations, annonces)
 
-function FormJustification({ ev, fermer }: { ev: Evenement; fermer: (ok?: boolean) => void }) {
+function FormJustification({ ev, fermer, compteId }: { ev: Evenement; fermer: (ok?: boolean) => void; compteId: string }) {
   const [texte, setTexte] = useState('');
   const [charge, setCharge] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -1870,10 +1919,12 @@ function FormJustification({ ev, fermer }: { ev: Evenement; fermer: (ok?: boolea
     if (texte.trim().length < 3) { setErreur('Indiquez le motif de l’absence.'); return; }
     setErreur(null);
     setCharge(true);
-    const r = await agir(() => api.post('/portail/absences/justification', { inscriptionId: ev.inscriptionId, jour: ev.jour, texte: texte.trim() }),
-      'Demande envoyée au secrétariat.');
-    setCharge(false);
-    if (r) fermer(true);
+    try {
+      const r = await envoyerOuGarder(compteId, { chemin: '/portail/absences/justification', corps: { inscriptionId: ev.inscriptionId, jour: ev.jour, texte: texte.trim() },
+        libelle: `Justification de l’absence du ${jjmmaaaa(ev.jour)}` });
+      signaler(r === 'envoye' ? 'Demande envoyée au secrétariat.' : 'Pas de réseau : la demande est gardée sur le téléphone et partira toute seule.');
+      fermer(true);
+    } catch (e) { setErreur(e instanceof ErreurApi ? e.message : String(e)); } finally { setCharge(false); }
   };
   return (
     <>
@@ -1887,9 +1938,10 @@ function FormJustification({ ev, fermer }: { ev: Evenement; fermer: (ok?: boolea
 }
 
 function EcranVieScolaireParent() {
+  const moi = useMoi();
   // « lu=0 » : consulter les absences ne vaut pas lecture des messages.
   const { d, erreur, recharger } = useDonnees<MessagesParent>(() => api.get('/portail/messages?lu=0'));
-  const justifier = (ev: Evenement) => void ouvrirFormulaire<boolean>('Justifier une absence', ({ fermer }) => <FormJustification ev={ev} fermer={fermer} />, 440)
+  const justifier = (ev: Evenement) => void ouvrirFormulaire<boolean>('Justifier une absence', ({ fermer }) => <FormJustification ev={ev} fermer={fermer} compteId={moi.compteId} />, 440)
     .then((ok) => { if (ok) void recharger(); });
   return (
     <Mobile onglets={ONGLETS_PARENT} actif="/parent/accueil" retour="/parent/accueil" titre="Vie scolaire" sous={d ? `Famille ${d.famille}` : undefined}>

@@ -1,16 +1,16 @@
 // Maquette Donnees : import d'élèves et de responsables depuis un fichier CSV enregistré par Excel (lu sur le poste,
-// contrôlé par le serveur avant tout enregistrement), sauvegardes chiffrées, accès en lecture seule à la base, exports.
+// contrôlé par le serveur avant tout enregistrement), sauvegardes chiffrées, exports. Aucun accès direct à la base (D-47).
 import { useState, type ReactNode } from 'react';
 import { api, ErreurApi } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
-import { choisirFichier, telecharger } from '../core/documents.ts';
+import { choisirFichier } from '../core/documents.ts';
 import { montant, pluriel } from '../core/format.ts';
 import {
   agir, Bandeau, Bouton, Chargement, Colonnes, confirmer, Doux, Erreur, Etapes, LigneListe, Liste, Note, ouvrirFormulaire, Panneau, PiedFenetre,
   Radio, CaseACocher, signaler, Tableau, TitrePanneau, useDonnees, type EtatEtape,
 } from '../core/ui.tsx';
-import { dateAHeure, montrerMotDePasse } from './admin-commun.tsx';
+import { dateAHeure } from './admin-commun.tsx';
 
 // ---------------------------------------------------------------- lecture du fichier (mêmes règles que la commande import:csv)
 
@@ -336,7 +336,6 @@ function PanneauImport() {
 
 interface Sauvegarde { nom: string; taille: number; date: string }
 interface EtatSauvegardes { liste: Sauvegarde[]; derniere: Sauvegarde | null; heure: string; conservation: string; copie: { dossier: string; branche: boolean } | null }
-interface Base { lecture: string; schema: string; hote: string; port: number; base: string }
 
 const taille = (o: number) => (o < 1_000_000 ? `${Math.max(1, Math.round(o / 1000))} ko` : `${Math.round(o / 1_000_000)} Mo`);
 
@@ -415,36 +414,6 @@ function PanneauSauvegardes() {
   );
 }
 
-function PanneauBase() {
-  const b = useDonnees(() => api.get<Base>('/core/base'));
-  const changer = async () => {
-    const ok = await confirmer('Changer le mot de passe', 'Un nouveau mot de passe est créé pour le compte en lecture seule ; les outils qui utilisent l’ancien devront être mis à jour.', 'Changer le mot de passe');
-    if (!ok) return;
-    const r = await agir(() => api.post<{ utilisateur: string; motDePasse: string }>('/core/base/lecture'));
-    if (r) await montrerMotDePasse('Accès en lecture seule', r.utilisateur, r.motDePasse, 'Saisissez ce mot de passe dans Excel ou dans l’outil de lecture : l’ancien ne fonctionne plus.');
-  };
-  const d = b.d;
-  return (
-    <Panneau>
-      <TitrePanneau titre="Accès direct à la base" />
-      {b.erreur && !d ? <Erreur message={b.erreur} recharger={b.recharger} /> : !d ? <Chargement /> : (
-        <>
-          <div>
-            <LigneListe><span style={{ flex: '1 1 160px' }}>Compte en lecture seule</span><span className="gras" style={{ overflowWrap: 'anywhere' }}>{d.lecture}</span></LigneListe>
-            <LigneListe><span style={{ flex: '1 1 160px' }}>Vues prêtes à l’emploi</span><span className="gras">schéma {d.schema}</span></LigneListe>
-            <LigneListe><span style={{ flex: '1 1 160px' }}>Serveur</span><span className="gras" style={{ overflowWrap: 'anywhere' }}>{d.hote} · port {d.port} · base {d.base}</span></LigneListe>
-          </div>
-          <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            <Bouton icone="exporter" onClick={() => telecharger('/core/base/description')}>Description des tables et des vues</Bouton>
-            <Bouton icone="bouclier" onClick={changer}>Changer le mot de passe</Bouton>
-          </div>
-          <Doux>L’établissement lit librement ses données avec Excel ou tout autre outil ; les écritures passent par l’application.</Doux>
-        </>
-      )}
-    </Panneau>
-  );
-}
-
 // ---------------------------------------------------------------- écran
 
 export function EcranDonnees() {
@@ -452,7 +421,6 @@ export function EcranDonnees() {
   const droite = (
     <>
       {moi.unParmi(['core.sauvegarde.lancer', 'core.sauvegarde.restaurer']) && <PanneauSauvegardes />}
-      {moi.a('core.lecture.gerer') && <PanneauBase />}
       <Panneau>
         <TitrePanneau titre="Exports" />
         <span>Chaque liste s’exporte en CSV, lisible par Excel, depuis son écran : élèves, impayés, personnel, statistiques, journal d’audit.</span>

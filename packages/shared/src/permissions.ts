@@ -121,7 +121,6 @@ export const PERMISSIONS: readonly DefinitionPermission[] = [
   p('core.audit.exporter', 'Paramètres', 'Exporter le journal d\'audit', 'Export the audit log'),
   p('core.sauvegarde.lancer', 'Paramètres', 'Sauvegarder la base', 'Back up the database'),
   p('core.sauvegarde.restaurer', 'Paramètres', 'Restaurer la base', 'Restore the database'),
-  p('core.lecture.gerer', 'Paramètres', 'Gérer l\'accès en lecture', 'Manage read access'),
   p('scolarite.import.executer', 'Paramètres', 'Importer des données', 'Import data'),
 
   p('portail.famille.consulter', 'Espace parent', 'Consulter l\'espace famille', 'View the family space'),
@@ -167,7 +166,7 @@ export const ROLES_SYSTEME: readonly DefinitionRole[] = [
       'structure.periode.modifier', 'structure.classe.gerer', 'structure.annee.cloturer', 'core.modele.modifier',
       'core.compte.reinitialiser',
       'core.audit.consulter', 'core.audit.exporter', 'core.sauvegarde.lancer', 'core.sauvegarde.restaurer',
-      'core.lecture.gerer', 'scolarite.import.executer', 'assistant.proposition.traduction', 'assistant.proposition.import',
+      'scolarite.import.executer', 'assistant.proposition.traduction', 'assistant.proposition.import',
       'scolarite.eleve.exporter', 'scolarite.inscription.creer', 'scolarite.responsable.gerer',
       'scolarite.inscription.changer_classe', 'scolarite.inscription.radier', 'scolarite.document.imprimer',
       'scolarite.derogation.demander', 'finances.grille.consulter', 'caisse.sortie.demander',

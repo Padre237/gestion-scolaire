@@ -615,8 +615,9 @@ describe('Données et clôture : import, sauvegardes, accès en lecture, clôtur
     expect((await eco.get('/core/sauvegardes')).status).toBe(403);
     expect((await pre.post('/core/sauvegardes', {})).status).toBe(403);
     expect((await dir.post('/core/sauvegardes/restauration', { nom: 'gs-20261111-180000-quotidienne.sauvegarde' })).status).toBe(403);
-    expect((await dir.get('/core/base')).status).toBe(403);
-    expect((await eco.post('/core/base/lecture', {})).status).toBe(403);
+    // Plus d'accès direct à la base depuis l'application (D-47).
+    expect((await dir.get('/core/base')).status).toBe(404);
+    expect((await sec.post('/core/base/lecture', {})).status).toBe(404);
     expect((await sec.get('/core/sauvegardes')).status).toBe(200);
   });
   it('403 : la clôture d\'année n\'est lancée que par un compte autorisé ; elle se prépare par des vérifications', async () => {

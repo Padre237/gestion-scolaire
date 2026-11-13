@@ -62,6 +62,8 @@ export async function migrer(c: ConfigPg, base = c.base, journal: (m: string) =>
   try {
     await assurerRole(client, c.application.utilisateur, c.application.motDePasse);
     await assurerRole(client, c.lecture.utilisateur, c.lecture.motDePasse);
+    // Plus d'accès direct à la base (D-47) : le compte en lecture seule garde ses droits mais ne peut plus se connecter.
+    await client.query(`ALTER ROLE ${c.lecture.utilisateur} NOLOGIN`);
     await client.query(`CREATE TABLE IF NOT EXISTS public.gs_migration (
       nom text PRIMARY KEY, appliquee_le timestamptz NOT NULL DEFAULT now())`);
     const faites = new Set((await client.query('SELECT nom FROM public.gs_migration')).rows.map((r) => r.nom));

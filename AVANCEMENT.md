@@ -32,6 +32,6 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - [x] Lot 4 · trois modèles d'impression par document, logo, QR code de vérification et page publique « Vérifier » (D-44).
 - [x] Lot 5 · tableau de bord personnalisable (6 cartes par utilisateur, D-41) ; barre haute fixe au défilement.
 - [x] Lot 6 · utilisateurs et rôles au directeur seul ; rôles sur mesure, attributions particulières, périodes (D-46).
-- [ ] Lot 7 · retrait de l'accès direct à la base dans Données.
+- [x] Lot 7 · plus d'accès direct à la base dans Données ; compte en lecture seule sans connexion (D-47, E-45).
 - [ ] Lot 8 · Assistant par OpenRouter (aucune donnée personnelle envoyée).
 - [ ] Lot 9 · application hybride, synchronisation (essai local d'abord).

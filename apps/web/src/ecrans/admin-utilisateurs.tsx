@@ -13,9 +13,22 @@ import {
   BoutonAction, creerCompte, dateHeure, jourHeure, montrerMotDePasse, Pagination, rolesAttribuables, sansAccent, useDiffere, useEtroit, type PersonnelSansCompte, type Role,
 } from './admin-commun.tsx';
 
+interface Attribution { roleId: string; cycleId: string | null; du: string | null; au: string | null; libelle: string }
 interface Compte {
   id: string; identifiant: string; nomAffiche: string; type: string; actif: boolean; derniereActivite: string | null; roles: string[]; perimetre: string;
+  attributions: Attribution[];
 }
+interface PermissionParticuliere { id: string; code: string; libelle: string; du: string | null; au: string | null; motif: string | null }
+const aujourdhui = () => new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
+const dateFr = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
+/** « jusqu'au 30/06/2027 », « du 01/12/2026 au 31/12/2026 », « échu le … » ; vide : sans limite. */
+function periode(du: string | null, au: string | null): string {
+  if (au && au < aujourdhui()) return `échu le ${dateFr(au)}`;
+  if (du && du > aujourdhui()) return `à partir du ${dateFr(du)}${au ? ` jusqu’au ${dateFr(au)}` : ''}`;
+  return au ? `jusqu’au ${dateFr(au)}` : '';
+}
+/** Saisie JJ/MM/AAAA → AAAA-MM-JJ ; vide → null ; illégale → undefined. */
+const dateSaisie = (s: string): string | null | undefined => (s.trim() ? versIso(s.trim()) ?? undefined : null);
 interface Permission { code: string; groupe: string; libelle: string; libelleEn: string }
 
 const TAILLE_COMPTES = 10;
@@ -25,14 +38,24 @@ const TAILLE_COMPTES = 10;
 function FenetreModifierCompte({ fermer, compte, roles }: { fermer: (ok?: boolean) => void; compte: Compte; roles: Role[] }) {
   const [nom, setNom] = useState(compte.nomAffiche);
   const [choisis, setChoisis] = useState(roles.filter((r) => compte.roles.includes(r.libelle)).map((r) => r.id));
+  // Période de chaque rôle (D-46) : vide = sans limite.
+  const [periodes, setPeriodes] = useState<Record<string, { du: string; au: string }>>(Object.fromEntries(compte.attributions.map((a) => [a.roleId, { du: dateFr(a.du), au: dateFr(a.au) }])));
   const [erreur, setErreur] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
   const valider = async () => {
     if (nom.trim().length < 2) return setErreur('Nom à afficher requis (2 caractères au moins).');
     if (!choisis.length) return setErreur('Choisissez au moins un rôle.');
+    const roles = [];
+    for (const roleId of choisis) {
+      const p = periodes[roleId] ?? { du: '', au: '' };
+      const du = dateSaisie(p.du), au = dateSaisie(p.au);
+      if (du === undefined || au === undefined) return setErreur('Dates au format JJ/MM/AAAA, ou laissées vides (sans limite).');
+      if (du && au && au < du) return setErreur('La fin d’une période doit suivre son début.');
+      roles.push({ roleId, cycleId: compte.attributions.find((a) => a.roleId === roleId)?.cycleId ?? null, du, au });
+    }
     setCharge(true);
     try {
-      await api.patch(`/core/comptes/${compte.id}`, { nomAffiche: nom.trim(), roles: choisis.map((roleId) => ({ roleId })) });
+      await api.patch(`/core/comptes/${compte.id}`, { nomAffiche: nom.trim(), roles });
       fermer(true);
     } catch (e) {
       setErreur(e instanceof ErreurApi ? e.message : String(e));
@@ -52,6 +75,22 @@ function FenetreModifierCompte({ fermer, compte, roles }: { fermer: (ok?: boolea
           ))}
         </div>
       </div>
+      {choisis.length > 0 && (
+        <div className="champ-groupe">
+          <span className="libelle">Période de chaque rôle (vide : sans limite)</span>
+          {choisis.map((id) => {
+            const p = periodes[id] ?? { du: '', au: '' };
+            const maj = (x: Partial<{ du: string; au: string }>) => setPeriodes((o) => ({ ...o, [id]: { ...p, ...x } }));
+            return (
+              <div key={id} className="grille pile-mobile" style={{ ['--min' as string]: '140px', gap: 10, alignItems: 'end' }}>
+                <span className="gras" style={{ alignSelf: 'center' }}>{roles.find((r) => r.id === id)?.libelle}</span>
+                <Champ libelle="Du" placeholder="JJ/MM/AAAA" value={p.du} onChange={(v) => maj({ du: v })} />
+                <Champ libelle="Au" placeholder="JJ/MM/AAAA" value={p.au} onChange={(v) => maj({ au: v })} />
+              </div>
+            );
+          })}
+        </div>
+      )}
       <Doux>Le périmètre suit les affectations : classes et matières confiées dans Notes et bulletins.</Doux>
       {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
       <PiedFenetre fermer={() => fermer()} action="Enregistrer" onAction={valider} charge={charge} />
@@ -62,13 +101,19 @@ function FenetreModifierCompte({ fermer, compte, roles }: { fermer: (ok?: boolea
 function FenetreNouveauRole({ fermer, base }: { fermer: (id?: string) => void; base: Role }) {
   const [libelle, setLibelle] = useState('');
   const [libelleEn, setLibelleEn] = useState('');
+  const [depart, setDepart] = useState<'base' | 'vide'>('vide');
+  const [du, setDu] = useState('');
+  const [au, setAu] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
   const [charge, setCharge] = useState(false);
   const valider = async () => {
     if (libelle.trim().length < 2) return setErreur('Nom du rôle requis (2 caractères au moins).');
+    const d = dateSaisie(du), a = dateSaisie(au);
+    if (d === undefined || a === undefined) return setErreur('Dates au format JJ/MM/AAAA, ou laissées vides (sans limite).');
     setCharge(true);
     try {
-      const r = await api.post<{ id: string }>('/core/roles', { depuisRoleId: base.id, libelle: libelle.trim(), ...(libelleEn.trim() ? { libelleEn: libelleEn.trim() } : {}) });
+      const r = await api.post<{ id: string }>('/core/roles', { libelle: libelle.trim(), ...(libelleEn.trim() ? { libelleEn: libelleEn.trim() } : {}),
+        ...(depart === 'base' ? { depuisRoleId: base.id } : { permissions: [] }), du: d, au: a });
       fermer(r.id);
     } catch (e) {
       setErreur(e instanceof ErreurApi ? e.message : String(e));
@@ -77,10 +122,81 @@ function FenetreNouveauRole({ fermer, base }: { fermer: (id?: string) => void; b
   };
   return (
     <>
-      <p>Le nouveau rôle reprend les {pluriel(base.permissions.length, 'permission')} de « {base.libelle} » ; vous les ajustez ensuite.</p>
       <Champ libelle="Nom du rôle" value={libelle} onChange={setLibelle} autoFocus erreur={erreur} />
       <Champ libelle="Name (English)" value={libelleEn} onChange={setLibelleEn} />
+      <div className="champ-groupe"><span className="libelle">Actions du rôle</span>
+        <Bascules options={[['vide', 'Choisies une à une'], ['base', `Celles de « ${base.libelle} »`]]} valeur={depart} onChange={setDepart} />
+      </div>
+      <Doux>{depart === 'vide' ? 'Le rôle est créé sans action : cochez ensuite celles qu’il donne.' : `Le rôle reprend les ${pluriel(base.permissions.length, 'permission')} de « ${base.libelle} » ; vous les ajustez ensuite.`}</Doux>
+      <div className="grille pile-mobile" style={{ ['--min' as string]: '160px', gap: 10 }}>
+        <Champ libelle="Valable du (facultatif)" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} />
+        <Champ libelle="au (vide : sans limite)" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} />
+      </div>
       <PiedFenetre fermer={() => fermer()} action="Créer le rôle" onAction={valider} charge={charge} />
+    </>
+  );
+}
+
+function FenetrePeriodeRole({ role, fermer }: { role: Role; fermer: (ok?: boolean) => void }) {
+  const [du, setDu] = useState(dateFr(role.du ?? null));
+  const [au, setAu] = useState(dateFr(role.au ?? null));
+  const [erreur, setErreur] = useState<string | null>(null);
+  const valider = async () => {
+    const d = dateSaisie(du), a = dateSaisie(au);
+    if (d === undefined || a === undefined) return setErreur('Dates au format JJ/MM/AAAA, ou laissées vides (sans limite).');
+    try { await api.patch(`/core/roles/${role.id}`, { du: d, au: a }); fermer(true); } catch (e) { setErreur(e instanceof ErreurApi ? e.message : String(e)); }
+  };
+  return (
+    <>
+      <Doux>Hors de cette période, le rôle ne donne aucun droit aux personnes qui l’ont.</Doux>
+      <div className="grille" style={{ ['--min' as string]: '160px', gap: 10 }}>
+        <Champ libelle="Du" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} />
+        <Champ libelle="Au (vide : sans limite)" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} />
+      </div>
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
+      <PiedFenetre fermer={() => fermer()} action="Enregistrer" onAction={valider} />
+    </>
+  );
+}
+
+/** Attributions particulières d'un compte : actions données à cette personne en plus de ses rôles (D-46). */
+function FenetreAttributions({ compte, catalogue, fermer }: { compte: Compte; catalogue: Permission[]; fermer: () => void }) {
+  const liste = useDonnees(() => api.get<PermissionParticuliere[]>(`/core/comptes/${compte.id}/permissions`));
+  const [code, setCode] = useState<string | null>(null);
+  const [du, setDu] = useState('');
+  const [au, setAu] = useState('');
+  const [motif, setMotif] = useState('');
+  const [erreur, setErreur] = useState<string | null>(null);
+  const ajouter = async () => {
+    const d = dateSaisie(du), a = dateSaisie(au);
+    if (!code) return setErreur('Choisissez l’action à donner.');
+    if (d === undefined || a === undefined) return setErreur('Dates au format JJ/MM/AAAA, ou laissées vides (sans limite).');
+    setErreur(null);
+    if (await agir(() => api.post(`/core/comptes/${compte.id}/permissions`, { permission: code, du: d, au: a, motif: motif.trim() || null }), 'Attribution enregistrée')) {
+      setCode(null); setDu(''); setAu(''); setMotif(''); await liste.recharger();
+    }
+  };
+  const retirer = async (p: PermissionParticuliere) => {
+    if (await agir(() => api.del(`/core/comptes/${compte.id}/permissions/${p.id}`), 'Attribution retirée')) await liste.recharger();
+  };
+  return (
+    <>
+      <Doux>Actions données à {compte.nomAffiche} en plus de ses rôles ({compte.roles.join(', ') || 'aucun'}), pour une période définie ou sans limite.</Doux>
+      {liste.erreur ? <Erreur message={liste.erreur} recharger={liste.recharger} /> : !liste.d ? <Chargement /> : (
+        <Tableau colonnes={[{ titre: 'Action', mobile: 'entete' }, { titre: 'Période' }, { titre: 'Motif' }, { titre: '', droite: true }]}
+          vide="Aucune attribution particulière."
+          lignes={liste.d.map((p) => [<span className="gras">{p.libelle}</span>, periode(p.du, p.au) || 'Sans limite', p.motif ?? '–',
+            <Bouton petit variante="lien" onClick={() => retirer(p)}>Retirer</Bouton>])} />
+      )}
+      <span className="etiquette">Nouvelle attribution</span>
+      <Liste libelle="Action" value={code} onChange={setCode} options={[[null, 'Choisir une action…'], ...catalogue.map((p): [string, string] => [p.code, `${p.groupe} · ${p.libelle}`])]} />
+      <div className="grille pile-mobile" style={{ ['--min' as string]: '150px', gap: 10 }}>
+        <Champ libelle="Du (facultatif)" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} />
+        <Champ libelle="Au (vide : sans limite)" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} />
+        <Champ libelle="Motif (facultatif)" value={motif} onChange={setMotif} placeholder="Remplacement, mission…" />
+      </div>
+      {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
+      <div className="pied"><Bouton onClick={() => fermer()}>Fermer</Bouton><Bouton variante="principal" onClick={ajouter}>Donner cette action</Bouton></div>
     </>
   );
 }
@@ -130,7 +246,11 @@ function PanneauPermissions({ roles, catalogue, roleId, choisirRole, recharger }
     const id = await ouvrirFormulaire<string>('Créer un rôle', ({ fermer }) => <FenetreNouveauRole fermer={fermer} base={role} />, 460);
     if (id) { await recharger(); choisirRole(id); }
   };
-  const options: [string, string][] = roles.map((r) => [r.id, r.libelle]);
+  const modifierPeriode = async () => {
+    const ok = await ouvrirFormulaire<boolean>(`Période · ${role.libelle}`, ({ fermer }) => <FenetrePeriodeRole role={role} fermer={fermer} />, 460);
+    if (ok) await recharger();
+  };
+  const options: [string, string][] = roles.map((r) => [r.id, `${r.libelle}${!r.systeme && (r.du || r.au) ? ` · ${periode(r.du ?? null, r.au ?? null) || 'daté'}` : ''}`]);
   const systeme = roles.filter((r) => r.systeme).length;
   return (
     <Panneau>
@@ -178,8 +298,12 @@ function PanneauPermissions({ roles, catalogue, roleId, choisirRole, recharger }
           <Bouton onClick={() => setCochees(null)}>Annuler</Bouton>
         </div>
       )}
-      {moi.a('core.role.gerer') && !espaceParent && <div className="pile-mobile"><Bouton icone="ajouter" onClick={creerRole}>Créer un rôle à partir de celui-ci</Bouton></div>}
-      <Doux>{enLettres(systeme, true)} rôles prêts à l’emploi. La secrétaire peut créer un rôle et lui attribuer des permissions.</Doux>
+      {!role.systeme && (role.du || role.au) && <Note ton={role.au && role.au < aujourdhui() ? 'attention' : 'neutre'}>Rôle valable {role.du ? `du ${dateFr(role.du)} ` : ''}{role.au ? `au ${dateFr(role.au)}` : 'sans limite'}{role.au && role.au < aujourdhui() ? ' : échu, il ne donne plus aucun droit.' : '.'}</Note>}
+      {moi.a('core.role.gerer') && !espaceParent && <div className="pile-mobile" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <Bouton icone="ajouter" onClick={creerRole}>Créer un rôle</Bouton>
+        {!role.systeme && <Bouton onClick={modifierPeriode}>Période du rôle</Bouton>}
+      </div>}
+      <Doux>{enLettres(systeme, true)} rôles prêts à l’emploi. Le directeur crée des rôles sur mesure et donne des droits à une personne, pour une période définie ou sans limite.</Doux>
     </Panneau>
   );
 }
@@ -213,6 +337,10 @@ export function EcranUtilisateurs() {
     const ok = await ouvrirFormulaire<boolean>(`Modifier le compte · ${c.nomAffiche}`, ({ fermer }) => <FenetreModifierCompte fermer={fermer} compte={c} roles={roles.d!} />, 520);
     if (ok) { void comptes.recharger(); void roles.recharger(); }
   };
+  const attributions = async (c: Compte) => {
+    await ouvrirFormulaire(`Attributions particulières · ${c.nomAffiche}`, ({ fermer }) => <FenetreAttributions compte={c} catalogue={catalogue.d ?? []} fermer={fermer} />, 720);
+    void comptes.recharger();
+  };
   const reinitialiser = async (c: Compte) => {
     const ok = await confirmer('Réinitialiser le mot de passe',
       `Un nouveau mot de passe est créé pour ${c.nomAffiche} ; l’ancien ne fonctionne plus et les sessions ouvertes de ce compte sont fermées.`, 'Réinitialiser');
@@ -239,7 +367,10 @@ export function EcranUtilisateurs() {
         vide="Aucun compte ne correspond à cette recherche."
         lignes={visibles.map((c) => [
           <Cel2 gras haut={c.nomAffiche} bas={c.identifiant} />,
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{c.roles.map((r) => <Pastille key={r} ton="accent">{r}</Pastille>)}</div>,
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{(c.attributions?.length ? c.attributions : c.roles.map((libelle) => ({ libelle, du: null, au: null }))).map((a) => {
+            const p = periode(a.du, a.au);
+            return <Pastille key={a.libelle} ton={p.startsWith('échu') ? 'neutre' : 'accent'}>{a.libelle}{p ? ` · ${p}` : ''}</Pastille>;
+          })}</div>,
           c.perimetre,
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '2px 8px' }}>
             <Pastille ton={c.actif ? 'succes' : 'neutre'}>{c.actif ? 'Actif' : 'Désactivé'}</Pastille>
@@ -247,6 +378,7 @@ export function EcranUtilisateurs() {
           </div>,
           <div className="pile-mobile" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
             {moi.a('core.compte.gerer') && c.type !== 'famille' && <BoutonAction icone="colonnes" court="Modifier le compte" libelle={`Modifier le compte de ${c.nomAffiche}`} onClick={() => modifier(c)} />}
+            {moi.a('core.compte.gerer') && c.type !== 'famille' && catalogue.d && <BoutonAction icone="ajouter" court="Attributions particulières" libelle={`Attributions particulières de ${c.nomAffiche}`} onClick={() => attributions(c)} />}
             {moi.a('core.compte.reinitialiser') && c.actif && <BoutonAction icone="bouclier" court="Réinitialiser le mot de passe" libelle={`Réinitialiser le mot de passe de ${c.nomAffiche}`} onClick={() => reinitialiser(c)} />}
             {moi.a('core.compte.desactiver') && c.id !== moi.compteId && (c.actif
               ? <BoutonAction icone="fermer" danger court="Désactiver" libelle={`Désactiver le compte de ${c.nomAffiche}`} onClick={() => basculer(c)} />

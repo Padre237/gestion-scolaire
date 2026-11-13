@@ -133,7 +133,7 @@ export function montrerMotDePasse(titre: string, identifiant: string, motDePasse
 
 // ---------------------------------------------------------------- comptes
 
-export interface Role { id: string; code: string; libelle: string; libelleEn: string; systeme: boolean; perimetre: string; permissions: string[] }
+export interface Role { id: string; code: string; libelle: string; libelleEn: string; systeme: boolean; perimetre: string; permissions: string[]; du?: string | null; au?: string | null }
 export interface PersonnelSansCompte { id: string; nomAffiche: string; fonction: string }
 
 /** Rôle proposé d'après la fonction inscrite sur la fiche du personnel. */

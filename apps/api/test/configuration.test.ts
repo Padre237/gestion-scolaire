@@ -78,9 +78,10 @@ describe('Tableau de bord personnalisable (D-41)', () => {
 
 describe('Cartes du tableau de bord : toutes les combinaisons répondent', () => {
   it('chaque indicateur, chaque regroupement permis (compte du directeur : tous les indicateurs)', async () => {
-    const roles = (await sec.get<{ id: string; code: string }[]>('/core/roles')).corps;
+    const adm = await connecter(env.app, 'directeur', 'secret-dir-1');
+    const roles = (await adm.get<{ id: string; code: string }[]>('/core/roles')).corps;
     const dir = roles.find((r) => r.code === 'directeur')!;
-    expect((await sec.post('/core/comptes', { identifiant: 'dir.test', nomAffiche: 'Directeur test', roles: [{ roleId: dir.id }], motDePasse: 'mdp-directeur-1' })).status).toBe(200);
+    expect((await adm.post('/core/comptes', { identifiant: 'dir.test', nomAffiche: 'Directeur test', roles: [{ roleId: dir.id }], motDePasse: 'mdp-directeur-1' })).status).toBe(200);
     const directeur = await connecter(env.app, 'dir.test', 'mdp-directeur-1');
     const d = await directeur.get<{ catalogue: { code: string; par: { code: string }[] }[] }>('/pilotage/cartes');
     expect(d.corps.catalogue).toHaveLength(6);
@@ -102,5 +103,38 @@ describe('Modèles d’impression (D-44)', () => {
       const r = await sec.get(`/structure/gabarits/apercu?document=${document}&gabarit=${gabarit}`);
       expect([document, gabarit, r.status, r.brut.subarray(0, 4).toString()]).toEqual([document, gabarit, 200, '%PDF']);
     }
+  });
+});
+
+describe('Utilisateurs et rôles : le directeur seul, droits sur mesure, périodes (D-46)', () => {
+  it('rôle créé de zéro, attribution limitée dans le temps, permission particulière ; les périodes s’appliquent', async () => {
+    const adm = await connecter(env.app, 'directeur', 'secret-dir-1');
+    const roles = (await adm.get<{ id: string; code: string }[]>('/core/roles')).corps;
+    const secretaire = roles.find((r) => r.code === 'secretaire')!.id;
+    // Rôle sur mesure : une seule action, sans limite.
+    const r = await adm.post<{ id: string }>('/core/roles', { libelle: 'Lecture des élèves', permissions: ['scolarite.eleve.consulter'] });
+    expect(r.status).toBe(200);
+    const auj = new Date(Date.now() + 3600_000).toISOString().slice(0, 10);
+    const hier = new Date(Date.now() + 3600_000 - 86400_000).toISOString().slice(0, 10);
+    // Compte avec le rôle sur mesure, et le rôle Secrétaire échu depuis hier : seul le rôle sur mesure compte.
+    const c = await adm.post<{ id: string }>('/core/comptes', { identifiant: 'stagiaire', nomAffiche: 'Stagiaire', motDePasse: 'mdp-stagiaire',
+      roles: [{ roleId: r.corps.id }, { roleId: secretaire, du: '2026-01-01', au: hier }] });
+    expect(c.status).toBe(200);
+    const st = await connecter(env.app, 'stagiaire', 'mdp-stagiaire');
+    const moi = (await st.get<{ permissions: string[] }>('/auth/moi')).corps;
+    expect(moi.permissions).toContain('scolarite.eleve.consulter');
+    expect(moi.permissions).not.toContain('structure.etablissement.modifier');
+    // Permission particulière jusqu'à aujourd'hui : en vigueur ; puis retirée.
+    const p = await adm.post<{ id: string }>(`/core/comptes/${c.corps.id}/permissions`, { permission: 'pilotage.tableau.consulter', au: auj, motif: 'Remplacement' });
+    expect(p.status).toBe(200);
+    const st2 = await connecter(env.app, 'stagiaire', 'mdp-stagiaire');
+    expect((await st2.get<{ permissions: string[] }>('/auth/moi')).corps.permissions).toContain('pilotage.tableau.consulter');
+    expect((await adm.delete(`/core/comptes/${c.corps.id}/permissions/${p.corps.id}`)).status).toBe(200);
+    // Période incohérente refusée ; la secrétaire ne gère ni comptes ni rôles.
+    expect((await adm.post('/core/roles', { libelle: 'Rôle daté', permissions: [], du: '2026-12-01', au: '2026-11-01' })).status).toBe(422);
+    expect((await sec.post('/core/roles', { libelle: 'Y', permissions: [] })).status).toBe(403);
+    expect((await sec.post(`/core/comptes/${c.corps.id}/permissions`, { permission: 'pilotage.tableau.consulter' })).status).toBe(403);
+    // Réinitialisation par la secrétaire : refusée sur un compte du personnel.
+    expect((await sec.post(`/core/comptes/${c.corps.id}/reinitialisation`)).status).toBe(403);
   });
 });

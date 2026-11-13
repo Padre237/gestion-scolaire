@@ -4,7 +4,7 @@ import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { estPermission, PERMISSIONS } from '@gs/shared';
 import { sql, lignes, ligne, tableau } from '../bd.ts';
-import { ErreurMetier, introuvable } from '../erreurs.ts';
+import { ErreurMetier, interdit, introuvable } from '../erreurs.ts';
 import { exiger } from '../session.ts';
 import { hacher, motDePasseAleatoire } from '../motdepasse.ts';
 import { journaliser } from '../audit.ts';
@@ -14,7 +14,10 @@ import { perimetreDePersonnel } from '../perimetre.ts';
 
 const Id = z.object({ id: z.uuid() });
 
-const RoleAttribue = z.object({ roleId: z.uuid(), cycleId: z.uuid().nullish() });
+/** Rôle attribué à un compte, pour une période définie (du, au, incluses) ou sans limite (D-46). */
+const RoleAttribue = z.object({ roleId: z.uuid(), cycleId: z.uuid().nullish(), du: z.iso.date().nullish(), au: z.iso.date().nullish() })
+  .refine((x) => !x.du || !x.au || x.au >= x.du, { message: 'La fin de la période doit suivre son début.', path: ['au'] });
+const Periode = { du: z.iso.date().nullish(), au: z.iso.date().nullish() };
 
 const NouveauCompte = z.object({
   identifiant: z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,40}$/, 'Lettres minuscules, chiffres, point, tiret.'),
@@ -26,7 +29,8 @@ const NouveauCompte = z.object({
 
 export interface LigneCompte {
   id: string; identifiant: string; nom_affiche: string; type: string; actif: boolean; derniere_activite: string | null;
-  personnel_id: string | null; famille_id: string | null; roles: { code: string; libelle: string; perimetre: string }[];
+  personnel_id: string | null; famille_id: string | null;
+  roles: { code: string; libelle: string; perimetre: string; roleId: string; cycleId: string | null; du: string | null; au: string | null }[];
 }
 
 export async function routesAdministration(app: FastifyInstance) {
@@ -38,7 +42,8 @@ export async function routesAdministration(app: FastifyInstance) {
     const ctx = exiger(req);
     const comptes = await app.bd.lire<LigneCompte>(sql`
       SELECT c.id, c.identifiant, c.nom_affiche, c.type, c.actif, c.derniere_activite, c.personnel_id, c.famille_id,
-             COALESCE(json_agg(json_build_object('code', r.code, 'libelle', r.libelle_fr, 'perimetre', r.perimetre_type)
+             COALESCE(json_agg(json_build_object('code', r.code, 'libelle', r.libelle_fr, 'perimetre', r.perimetre_type, 'roleId', r.id, 'cycleId', cr.cycle_id,
+                               'du', cr.du, 'au', cr.au)
                       ORDER BY r.ordre) FILTER (WHERE r.id IS NOT NULL), '[]') AS roles
         FROM core.compte c
         LEFT JOIN core.compte_role cr ON cr.compte_id = c.id
@@ -53,6 +58,7 @@ export async function routesAdministration(app: FastifyInstance) {
         id: c.id, identifiant: c.identifiant, nomAffiche: c.nom_affiche, type: c.type, actif: c.actif,
         derniereActivite: c.derniere_activite,
         roles: c.roles.map((x) => x.libelle),
+        attributions: c.roles.map((x) => ({ roleId: x.roleId, cycleId: x.cycleId, du: x.du, au: x.au, libelle: x.libelle })),
         perimetre: await texteperimetre(app, ctx.etablissementId, c, classes),
       });
     }
@@ -73,8 +79,8 @@ export async function routesAdministration(app: FastifyInstance) {
         VALUES (${ctx.etablissementId}, ${b.identifiant}, ${b.nomAffiche}, ${empreinte}, 'personnel', ${b.personnelId ?? null}, ${ctx.compteId})
         RETURNING id`);
       for (const ro of b.roles) {
-        await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id, cycle_id)
-                             VALUES (${ctx.etablissementId}, ${c!.id}, ${ro.roleId}, ${ro.cycleId ?? null})`);
+        await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id, cycle_id, du, au)
+                             VALUES (${ctx.etablissementId}, ${c!.id}, ${ro.roleId}, ${ro.cycleId ?? null}, ${ro.du ?? null}, ${ro.au ?? null})`);
       }
       await journaliser(tx, ctx, { action: 'Création', objetType: 'Droits', objetLibelle: `Droits · ${b.nomAffiche}`,
         avant: '–', apres: roles.join(', '), ligneId: c!.id, table: 'core.compte' });
@@ -100,8 +106,8 @@ export async function routesAdministration(app: FastifyInstance) {
         const libelles = await verifierRoles(tx, ctx.etablissementId, b.roles.map((x) => x.roleId));
         await tx.execute(sql`DELETE FROM core.compte_role WHERE compte_id = ${req.params.id}`);
         for (const ro of b.roles) {
-          await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id, cycle_id)
-                               VALUES (${ctx.etablissementId}, ${req.params.id}, ${ro.roleId}, ${ro.cycleId ?? null})`);
+          await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id, cycle_id, du, au)
+                               VALUES (${ctx.etablissementId}, ${req.params.id}, ${ro.roleId}, ${ro.cycleId ?? null}, ${ro.du ?? null}, ${ro.au ?? null})`);
         }
         await journaliser(tx, ctx, { action: 'Modification', objetType: 'Droits',
           objetLibelle: `Droits · ${b.nomAffiche ?? avant.nom_affiche}`, avant: avant.roles ?? '–', apres: libelles.join(', '),
@@ -117,10 +123,14 @@ export async function routesAdministration(app: FastifyInstance) {
     const ctx = exiger(req);
     const motDePasse = motDePasseAleatoire(10);
     const empreinte = await hacher(motDePasse);
+    // Le secrétariat remet un nouveau mot de passe aux familles ; les comptes du personnel relèvent du directeur (D-46).
+    const famillesSeules = !ctx.a('core.compte.gerer');
     return app.bd.transaction(ctx.compteId, async (tx) => {
       const c = await ligne<{ nom_affiche: string; type: string }>(tx, sql`
         UPDATE core.compte SET mot_de_passe = ${empreinte}, echecs = 0, verrouille_jusqua = NULL
-         WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId} RETURNING nom_affiche, type`);
+         WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId} AND (${!famillesSeules} OR type = 'famille')
+        RETURNING nom_affiche, type`);
+      if (!c && famillesSeules) throw interdit('core.compte.gerer');
       if (!c) throw introuvable('Compte');
       await tx.execute(sql`UPDATE core.session SET revoquee_le = now() WHERE compte_id = ${req.params.id} AND revoquee_le IS NULL`);
       await journaliser(tx, ctx, { action: 'Réinitialisation', objetType: 'Droits', objetLibelle: `Mot de passe · ${c.nom_affiche}`,
@@ -155,7 +165,7 @@ export async function routesAdministration(app: FastifyInstance) {
   r.get('/core/roles', { config: { unePermissionParmi: ['core.compte.consulter', 'core.role.gerer'] }, schema: { tags: ['core'] } }, async (req) => {
     const ctx = exiger(req);
     return app.bd.lire(sql`
-      SELECT r.id, r.code, r.libelle_fr AS libelle, r.libelle_en AS "libelleEn", r.systeme, r.perimetre_type AS perimetre,
+      SELECT r.id, r.code, r.libelle_fr AS libelle, r.libelle_en AS "libelleEn", r.systeme, r.perimetre_type AS perimetre, r.du::text AS du, r.au::text AS au,
              COALESCE(array_agg(rp.permission_code ORDER BY rp.permission_code) FILTER (WHERE rp.permission_code IS NOT NULL), '{}') AS permissions
         FROM core.role r LEFT JOIN core.role_permission rp ON rp.role_id = r.id
        WHERE r.etablissement_id = ${ctx.etablissementId}
@@ -164,24 +174,35 @@ export async function routesAdministration(app: FastifyInstance) {
 
   r.post('/core/roles', {
     config: { permission: 'core.role.gerer' },
-    schema: { tags: ['core'], body: z.object({ depuisRoleId: z.uuid(), libelle: z.string().trim().min(2).max(60), libelleEn: z.string().trim().max(60).optional() }) },
+    schema: { tags: ['core'], body: z.object({ depuisRoleId: z.uuid().nullish(), libelle: z.string().trim().min(2).max(60), libelleEn: z.string().trim().max(60).optional(),
+      /** Rôle créé de zéro : actions choisies une à une (D-46). */
+      permissions: z.array(z.string()).max(200).optional(), ...Periode }) },
   }, async (req) => {
     const ctx = exiger(req);
     const b = req.body;
+    if (b.du && b.au && b.au < b.du) throw new ErreurMetier('CORE_PERIODE', 422, 'La fin de la période doit suivre son début.', 'au');
+    const inconnue = (b.permissions ?? []).find((p) => !estPermission(p));
+    if (inconnue) throw new ErreurMetier('CORE_PERMISSION_INCONNUE', 422, `Permission inconnue : ${inconnue}.`);
     return app.bd.transaction(ctx.compteId, async (tx) => {
-      const base = await ligne<{ id: string; perimetre_type: string; libelle_fr: string }>(tx, sql`
-        SELECT id, perimetre_type, libelle_fr FROM core.role WHERE id = ${b.depuisRoleId} AND etablissement_id = ${ctx.etablissementId}`);
+      const base = b.depuisRoleId ? await ligne<{ id: string; perimetre_type: string; libelle_fr: string }>(tx, sql`
+        SELECT id, perimetre_type, libelle_fr FROM core.role WHERE id = ${b.depuisRoleId} AND etablissement_id = ${ctx.etablissementId}`)
+        : { id: null, perimetre_type: 'etablissement', libelle_fr: '' };
       if (!base) throw introuvable('Rôle');
       const code = 'perso_' + b.libelle.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 30)
         + '_' + Date.now().toString(36);
       const nouveau = await ligne<{ id: string }>(tx, sql`
-        INSERT INTO core.role (etablissement_id, code, libelle_fr, libelle_en, systeme, perimetre_type, cree_depuis, ordre, cree_par)
-        VALUES (${ctx.etablissementId}, ${code}, ${b.libelle}, ${b.libelleEn ?? b.libelle}, false, ${base.perimetre_type}, ${base.id}, 50, ${ctx.compteId})
+        INSERT INTO core.role (etablissement_id, code, libelle_fr, libelle_en, systeme, perimetre_type, cree_depuis, ordre, cree_par, du, au)
+        VALUES (${ctx.etablissementId}, ${code}, ${b.libelle}, ${b.libelleEn ?? b.libelle}, false, ${base.perimetre_type}, ${base.id}, 50, ${ctx.compteId}, ${b.du ?? null}, ${b.au ?? null})
         RETURNING id`);
-      await tx.execute(sql`INSERT INTO core.role_permission (role_id, permission_code)
-                           SELECT ${nouveau!.id}, permission_code FROM core.role_permission WHERE role_id = ${base.id}`);
+      if (b.permissions) {
+        for (const p of new Set(b.permissions)) await tx.execute(sql`INSERT INTO core.role_permission (role_id, permission_code) VALUES (${nouveau!.id}, ${p})`);
+      } else if (base.id) {
+        await tx.execute(sql`INSERT INTO core.role_permission (role_id, permission_code)
+                             SELECT ${nouveau!.id}, permission_code FROM core.role_permission WHERE role_id = ${base.id}`);
+      }
+      const periode = b.du || b.au ? ` · ${b.du ? `du ${b.du.split('-').reverse().join('/')}` : ''}${b.au ? ` au ${b.au.split('-').reverse().join('/')}` : ' sans limite'}` : '';
       await journaliser(tx, ctx, { action: 'Création', objetType: 'Droits', objetLibelle: `Rôle · ${b.libelle}`,
-        avant: '–', apres: `À partir de « ${base.libelle_fr} »`, ligneId: nouveau!.id, table: 'core.role' });
+        avant: '–', apres: `${base.id ? `À partir de « ${base.libelle_fr} »` : `${b.permissions?.length ?? 0} actions choisies`}${periode}`, ligneId: nouveau!.id, table: 'core.role' });
       return { id: nouveau!.id };
     });
   });
@@ -198,9 +219,9 @@ export async function routesAdministration(app: FastifyInstance) {
       const role = await ligne<{ code: string; libelle_fr: string }>(tx, sql`
         SELECT code, libelle_fr FROM core.role WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
       if (!role) throw introuvable('Rôle');
-      // La secrétaire administre l'application (ADR-12) : elle ne peut pas s'en retirer le moyen.
-      if (role.code === 'secretaire' && !(voulues.includes('core.role.gerer') && voulues.includes('core.compte.gerer'))) {
-        throw new ErreurMetier('CORE_ADMINISTRATION_REQUISE', 422, 'Le rôle Secrétaire garde la gestion des comptes et des rôles.');
+      // Le directeur administre les comptes et les rôles (D-46) : son rôle ne peut pas en perdre le moyen.
+      if (role.code === 'directeur' && !(voulues.includes('core.role.gerer') && voulues.includes('core.compte.gerer'))) {
+        throw new ErreurMetier('CORE_ADMINISTRATION_REQUISE', 422, 'Le rôle Directeur garde la gestion des comptes et des rôles.');
       }
       const avant = (await lignes<{ permission_code: string }>(tx, sql`SELECT permission_code FROM core.role_permission WHERE role_id = ${req.params.id}`))
         .map((x) => x.permission_code);
@@ -215,6 +236,79 @@ export async function routesAdministration(app: FastifyInstance) {
           ligneId: req.params.id, table: 'core.role' });
       }
       return { id: req.params.id, permissions: voulues };
+    });
+  });
+
+  /** Libellé ou période d'un rôle sur mesure (les rôles de l'application gardent leur nom et n'expirent pas). */
+  r.patch('/core/roles/:id', {
+    config: { permission: 'core.role.gerer' },
+    schema: { tags: ['core'], params: Id, body: z.object({ libelle: z.string().trim().min(2).max(60).optional(), ...Periode }) },
+  }, async (req) => {
+    const ctx = exiger(req);
+    const b = req.body;
+    if (b.du && b.au && b.au < b.du) throw new ErreurMetier('CORE_PERIODE', 422, 'La fin de la période doit suivre son début.', 'au');
+    return app.bd.transaction(ctx.compteId, async (tx) => {
+      const role = await ligne<{ systeme: boolean; libelle_fr: string; du: string | null; au: string | null }>(tx, sql`
+        SELECT systeme, libelle_fr, du::text, au::text FROM core.role WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
+      if (!role) throw introuvable('Rôle');
+      if (role.systeme) throw new ErreurMetier('CORE_ROLE_SYSTEME', 422, 'Les rôles de l’application gardent leur nom et n’ont pas de période.');
+      await tx.execute(sql`UPDATE core.role SET libelle_fr = ${b.libelle ?? role.libelle_fr}, libelle_en = ${b.libelle ?? role.libelle_fr},
+                             du = ${b.du === undefined ? role.du : b.du}, au = ${b.au === undefined ? role.au : b.au} WHERE id = ${req.params.id}`);
+      await journaliser(tx, ctx, { action: 'Modification', objetType: 'Droits', objetLibelle: `Rôle · ${b.libelle ?? role.libelle_fr}`,
+        avant: `${role.du ?? '–'} → ${role.au ?? 'sans limite'}`, apres: `${(b.du === undefined ? role.du : b.du) ?? '–'} → ${(b.au === undefined ? role.au : b.au) ?? 'sans limite'}`,
+        ligneId: req.params.id, table: 'core.role' });
+      return { ok: true };
+    });
+  });
+
+  /** Attributions particulières d'un compte : permissions en plus de ses rôles, pour une période définie ou non (D-46). */
+  r.get('/core/comptes/:id/permissions', { config: { permission: 'core.compte.gerer' }, schema: { tags: ['core'], params: Id } }, async (req) => {
+    const ctx = exiger(req);
+    const l = await app.bd.lire<{ id: string; permission_code: string; du: string | null; au: string | null; motif: string | null }>(sql`
+      SELECT cp.id, cp.permission_code, cp.du::text, cp.au::text, cp.motif FROM core.compte_permission cp JOIN core.compte c ON c.id = cp.compte_id
+       WHERE cp.compte_id = ${req.params.id} AND c.etablissement_id = ${ctx.etablissementId} ORDER BY cp.cree_le`);
+    return l.map((x) => ({ id: x.id, code: x.permission_code, libelle: PERMISSIONS.find((p) => p.code === x.permission_code)?.libelleFr ?? x.permission_code,
+      du: x.du, au: x.au, motif: x.motif }));
+  });
+
+  r.post('/core/comptes/:id/permissions', {
+    config: { permission: 'core.compte.gerer' },
+    schema: { tags: ['core'], params: Id, body: z.object({ permission: z.string(), motif: z.string().trim().max(200).nullish(), ...Periode }) },
+  }, async (req) => {
+    const ctx = exiger(req);
+    const b = req.body;
+    if (!estPermission(b.permission)) throw new ErreurMetier('CORE_PERMISSION_INCONNUE', 422, `Permission inconnue : ${b.permission}.`);
+    if (b.du && b.au && b.au < b.du) throw new ErreurMetier('CORE_PERIODE', 422, 'La fin de la période doit suivre son début.', 'au');
+    return app.bd.transaction(ctx.compteId, async (tx) => {
+      const c = await ligne<{ nom_affiche: string; type: string }>(tx, sql`
+        SELECT nom_affiche, type FROM core.compte WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
+      if (!c) throw introuvable('Compte');
+      if (c.type !== 'personnel') throw new ErreurMetier('CORE_COMPTE_FAMILLE', 422, 'Un compte famille ne reçoit pas d’attribution particulière.');
+      const x = await ligne<{ id: string }>(tx, sql`
+        INSERT INTO core.compte_permission (etablissement_id, compte_id, permission_code, du, au, motif, cree_par)
+        VALUES (${ctx.etablissementId}, ${req.params.id}, ${b.permission}, ${b.du ?? null}, ${b.au ?? null}, ${b.motif ?? null}, ${ctx.compteId})
+        ON CONFLICT (compte_id, permission_code) DO UPDATE SET du = EXCLUDED.du, au = EXCLUDED.au, motif = EXCLUDED.motif RETURNING id`);
+      const lib = PERMISSIONS.find((p) => p.code === b.permission)?.libelleFr ?? b.permission;
+      await journaliser(tx, ctx, { action: 'Modification', objetType: 'Droits', objetLibelle: `Attribution · ${c.nom_affiche}`,
+        avant: '–', apres: `${lib}${b.du ? ` du ${b.du.split('-').reverse().join('/')}` : ''}${b.au ? ` au ${b.au.split('-').reverse().join('/')}` : ', sans limite'}`,
+        ligneId: req.params.id, table: 'core.compte' });
+      return { id: x!.id };
+    });
+  });
+
+  r.delete('/core/comptes/:id/permissions/:pid', {
+    config: { permission: 'core.compte.gerer' }, schema: { tags: ['core'], params: z.object({ id: z.uuid(), pid: z.uuid() }) },
+  }, async (req) => {
+    const ctx = exiger(req);
+    return app.bd.transaction(ctx.compteId, async (tx) => {
+      const x = await ligne<{ permission_code: string; nom: string }>(tx, sql`
+        DELETE FROM core.compte_permission cp USING core.compte c
+         WHERE cp.id = ${req.params.pid} AND cp.compte_id = ${req.params.id} AND c.id = cp.compte_id AND c.etablissement_id = ${ctx.etablissementId}
+        RETURNING cp.permission_code, c.nom_affiche AS nom`);
+      if (!x) throw introuvable('Attribution');
+      await journaliser(tx, ctx, { action: 'Modification', objetType: 'Droits', objetLibelle: `Attribution · ${x.nom}`,
+        avant: PERMISSIONS.find((p) => p.code === x.permission_code)?.libelleFr ?? x.permission_code, apres: 'Retirée', ligneId: req.params.id, table: 'core.compte' });
+      return { ok: true };
     });
   });
 

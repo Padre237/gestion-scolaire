@@ -26,19 +26,25 @@ export async function fondation(ctx: Contexte, a: Annee) {
   for (const n of (await sec.get<{ id: string; code: string }[]>('/structure/niveaux'))) ctx.niveaux[n.code] = n.id;
   await creerAnnee(ctx, a, aLHeure(jour, '08:50'), true);
 
-  const roles = await sec.get<{ id: string; code: string }[]>('/core/roles');
+  // La directrice, créée avec l'établissement, crée les autres comptes (D-46).
+  ctx.dir = await connecter(ctx.app, 'directrice', 'demo-directrice');
+  const roles = await ctx.dir.get<{ id: string; code: string }[]>('/core/roles');
   const role = (c: string) => roles.find((r) => r.code === c)!.id;
   const fiches = await sec.get<{ lignes: { id: string; nomAffiche: string }[] }>('/personnel?taille=50');
   ctx.personnel['secretaire'] = fiches.lignes.find((f) => f.nomAffiche === 'Mme NDZANA Rose')!.id;
+  ctx.personnel['directrice'] = fiches.lignes.find((f) => f.nomAffiche === 'Mme ATEBA Marie-Claire')!.id;
   const creer = async (identifiant: string | null, nom: string, fonction: string, statut: string, telephone: string, roleCode: string | null, diplome: string, entreeLe: string) => {
     const f = await sec.post<{ id: string }>('/personnel', { nomAffiche: nom, fonction, statut, telephone, diplome, entreeLe });
     ctx.personnel[identifiant ?? nom] = f.id;
     ctx.personnel[nom] = f.id;
-    if (identifiant && roleCode) await sec.post('/core/comptes', { identifiant, nomAffiche: nom, personnelId: f.id, roles: [{ roleId: role(roleCode) }], motDePasse: motDePasseDemo(identifiant) });
+    if (identifiant && roleCode) await ctx.dir.post('/core/comptes', { identifiant, nomAffiche: nom, personnelId: f.id, roles: [{ roleId: role(roleCode) }], motDePasse: motDePasseDemo(identifiant) });
   };
   await horloge.a(aLHeure(plusJours(jour, 1), '09:00'), async () => {
     await sec.patch(`/personnel/${ctx.personnel['secretaire']}`, { telephone: '600 000 203', diplome: 'BTS de secrétariat de direction', entreeLe: a.rentree });
-    for (const [id, nom, fonction, roleCode, tel] of ADMIN) await creer(id, nom, fonction, 'permanent', tel, roleCode, 'Licence', a.rentree);
+    for (const [id, nom, fonction, roleCode, tel] of ADMIN) {
+      if (id === 'directrice') { await sec.patch(`/personnel/${ctx.personnel['directrice']}`, { telephone: tel, diplome: 'Licence', entreeLe: a.rentree }); continue; }
+      await creer(id, nom, fonction, 'permanent', tel, roleCode, 'Licence', a.rentree);
+    }
     for (const c of CLASSES) {
       const [id, nom, tel] = c.principal;
       await creer(id, nom, 'instituteur_principal', 'permanent', tel, 'instituteur_principal', anglophone(c.niveau) ? 'Teacher Grade I Certificate' : maternelle(c.niveau) ? 'CAPIEMP · option maternelle' : 'CAPIEMP', a.rentree);
@@ -49,9 +55,8 @@ export async function fondation(ctx: Contexte, a: Annee) {
     // Un compte peut cumuler plusieurs rôles (maquette Utilisateurs : Mme NGO Berthe, économe et secrétaire).
     const f = await sec.post<{ id: string }>('/personnel', { nomAffiche: 'Mme NGO Berthe', fonction: 'autre', statut: 'permanent', telephone: '600 000 205', diplome: 'BTS de comptabilité', entreeLe: a.rentree });
     ctx.personnel['ngo.b'] = f.id;
-    await sec.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', personnelId: f.id, roles: [{ roleId: role('econome') }, { roleId: role('secretaire') }], motDePasse: motDePasseDemo('ngo.b') });
+    await ctx.dir.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', personnelId: f.id, roles: [{ roleId: role('econome') }, { roleId: role('secretaire') }], motDePasse: motDePasseDemo('ngo.b') });
   });
-  ctx.dir = await connecter(ctx.app, 'directrice', 'demo-directrice');
   ctx.eco = await connecter(ctx.app, 'econome', 'demo-econome');
   ctx.pre = await connecter(ctx.app, 'prefet', 'demo-prefet');
   const parNomPersonnel: Record<string, Client> = {};

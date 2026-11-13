@@ -49,7 +49,8 @@ export const MODULES: { code: Module; libelle: string; icone: NomIcone; onglets:
   { code: 'assistant', libelle: 'Assistant', icone: 'assistant', onglets: [{ libelle: 'Assistant', route: '/assistant', permissions: ['assistant.question.poser'] }] },
   { code: 'parametres', libelle: 'Paramètres', icone: 'parametres', onglets: [
     { libelle: 'Établissement', route: '/parametres/etablissement', permissions: ['structure.consulter'] },
-    { libelle: 'Utilisateurs et rôles', route: '/parametres/utilisateurs', permissions: ['core.compte.consulter'] },
+    // Réservé au directeur (D-46) : gestion des comptes et des rôles.
+    { libelle: 'Utilisateurs et rôles', route: '/parametres/utilisateurs', permissions: ['core.compte.gerer'] },
     { libelle: 'Journal d\'audit', route: '/parametres/audit', permissions: ['core.audit.consulter'] },
     { libelle: 'Données', route: '/parametres/donnees', permissions: ['core.sauvegarde.lancer', 'scolarite.import.executer'] },
     { libelle: 'Clôture d\'année', route: '/parametres/cloture', permissions: ['structure.annee.cloturer'] },

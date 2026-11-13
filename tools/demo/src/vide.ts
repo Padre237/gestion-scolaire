@@ -45,22 +45,24 @@ const ADMINS: Admin[] = [
 ];
 const comptes: { role: string; nom: string; identifiant: string; motDePasse: string }[] = [{ role: 'Secrétaire', nom: nomAffiche, identifiant, motDePasse }];
 const demandes: { a: Admin; nom: string; identifiant: string; motDePasse: string }[] = [];
-if (!drapeau('sans-administration')) {
-  for (const a of ADMINS) {
-    const nom = argument(`nom-${a.cle}`) ?? await demander(`Nom affiché · ${a.libelle}`, a.nomDefaut);
-    const id = (argument(`identifiant-${a.cle}`) ?? await demander(`Identifiant · ${a.libelle}`, a.identifiantDefaut)).toLowerCase();
-    if (!/^[a-z0-9._-]{3,40}$/.test(id) || id === identifiant || demandes.some((d) => d.identifiant === id)) sortir(`Identifiant invalide ou déjà pris : ${id}`);
-    const mdp = argument(`mot-de-passe-${a.cle}`) ?? motDePasseAleatoire(10);
-    if (mdp.length < 8) sortir(`Mot de passe trop court pour ${id} (8 caractères au moins).`);
-    demandes.push({ a, nom, identifiant: id, motDePasse: mdp });
-  }
+// Le directeur est toujours créé (il est seul à gérer les comptes et les rôles, D-46) ; --sans-administration ne retire que l'économe et le préfet.
+for (const a of ADMINS.filter((x) => x.cle === 'directeur' || !drapeau('sans-administration'))) {
+  const nom = argument(`nom-${a.cle}`) ?? await demander(`Nom affiché · ${a.libelle}`, a.nomDefaut);
+  const id = (argument(`identifiant-${a.cle}`) ?? await demander(`Identifiant · ${a.libelle}`, a.identifiantDefaut)).toLowerCase();
+  if (!/^[a-z0-9._-]{3,40}$/.test(id) || id === identifiant || demandes.some((d) => d.identifiant === id)) sortir(`Identifiant invalide ou déjà pris : ${id}`);
+  const mdp = argument(`mot-de-passe-${a.cle}`) ?? motDePasseAleatoire(10);
+  if (mdp.length < 8) sortir(`Mot de passe trop court pour ${id} (8 caractères au moins).`);
+  demandes.push({ a, nom, identifiant: id, motDePasse: mdp });
 }
 
 await creerBase(config.pg, config.pg.base, true);
 await migrer(config.pg, config.pg.base, (m) => console.log(`  ${m}`));
 const pool = creerPool(config.pg);
 const bd = new Bd(pool);
-await creerEtablissement(bd, { nomFr, nomEn, secretaire: { identifiant, nomAffiche, motDePasse } });
+const dirDemande = demandes.find((d) => d.a.cle === 'directeur')!;
+await creerEtablissement(bd, { nomFr, nomEn, secretaire: { identifiant, nomAffiche, motDePasse },
+  directeur: { identifiant: dirDemande.identifiant, nomAffiche: dirDemande.nom, motDePasse: dirDemande.motDePasse } });
+comptes.push({ role: dirDemande.a.libelle, nom: dirDemande.nom, identifiant: dirDemande.identifiant, motDePasse: dirDemande.motDePasse });
 {
   const app = await construireApp({ bd, dossierWeb: '/inexistant', journal: false });
   await app.ready();
@@ -69,12 +71,13 @@ await creerEtablissement(bd, { nomFr, nomEn, secretaire: { identifiant, nomAffic
     // Sections préinstallées (lot 1, D-40) : maternelle et primaire, francophones et anglophones, avec leurs niveaux.
     // Les classes et les matières viennent avec la première année scolaire, créée dans l'assistant de configuration.
     for (const sousSysteme of ['francophone', 'anglophone']) for (const ordreEnseignement of ['maternelle', 'primaire']) await sec.post('/structure/cycles', { sousSysteme, ordreEnseignement });
-    const roles = await sec.get<{ id: string; code: string }[]>('/core/roles');
-    for (const d of demandes) {
+    const dir = await connecter(app, dirDemande.identifiant, dirDemande.motDePasse);
+    const roles = await dir.get<{ id: string; code: string }[]>('/core/roles');
+    for (const d of demandes.filter((x) => x !== dirDemande)) {
       const fiche = await sec.post<{ id: string }>('/personnel', { nomAffiche: d.nom, fonction: d.a.fonction, statut: 'permanent' });
       const role = roles.find((r) => r.code === d.a.role);
       if (!role) sortir(`Rôle introuvable : ${d.a.role}`);
-      await sec.post('/core/comptes', { identifiant: d.identifiant, nomAffiche: d.nom, personnelId: fiche.id, roles: [{ roleId: role.id }], motDePasse: d.motDePasse });
+      await dir.post('/core/comptes', { identifiant: d.identifiant, nomAffiche: d.nom, personnelId: fiche.id, roles: [{ roleId: role.id }], motDePasse: d.motDePasse });
       comptes.push({ role: d.a.libelle, nom: d.nom, identifiant: d.identifiant, motDePasse: d.motDePasse });
     }
   } finally {

@@ -7,6 +7,7 @@ import { FORMULAIRE_PAR_DEFAUT } from '@gs/shared';
 type Env = Awaited<ReturnType<typeof preparer>>;
 let env: Env;
 let sec: Client, dir: Client, eco: Client, pre: Client, ip: Client, im: Client, mixte: Client;
+let adm: Client;
 const ids: Record<string, string> = {};
 let famille1: { telephone: string; motDePasse: string };
 let familleCm2: { telephone: string; motDePasse: string }[] = [];
@@ -14,6 +15,7 @@ let familleCm2: { telephone: string; motDePasse: string }[] = [];
 beforeAll(async () => {
   env = await preparer();
   sec = await connecter(env.app, 'secretaire', 'secret-demo-1');
+  adm = await connecter(env.app, 'directeur', 'secret-dir-1');
 });
 afterAll(async () => { await env?.fermer(); });
 
@@ -35,7 +37,7 @@ describe('Socle : connexion, sessions, droits (CU-01, ENF-05, conception § 8)',
   });
 });
 
-describe('Étape 1 · la secrétaire paramètre l\'établissement et crée les comptes (CU-02, CU-03, E-07)', () => {
+describe('Étape 1 · la secrétaire paramètre l\'établissement, le directeur crée les comptes (CU-02, CU-03, E-07, D-46)', () => {
   it('paramètre l\'identité et le seuil de réduction', async () => {
     const r = await sec.put('/structure/etablissement', { nomFr: 'École de démonstration', nomEn: 'Demonstration School', seuilReduction: 5000,
       telephone: '600 000 200', villeBp: 'Yaoundé · BP 1234', banque: 'Banque de démonstration', numeroCompte: '00012 345678 90' });
@@ -66,7 +68,7 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement et crée les c
     }
   });
   it('crée les fiches du personnel et les comptes avec leurs rôles', async () => {
-    const roles = (await sec.get('/core/roles')).corps as { id: string; code: string }[];
+    const roles = (await adm.get('/core/roles')).corps as { id: string; code: string }[];
     const role = (c: string) => roles.find((r) => r.code === c)!.id;
     const personnes: [string, string, string, string, string][] = [
       ['directrice', 'Directrice démo', 'directeur', 'permanent', 'directeur'],
@@ -79,11 +81,11 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement et crée les c
       const f = await sec.post('/personnel', { nomAffiche: nom, fonction, statut, telephone: '600 000 299' });
       expect(f.status).toBe(200);
       ids[`personnel:${identifiant}`] = f.corps.id;
-      const c = await sec.post('/core/comptes', { identifiant, nomAffiche: nom, personnelId: f.corps.id, roles: [{ roleId: role(r) }], motDePasse: `mdp-${identifiant}` });
+      const c = await adm.post('/core/comptes', { identifiant, nomAffiche: nom, personnelId: f.corps.id, roles: [{ roleId: role(r) }], motDePasse: `mdp-${identifiant}` });
       expect(c.status).toBe(200);
     }
     // Un compte cumule plusieurs rôles (ADR-12) : directeur et secrétaire.
-    const cumul = await sec.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', roles: [{ roleId: role('directeur') }, { roleId: role('secretaire') }], motDePasse: 'mdp-ngo.b' });
+    const cumul = await adm.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', roles: [{ roleId: role('directeur') }, { roleId: role('secretaire') }], motDePasse: 'mdp-ngo.b' });
     expect(cumul.status).toBe(200);
     dir = await connecter(env.app, 'directrice', 'mdp-directrice');
     eco = await connecter(env.app, 'econome', 'mdp-econome');
@@ -94,25 +96,28 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement et crée les c
     expect((await mixte.get('/auth/moi')).corps.libelleRoles).toBe('Directeur, Secrétaire');
   });
   it('le parent n\'est jamais créé à la main (RG-35)', async () => {
-    const roles = (await sec.get('/core/roles')).corps as { id: string; code: string }[];
-    const r = await sec.post('/core/comptes', { identifiant: 'parent.x', nomAffiche: 'Parent X', roles: [{ roleId: roles.find((x) => x.code === 'parent')!.id }] });
+    const roles = (await adm.get('/core/roles')).corps as { id: string; code: string }[];
+    const r = await adm.post('/core/comptes', { identifiant: 'parent.x', nomAffiche: 'Parent X', roles: [{ roleId: roles.find((x) => x.code === 'parent')!.id }] });
     expect(r.status).toBe(422);
   });
   it('403 : chacun reste dans ses droits, même en appelant l\'API directement', async () => {
     expect((await eco.post('/structure/classes', { niveauId: ids['niveau:CP'], nom: 'CP A', effectifMax: 40 })).status).toBe(403);
     expect((await pre.post('/core/comptes', { identifiant: 'zz.z', nomAffiche: 'Z', roles: [] })).status).toBe(403);
+    // Utilisateurs et rôles : le directeur seul (D-46) ; la secrétaire n'y a plus accès.
+    expect((await sec.post('/core/comptes', { identifiant: 'zz.z', nomAffiche: 'Z', roles: [] })).status).toBe(403);
+    expect((await sec.get('/core/comptes')).status).toBe(403);
     expect((await ip.get('/core/journal')).status).toBe(403);
     expect((await im.get('/finances/impayes')).status).toBe(403);
     expect((await dir.put('/structure/etablissement', { nomFr: 'X', nomEn: 'X' })).status).toBe(403);
   });
-  it('la secrétaire crée un rôle à partir d\'un autre et en règle les permissions (SOC-09)', async () => {
-    const roles = (await sec.get('/core/roles')).corps as { id: string; code: string; permissions: string[] }[];
+  it('le directeur crée un rôle à partir d\'un autre et en règle les permissions (SOC-09)', async () => {
+    const roles = (await adm.get('/core/roles')).corps as { id: string; code: string; permissions: string[] }[];
     const econome = roles.find((r) => r.code === 'econome')!;
-    const r = await sec.post('/core/roles', { depuisRoleId: econome.id, libelle: 'Caissier APE' });
+    const r = await adm.post('/core/roles', { depuisRoleId: econome.id, libelle: 'Caissier APE' });
     expect(r.status).toBe(200);
-    const maj = await sec.put(`/core/roles/${r.corps.id}/permissions`, { permissions: econome.permissions.filter((p) => !p.startsWith('finances.grille')) });
+    const maj = await adm.put(`/core/roles/${r.corps.id}/permissions`, { permissions: econome.permissions.filter((p) => !p.startsWith('finances.grille')) });
     expect(maj.status).toBe(200);
-    expect((await sec.put(`/core/roles/${roles.find((x) => x.code === 'secretaire')!.id}/permissions`, { permissions: [] })).status).toBe(422);
+    expect((await adm.put(`/core/roles/${roles.find((x) => x.code === 'directeur')!.id}/permissions`, { permissions: [] })).status).toBe(422);
   });
 });
 

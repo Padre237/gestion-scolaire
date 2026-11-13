@@ -37,7 +37,8 @@ export async function preparer() {
   const app = await construireApp({ bd, dossierWeb: '/inexistant', journal: process.env.GS_JOURNAL ? { level: 'error' } as never : false });
   await app.ready();
   const etab = await creerEtablissement(bd, { nomFr: 'École de démonstration', nomEn: 'Demonstration School',
-    secretaire: { identifiant: 'secretaire', nomAffiche: 'Secrétaire démo', motDePasse: 'secret-demo-1' } });
+    secretaire: { identifiant: 'secretaire', nomAffiche: 'Secrétaire démo', motDePasse: 'secret-demo-1' },
+    directeur: { identifiant: 'directeur', nomAffiche: 'Directeur de l’école', motDePasse: 'secret-dir-1' } });
   return { app, bd, etab, fermer: async () => { await app.close(); await pool.end(); } };
 }
 

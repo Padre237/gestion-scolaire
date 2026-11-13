@@ -4,6 +4,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
+import type { SQL } from 'drizzle-orm';
 import { Bd, sql } from './bd.ts';
 import { Contexte, type Portee, type RoleActif } from './contexte.ts';
 import { interdit, nonAutorise } from './erreurs.ts';
@@ -50,6 +51,10 @@ function lireJeton(req: FastifyRequest): string | null {
   return req.cookies?.[COOKIE] ?? null;
 }
 
+/** Ligne en vigueur aujourd'hui, à l'heure du Cameroun : colonnes du et au incluses, vides = sans limite. */
+const enVigueur = (t: SQL) => sql`(${t}.du IS NULL OR ${t}.du <= (now() AT TIME ZONE 'Africa/Douala')::date)
+  AND (${t}.au IS NULL OR ${t}.au >= (now() AT TIME ZONE 'Africa/Douala')::date)`;
+
 export async function chargerContexte(bd: Bd, jeton: string): Promise<Contexte | null> {
   const s = await bd.lireUn<{
     session_id: string; compte_id: string; etablissement_id: string; nom_affiche: string; type: 'personnel' | 'famille';
@@ -69,6 +74,8 @@ export async function chargerContexte(bd: Bd, jeton: string): Promise<Contexte |
       JOIN core.role r ON r.id = cr.role_id
       LEFT JOIN core.role_permission rp ON rp.role_id = r.id
      WHERE cr.compte_id = ${s.compte_id}
+       -- Rôle et attribution en vigueur aujourd'hui (heure du Cameroun) : une période passée ou à venir ne donne aucun droit (D-46).
+       AND ${enVigueur(sql`cr`)} AND ${enVigueur(sql`r`)}
      ORDER BY r.ordre, r.code`);
   const roles = new Map<string, RoleActif>();
   const droits = new Map<string, Set<Portee>>();
@@ -77,6 +84,15 @@ export async function chargerContexte(bd: Bd, jeton: string): Promise<Contexte |
     if (l.permission_code) {
       if (!droits.has(l.permission_code)) droits.set(l.permission_code, new Set());
       droits.get(l.permission_code)!.add(l.perimetre_type);
+    }
+  }
+  // Attributions particulières du directeur : permissions données à ce compte en plus de ses rôles, dans leur période.
+  if (s.type === 'personnel') {
+    const plus = await bd.lire<{ permission_code: string }>(sql`
+      SELECT permission_code FROM core.compte_permission cp WHERE cp.compte_id = ${s.compte_id} AND ${enVigueur(sql`cp`)}`);
+    for (const p of plus) {
+      if (!droits.has(p.permission_code)) droits.set(p.permission_code, new Set());
+      droits.get(p.permission_code)!.add('etablissement');
     }
   }
   await bd.lire(sql`UPDATE core.compte SET derniere_activite = now() WHERE id = ${s.compte_id}`);

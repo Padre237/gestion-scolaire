@@ -149,7 +149,8 @@ export const ROLES_SYSTEME: readonly DefinitionRole[] = [
   {
     code: 'directeur', libelleFr: 'Directeur', libelleEn: 'Head teacher', perimetre: 'etablissement',
     permissions: [
-      ...LECTURE_COMMUNE, 'structure.consulter', 'core.compte.consulter', 'core.audit.consulter', 'core.audit.exporter',
+      ...LECTURE_COMMUNE, 'structure.consulter', 'core.compte.consulter', 'core.compte.gerer', 'core.compte.reinitialiser', 'core.compte.desactiver',
+      'core.role.gerer', 'core.audit.consulter', 'core.audit.exporter',
       'pilotage.tableau.consulter', 'pilotage.statistiques.consulter', 'assistant.question.poser',
       'scolarite.eleve.exporter', 'scolarite.derogation.valider',
       'finances.grille.consulter', 'finances.reduction.valider', 'finances.recu.consulter', 'finances.impaye.consulter',
@@ -164,7 +165,7 @@ export const ROLES_SYSTEME: readonly DefinitionRole[] = [
     permissions: [
       ...LECTURE_COMMUNE, 'structure.consulter', 'structure.etablissement.modifier', 'structure.annee.gerer',
       'structure.periode.modifier', 'structure.classe.gerer', 'structure.annee.cloturer', 'core.modele.modifier',
-      'core.compte.consulter', 'core.compte.gerer', 'core.compte.reinitialiser', 'core.compte.desactiver', 'core.role.gerer',
+      'core.compte.reinitialiser',
       'core.audit.consulter', 'core.audit.exporter', 'core.sauvegarde.lancer', 'core.sauvegarde.restaurer',
       'core.lecture.gerer', 'scolarite.import.executer', 'assistant.proposition.traduction', 'assistant.proposition.import',
       'scolarite.eleve.exporter', 'scolarite.inscription.creer', 'scolarite.responsable.gerer',

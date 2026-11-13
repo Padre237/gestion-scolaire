@@ -86,7 +86,9 @@ async function main() {
     etape('Structure : établissement, classes, personnel, matières, grilles, emplois du temps');
     let m = await marque();
     await creerEtablissement(bd, { nomFr: 'Groupe scolaire bilingue La Ruche d’Or', nomEn: 'La Ruche d’Or Bilingual School',
-      secretaire: { identifiant: 'secretaire', nomAffiche: 'Mme NDZANA Rose', motDePasse: 'demo-secretaire' } });
+      secretaire: { identifiant: 'secretaire', nomAffiche: 'Mme NDZANA Rose', motDePasse: 'demo-secretaire' },
+      // La directrice gère les comptes et les rôles (D-46) : elle est créée avec l'établissement.
+      directeur: { identifiant: 'directrice', nomAffiche: 'Mme ATEBA Marie-Claire', motDePasse: 'demo-directrice' } });
     const sec = await connecter(app, 'secretaire', 'demo-secretaire');
     const horloge: Horloge = { a: (_d, fn) => fn() };
     const ctx = { app, horloge, proprio: db, sec, comptes: {}, niveaux: {}, personnel: {}, matieres: {}, annees: [A1, A2], eleves: ecole.eleves, parents: {}, petit: false } as unknown as Contexte;

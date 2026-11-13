@@ -145,7 +145,8 @@ export async function routesScolarite(app: FastifyInstance) {
     await exigerEleveAccessible(ctx, req.params.id);
     const e = await app.bd.lireUn<Record<string, unknown>>(sql`
       SELECT e.id, e.matricule, e.nom, e.prenoms, e.sexe, e.date_naissance AS "dateNaissance", e.lieu_naissance AS "lieuNaissance",
-             e.photo IS NOT NULL AS "aPhoto", e.famille_id AS "familleId", e.renseignements
+             e.photo IS NOT NULL AS "aPhoto", e.famille_id AS "familleId", e.renseignements,
+             (SELECT co.id FROM core.compte co WHERE co.famille_id = e.famille_id LIMIT 1) AS "compteFamilleId"
         FROM scolarite.eleve e WHERE e.id = ${req.params.id} AND e.etablissement_id = ${ctx.etablissementId}`);
     if (!e) throw introuvable('Élève');
     // Réponses brutes (formulaire de mise à jour) et lisibles, bloc par bloc (fiche).

@@ -11,7 +11,7 @@ const SCHEMAS_METIER = ['core', 'structure', 'scolarite', 'finances', 'caisse', 
   'personnel', 'communication', 'assistant'];
 
 // Tables de liaison où une ligne peut être retirée ; ailleurs, pas de suppression physique (§ 6.1).
-const SUPPRESSION_PERMISE = ['core.role_permission', 'core.compte_role', 'pedagogie.affectation',
+const SUPPRESSION_PERMISE = ['core.role_permission', 'core.compte_role', 'core.compte_permission', 'pedagogie.affectation',
   'finances.ligne_grille', 'scolarite.eleve_responsable', 'pedagogie.cours', 'pedagogie.creneau', 'caisse.budget',
   'communication.annonce_famille', 'pedagogie.bulletin', 'vie_scolaire.absence', 'vie_scolaire.presence', 'communication.message'];
 

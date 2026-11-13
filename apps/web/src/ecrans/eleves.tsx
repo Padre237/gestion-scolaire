@@ -6,13 +6,14 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { ChampsDuBloc, erreursFormulaire, valeursAEnvoyer, type Formulaire, type Valeurs } from './formulaire-inscription.tsx';
 import { ouvrirActionsEleve, ouvrirMiseAJour } from './eleve-maj.tsx';
+import { montrerMotDePasse } from './admin-commun.tsx';
 import { api, ErreurApi, requete, url } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
 import { choisirFichier, ouvrirDocument, ouvrirDocumentPost, telecharger } from '../core/documents.ts';
 import { decimal, enLettres, fcfa, heure, jjmmaaaa, montant, pluriel, versEntier, versIso } from '../core/format.ts';
 import {
-  agir, Avatar, Bandeau, BarreProgression, Bouton, CaseACocher, Cel2, Champ, Chargement, Choix, Colonnes, Doux, Erreur, Etiquette, Filtres,
+  agir, Avatar, Bandeau, BarreProgression, Bouton, CaseACocher, Cel2, Champ, Chargement, Choix, Colonnes, confirmer, Doux, Erreur, Etiquette, Filtres,
   Grille, InfoCaps, Lien, Liste, Note, ouvrirFenetre, ouvrirFormulaire, Panneau, Pastille, PiedFenetre, Radio, Rangee, signaler, Tableau,
   TitrePanneau, useDonnees, useRaccourci, type Ton,
 } from '../core/ui.tsx';
@@ -255,6 +256,13 @@ function EcranFicheEleve() {
     `${fille ? 'née le' : 'né le'} ${jjmmaaaa(e.dateNaissance)}${e.lieuNaissance ? ` à ${e.lieuNaissance}` : ''}`, typeInsc].filter(Boolean).join(' · ');
   const reste: number | null = ech?.totaux?.reste ?? null;
   const droitsMaj = { majEleve: moi.a('scolarite.inscription.creer'), majResponsables: moi.a('scolarite.responsable.gerer') };
+  // Parent qui a oublié son mot de passe : le secrétariat lui en remet un nouveau (D-46) ; les comptes du personnel relèvent du directeur.
+  const nouveauMotDePasseFamille = async () => {
+    if (!(await confirmer('Nouveau mot de passe famille', 'Un nouveau mot de passe est créé pour le compte de la famille ; l’ancien ne fonctionne plus et les sessions ouvertes sont fermées.', 'Créer le mot de passe'))) return;
+    const r = await agir(() => api.post<{ motDePasse: string }>(`/core/comptes/${e.compteFamilleId}/reinitialisation`));
+    if (r) await montrerMotDePasse('Nouveau mot de passe famille', e.responsables?.find((x: any) => x.payeur)?.telephone ?? '', r.motDePasse,
+      'Remettez-le au parent, sur présentation d’une pièce d’identité : il se connecte avec son numéro de téléphone et ce mot de passe.');
+  };
 
   return (
     <Coque module="eleves" titre="Fiche élève">
@@ -280,6 +288,7 @@ function EcranFicheEleve() {
               </div>
             )}
             <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj, 'historique')) void recharger(); }}>Historique des modifications</Bouton>
+            {moi.a('core.compte.reinitialiser') && e.compteFamilleId && <Bouton onClick={nouveauMotDePasseFamille}>Nouveau mot de passe famille</Bouton>}
             {(droitsMaj.majEleve || droitsMaj.majResponsables) && <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj)) void recharger(); }}>Mettre à jour</Bouton>}
             {peutEncaisser && <Bouton variante="principal" icone="fraisCaisse" touches={['Ctrl', 'E']} onClick={encaisser}>Encaisser</Bouton>}
           </div>

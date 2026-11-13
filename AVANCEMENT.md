@@ -31,7 +31,7 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - [x] Lot 3 · liste des élèves : fenêtre détail / mise à jour, historique des modifications, recherche avec propositions ; liste 15 fois plus rapide (D-43).
 - [x] Lot 4 · trois modèles d'impression par document, logo, QR code de vérification et page publique « Vérifier » (D-44).
 - [x] Lot 5 · tableau de bord personnalisable (6 cartes par utilisateur, D-41) ; barre haute fixe au défilement.
-- [ ] Lot 6 · rôles et droits sur mesure (directeur).
+- [x] Lot 6 · utilisateurs et rôles au directeur seul ; rôles sur mesure, attributions particulières, périodes (D-46).
 - [ ] Lot 7 · retrait de l'accès direct à la base dans Données.
 - [ ] Lot 8 · Assistant par OpenRouter (aucune donnée personnelle envoyée).
 - [ ] Lot 9 · application hybride, synchronisation (essai local d'abord).

@@ -14,7 +14,8 @@
     "verifier": "pnpm -r exec tsc --noEmit",
     "web:build": "pnpm --filter @gs/web build",
     "web:dev": "pnpm --filter @gs/web dev",
-    "demo:donnees": "pnpm --filter @gs/demo donnees"
+    "demo:donnees": "pnpm --filter @gs/demo donnees",
+    "synchro:essai": "pnpm --filter @gs/demo synchro"
   },
   "engines": {
     "node": ">=22"

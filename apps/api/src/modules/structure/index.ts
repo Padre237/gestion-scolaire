@@ -1,6 +1,7 @@
 // API publique du module structure : seul point d'entrée pour les autres modules (ADR-01).
 import { sql, type Bd, type Tx, ligne } from '../../core/bd.ts';
 import { ErreurMetier } from '../../core/erreurs.ts';
+import { exigerPostePrincipal } from '../../core/http/synchro.ts';
 
 export interface AnneeOuverte { id: string; libelle: string; date_debut: string; date_fin: string; annee_civile: number }
 
@@ -47,6 +48,8 @@ export const cleCompteur = {
 
 /** Incrémente le compteur dans la transaction courante, sous verrou de ligne. */
 export async function prochainNumero(tx: Tx, etab: string, cle: string): Promise<number> {
+  // Application hybride (D-49) : la numérotation sans trou n'est tenue qu'au poste de l'école.
+  exigerPostePrincipal();
   const r = await ligne<{ n: number }>(tx, sql`SELECT core.prochain_numero(${etab}, ${cle})::int AS n`);
   return r!.n;
 }

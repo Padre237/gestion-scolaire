@@ -49,6 +49,18 @@ setInterval(async () => {
   }
 }, 60_000).unref();
 
+// Application hybride (D-49) : le poste de l'école échange ses modifications avec la version en ligne à intervalle régulier.
+// Sans internet, l'essai échoue sans bruit : les modifications attendent et partiront au suivant.
+const { reglageSynchro } = await import('./core/synchro.ts');
+const { synchroniserMaintenant } = await import('./core/http/synchro.ts');
+let prochaineSynchro = 0;
+setInterval(() => {
+  const s = reglageSynchro();
+  if (s.role !== 'principal' || !s.adresse || Date.now() < prochaineSynchro) return;
+  prochaineSynchro = Date.now() + s.intervalle * 1000;
+  synchroniserMaintenant(app).catch(() => undefined);
+}, 5_000).unref();
+
 const arreter = async () => { await local?.close(); await app.close(); await pool.end(); process.exit(0); };
 process.on('SIGINT', arreter);
 process.on('SIGTERM', arreter);

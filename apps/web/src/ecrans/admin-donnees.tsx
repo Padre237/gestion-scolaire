@@ -414,6 +414,50 @@ function PanneauSauvegardes() {
   );
 }
 
+// ---------------------------------------------------------------- synchronisation (application hybride, D-49)
+
+interface EtatSynchro {
+  role: 'principal' | 'en_ligne' | null; adresse?: string | null; intervalle?: number; derniere?: string | null; enAttente?: number | null; enCours?: boolean;
+  erreur?: string | null; conflits?: { id: number; horodatage: string; table: string; issue: string; motif: string | null }[];
+}
+const ISSUES: Record<string, string> = { distant_garde: 'Version de l’autre côté gardée', local_garde: 'Version d’ici gardée', refuse: 'Modification refusée' };
+
+function PanneauSynchro() {
+  const st = useDonnees(() => api.get<EtatSynchro>('/synchro/etat'));
+  const [charge, setCharge] = useState(false);
+  const d = st.d;
+  if (!d || !d.role) return null;
+  const maintenant = async () => {
+    setCharge(true);
+    const r = await agir(() => api.post<{ envoyes: number; recus: number; conflits: number }>('/synchro/maintenant'));
+    setCharge(false);
+    if (r) signaler(`Synchronisé : ${pluriel(r.envoyes, 'modification envoyée', 'modifications envoyées')}, ${pluriel(r.recus, 'reçue', 'reçues')}${r.conflits ? `, ${pluriel(r.conflits, 'conflit')}` : ''}`);
+    await st.recharger();
+  };
+  const date = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'Africa/Douala' }) : 'Jamais');
+  return (
+    <Panneau>
+      <TitrePanneau titre="Synchronisation" sous={d.role === 'principal' ? 'Poste de l’école ⇄ version en ligne' : 'Version en ligne'} />
+      {d.erreur && <Bandeau ton="attention" icone="alerte">Dernier essai sans succès : {d.erreur}. Les modifications attendent et partiront au prochain essai.</Bandeau>}
+      <div>
+        {d.role === 'principal' && <LigneListe><span style={{ flex: '1 1 160px' }}>Version en ligne</span><span className="gras" style={{ overflowWrap: 'anywhere' }}>{d.adresse}</span></LigneListe>}
+        <LigneListe><span style={{ flex: '1 1 160px' }}>Dernier échange</span><span className="gras">{date(d.derniere)}</span></LigneListe>
+        {d.role === 'principal' && <LigneListe><span style={{ flex: '1 1 160px' }}>Modifications en attente</span><span className="gras">{d.enAttente ? montant(d.enAttente) : 'Aucune'}</span></LigneListe>}
+      </div>
+      {(d.conflits ?? []).length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span className="etiquette">Derniers conflits (version écartée gardée)</span>
+          {d.conflits!.map((c) => <Doux key={c.id}>{date(c.horodatage)} · {c.table} · {ISSUES[c.issue] ?? c.issue}{c.motif ? ` : ${c.motif}` : ''}</Doux>)}
+        </div>
+      )}
+      {d.role === 'principal' && <div><Bouton icone="recalculer" charge={charge || d.enCours} onClick={maintenant}>Synchroniser maintenant</Bouton></div>}
+      <Doux>{d.role === 'principal'
+        ? `Échange automatique toutes les ${d.intervalle ?? 60} secondes. Pour une même information modifiée des deux côtés, la plus récente l’emporte ; l’autre est gardée. Reçus, avis et matricules se font ici, au poste de l’école.`
+        : 'Les modifications faites ici partent au poste de l’école au prochain échange. Reçus, avis et matricules se font au poste de l’école.'}</Doux>
+    </Panneau>
+  );
+}
+
 // ---------------------------------------------------------------- écran
 
 export function EcranDonnees() {
@@ -421,6 +465,7 @@ export function EcranDonnees() {
   const droite = (
     <>
       {moi.unParmi(['core.sauvegarde.lancer', 'core.sauvegarde.restaurer']) && <PanneauSauvegardes />}
+      {moi.unParmi(['core.sauvegarde.lancer', 'core.compte.gerer']) && <PanneauSynchro />}
       <Panneau>
         <TitrePanneau titre="Exports" />
         <span>Chaque liste s’exporte en CSV, lisible par Excel, depuis son écran : élèves, impayés, personnel, statistiques, journal d’audit.</span>

@@ -34,4 +34,4 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - [x] Lot 6 · utilisateurs et rôles au directeur seul ; rôles sur mesure, attributions particulières, périodes (D-46).
 - [x] Lot 7 · plus d'accès direct à la base dans Données ; compte en lecture seule sans connexion (D-47, E-45).
 - [x] Lot 8 · Assistant relié à OpenRouter (réglage par le directeur), questions nettoyées, chiffres agrégés seulement (D-48).
-- [ ] Lot 9 · application hybride, synchronisation (essai local d'abord).
+- [x] Lot 9 · application hybride : poste de l'école et version en ligne synchronisés dans les deux sens, dernière modification gagnante, conflits gardés ; essai local `pnpm synchro:essai` (D-49, E-46).

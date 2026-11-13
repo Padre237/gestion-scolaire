@@ -83,6 +83,12 @@ export async function migrer(c: ConfigPg, base = c.base, journal: (m: string) =>
     }
     await synchroniserPermissions(client);
     await accorderDroits(client, c);
+    // Application hybride (D-49) : déclencheur de synchronisation sur toute nouvelle table ; état et conflits lisibles par le serveur.
+    if ((await client.query(`SELECT to_regnamespace('sync') IS NOT NULL AS ok`)).rows[0].ok) {
+      await client.query('SELECT sync.installer()');
+      await client.query(`GRANT USAGE ON SCHEMA sync TO ${c.application.utilisateur}`);
+      await client.query(`GRANT SELECT ON ALL TABLES IN SCHEMA sync TO ${c.application.utilisateur}`);
+    }
   } finally {
     await client.end();
   }

@@ -22,6 +22,12 @@ export interface Config {
   sms: { fournisseur: 'desactive' };            // ECARTS E-22
   ia: { fournisseur: 'desactive' };             // ECARTS E-37
   sauvegarde: { dossier: string; cle: string; heure: string };
+  /**
+   * Application hybride (D-49) : « principal » est le poste de l'école, qui envoie et reçoit les modifications
+   * à l'adresse de la version en ligne ; « en_ligne » est la version en ligne, qui les reçoit. Même jeton des deux côtés.
+   * Absent : instance seule, sans synchronisation.
+   */
+  synchro?: { role: 'principal' | 'en_ligne'; adresse?: string; jeton: string; intervalleSecondes?: number };
 }
 
 export const cheminConfig = (): string => process.env.GS_CONFIG ?? resolve(RACINE, 'var/config.json');

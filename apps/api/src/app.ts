@@ -19,6 +19,7 @@ import { pluginSession } from './core/session.ts';
 import { routesAuth } from './core/http/auth.ts';
 import { routesAdministration } from './core/http/administration.ts';
 import { routesDonnees } from './core/http/donnees.ts';
+import { routesSynchro } from './core/http/synchro.ts';
 import { routesStructure } from './modules/structure/http/routes.ts';
 import { routesPersonnel } from './modules/personnel/http/routes.ts';
 import { routesPedagogie } from './modules/pedagogie/http/routes.ts';
@@ -95,6 +96,7 @@ export async function construireApp(o: OptionsApp): Promise<FastifyInstance> {
     await api.register(routesAuth);
     await api.register(routesAdministration);
     await api.register(routesDonnees);
+    await api.register(routesSynchro);
     await api.register(routesStructure);
     await api.register(routesPersonnel);
     await api.register(routesPedagogie);

@@ -8,7 +8,8 @@
     "sauvegarde": "tsx src/sauvegarde.ts",
     "restaurer": "tsx src/restaurer.ts",
     "lancer": "tsx src/lancer.ts",
-    "donnees": "tsx src/rapide.ts"
+    "donnees": "tsx src/rapide.ts",
+    "synchro": "tsx src/en-ligne.ts"
   },
   "dependencies": {
     "@gs/db": "workspace:*",

@@ -42,6 +42,18 @@ pnpm demo:lancer
 
 Arrêt : `Ctrl C`.
 
+## Version en ligne (application hybride)
+
+Le poste de l'école et une version en ligne échangent leurs modifications toutes les 30 à 60 secondes, dans les deux sens. Pour une même information modifiée des deux côtés, la plus récente l'emporte ; l'autre version est gardée (Paramètres › Données › Synchronisation). Sans internet, le poste continue de fonctionner et les modifications partent au retour de la connexion. Reçus, avis de paiement et matricules se créent au poste de l'école.
+
+Essai sur un seul ordinateur :
+
+```bash
+pnpm demo:lancer          # le poste de l'école : http://localhost:8080
+pnpm synchro:essai        # la version en ligne : http://localhost:8090, reliée au poste
+pnpm synchro:essai --arreter
+```
+
 ## Comptes de démonstration
 
 Ces comptes sont créés par `pnpm demo:donnees`.

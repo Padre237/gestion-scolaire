@@ -5,10 +5,10 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { ChampsDuBloc, erreursFormulaire, valeursAEnvoyer, type Formulaire, type Valeurs } from './formulaire-inscription.tsx';
-import { ouvrirActionsEleve, ouvrirMiseAJour } from './eleve-maj.tsx';
+import { LECTURE_FORMULAIRE, ouvrirActionsEleve, ouvrirMiseAJour } from './eleve-maj.tsx';
 import { montrerMotDePasse } from './admin-commun.tsx';
 import { api, ErreurApi, requete, url } from '../core/api.ts';
-import { Coque } from '../core/coque.tsx';
+import { Coque, routePermise } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
 import { choisirFichier, ouvrirDocument, ouvrirDocumentPost, telecharger } from '../core/documents.ts';
 import { decimal, enLettres, fcfa, heure, jjmmaaaa, montant, pluriel, versEntier, versIso } from '../core/format.ts';
@@ -158,7 +158,8 @@ function EcranEleves() {
   const lignes: any[] = d?.lignes ?? [];
   const total: number = d?.total ?? 0;
   const filtre = Boolean(q || classe || situation);
-  const droits = { majEleve: moi.a('scolarite.inscription.creer'), majResponsables: moi.a('scolarite.responsable.gerer') };
+  const fenetreMaj = moi.unParmi(LECTURE_FORMULAIRE);
+  const droits = { majEleve: fenetreMaj && moi.a('scolarite.inscription.creer'), majResponsables: fenetreMaj && moi.a('scolarite.responsable.gerer') };
   // Clic sur une ligne (ou une proposition) : fenêtre « Voir le détail » ou « Mettre à jour ».
   const ouvrirLigne = async (l: any) => {
     const choix = await ouvrirActionsEleve(l, droits);
@@ -255,7 +256,8 @@ function EcranFicheEleve() {
   const ligne = [e.matricule, insc?.classe, fille ? 'Fille' : 'Garçon',
     `${fille ? 'née le' : 'né le'} ${jjmmaaaa(e.dateNaissance)}${e.lieuNaissance ? ` à ${e.lieuNaissance}` : ''}`, typeInsc].filter(Boolean).join(' · ');
   const reste: number | null = ech?.totaux?.reste ?? null;
-  const droitsMaj = { majEleve: moi.a('scolarite.inscription.creer'), majResponsables: moi.a('scolarite.responsable.gerer') };
+  const fenetreMaj = moi.unParmi(LECTURE_FORMULAIRE);
+  const droitsMaj = { majEleve: fenetreMaj && moi.a('scolarite.inscription.creer'), majResponsables: fenetreMaj && moi.a('scolarite.responsable.gerer') };
   // Parent qui a oublié son mot de passe : le secrétariat lui en remet un nouveau (D-46) ; les comptes du personnel relèvent du directeur.
   const nouveauMotDePasseFamille = async () => {
     if (!(await confirmer('Nouveau mot de passe famille', 'Un nouveau mot de passe est créé pour le compte de la famille ; l’ancien ne fonctionne plus et les sessions ouvertes sont fermées.', 'Créer le mot de passe'))) return;
@@ -287,7 +289,7 @@ function EcranFicheEleve() {
                 </span>
               </div>
             )}
-            <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj, 'historique')) void recharger(); }}>Historique des modifications</Bouton>
+            {fenetreMaj && <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj, 'historique')) void recharger(); }}>Historique des modifications</Bouton>}
             {moi.a('core.compte.reinitialiser') && e.compteFamilleId && <Bouton onClick={nouveauMotDePasseFamille}>Nouveau mot de passe famille</Bouton>}
             {(droitsMaj.majEleve || droitsMaj.majResponsables) && <Bouton onClick={async () => { if (await ouvrirMiseAJour(e.id, nom, droitsMaj)) void recharger(); }}>Mettre à jour</Bouton>}
             {peutEncaisser && <Bouton variante="principal" icone="fraisCaisse" touches={['Ctrl', 'E']} onClick={encaisser}>Encaisser</Bouton>}
@@ -329,7 +331,7 @@ function EcranFicheEleve() {
                   valeur={suivi.moyenneSequence === null || suivi.moyenneSequence === undefined ? '–' : `${decimal(suivi.moyenneSequence, 2)} / 20`} />
                 <InfoCaps libelle="Absences" valeur={pluriel(suivi.absencesDemiJournees ?? 0, 'demi-journée')} />
               </Grille>
-              {moi.unParmi(['pedagogie.note.lire', 'pedagogie.bulletin.calculer', 'pedagogie.bulletin.lever_blocage']) && (
+              {moi.unParmi(['pedagogie.note.lire', 'pedagogie.bulletin.calculer', 'pedagogie.bulletin.lever_blocage']) && routePermise('/pedagogie/bulletins', moi) && (
                 <div>
                   <Bouton variante="lien" icone="notes" onClick={() => naviguer(`/pedagogie/bulletins${requete({ classeId: insc.classeId, inscriptionId: insc.id })}`)}>
                     Voir les notes et le bulletin
@@ -897,7 +899,7 @@ function EcranInscription() {
             {doublon && (
               <Bandeau ton="attention" icone="alerte" action={
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  <Bouton onClick={() => naviguer(`/scolarite/eleves/${doublon.id}`)}>Ouvrir sa fiche</Bouton>
+                  {routePermise(`/scolarite/eleves/${doublon.id}`, moi) && <Bouton onClick={() => naviguer(`/scolarite/eleves/${doublon.id}`)}>Ouvrir sa fiche</Bouton>}
                   <Bouton variante="lien" onClick={() => setDoublonEcarte(true)}>Ce n'est pas lui</Bouton>
                 </div>
               }>

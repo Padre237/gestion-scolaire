@@ -2,7 +2,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { estPermission, PERMISSIONS } from '@gs/shared';
+import { estPermission, incompatibilite, PERMISSIONS } from '@gs/shared';
+import type { SQL } from 'drizzle-orm';
 import { sql, lignes, ligne, tableau } from '../bd.ts';
 import { ErreurMetier, interdit, introuvable } from '../erreurs.ts';
 import { exiger } from '../session.ts';
@@ -31,6 +32,42 @@ export interface LigneCompte {
   id: string; identifiant: string; nom_affiche: string; type: string; actif: boolean; derniere_activite: string | null;
   personnel_id: string | null; famille_id: string | null;
   roles: { code: string; libelle: string; perimetre: string; roleId: string; cycleId: string | null; du: string | null; au: string | null }[];
+}
+
+const libellePermission = (c: string) => PERMISSIONS.find((p) => p.code === c)?.libelleFr ?? c;
+
+/** Séparation des tâches (D-52) : aucun rôle ni aucun compte, directeur compris, ne réunit deux permissions incompatibles. */
+function refuserIncompatible(codes: Iterable<string>, qui: string) {
+  const x = incompatibilite(codes);
+  if (x) throw new ErreurMetier('CORE_INCOMPATIBLE', 422, `${qui} ne peut pas réunir « ${libellePermission(x.a)} » et « ${libellePermission(x.b)} » : ${x.raison}.`);
+}
+
+/** Droits effectifs (rôles et attributions particulières non échues, y compris à venir) des comptes actifs visés : refus au premier cumul interdit. */
+async function verifierComptes(tx: Parameters<typeof lignes>[0], etablissementId: string, filtre: SQL) {
+  const comptes = await lignes<{ nom: string; codes: string[] }>(tx, sql`
+    SELECT c.nom_affiche AS nom, COALESCE(array_agg(DISTINCT x.code) FILTER (WHERE x.code IS NOT NULL), '{}') AS codes
+      FROM core.compte c
+      LEFT JOIN LATERAL (
+        SELECT rp.permission_code AS code FROM core.compte_role cr JOIN core.role r ON r.id = cr.role_id JOIN core.role_permission rp ON rp.role_id = r.id
+         WHERE cr.compte_id = c.id AND (cr.au IS NULL OR cr.au >= CURRENT_DATE) AND (r.au IS NULL OR r.au >= CURRENT_DATE)
+        UNION
+        SELECT cp.permission_code FROM core.compte_permission cp WHERE cp.compte_id = c.id AND (cp.au IS NULL OR cp.au >= CURRENT_DATE)
+      ) x ON true
+     WHERE c.etablissement_id = ${etablissementId} AND c.actif AND ${filtre}
+     GROUP BY c.id`);
+  for (const c of comptes) refuserIncompatible(c.codes, `Le compte de ${c.nom}`);
+}
+
+/** Un rôle famille ne porte que les permissions de l'espace parent, un rôle du personnel jamais. */
+function verifierPerimetre(perimetre: string, codes: string[]) {
+  const famille = (c: string) => PERMISSIONS.find((p) => p.code === c)?.groupe === 'Espace parent';
+  const hors = codes.find((c) => (perimetre === 'famille') !== famille(c));
+  if (hors) throw new ErreurMetier('CORE_PERIMETRE_ROLE', 422, `« ${libellePermission(hors)} » ne va pas à ce rôle.`);
+}
+
+/** Personne ne s'accorde de droits à soi-même : un autre compte chargé des comptes doit le faire. */
+function refuserSoiMeme(ctx: { compteId: string }, compteId: string) {
+  if (ctx.compteId === compteId) throw new ErreurMetier('CORE_SES_PROPRES_DROITS', 403, 'Vous ne pouvez pas modifier vos propres droits.');
 }
 
 export async function routesAdministration(app: FastifyInstance) {
@@ -82,6 +119,7 @@ export async function routesAdministration(app: FastifyInstance) {
         await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id, cycle_id, du, au)
                              VALUES (${ctx.etablissementId}, ${c!.id}, ${ro.roleId}, ${ro.cycleId ?? null}, ${ro.du ?? null}, ${ro.au ?? null})`);
       }
+      await verifierComptes(tx, ctx.etablissementId, sql`c.id = ${c!.id}`);
       await journaliser(tx, ctx, { action: 'Création', objetType: 'Droits', objetLibelle: `Droits · ${b.nomAffiche}`,
         avant: '–', apres: roles.join(', '), ligneId: c!.id, table: 'core.compte' });
       return { id: c!.id, identifiant: b.identifiant, motDePasse };
@@ -103,12 +141,14 @@ export async function routesAdministration(app: FastifyInstance) {
       if (b.nomAffiche) await tx.execute(sql`UPDATE core.compte SET nom_affiche = ${b.nomAffiche} WHERE id = ${req.params.id}`);
       if (b.personnelId !== undefined) await tx.execute(sql`UPDATE core.compte SET personnel_id = ${b.personnelId} WHERE id = ${req.params.id}`);
       if (b.roles) {
+        refuserSoiMeme(ctx, req.params.id);
         const libelles = await verifierRoles(tx, ctx.etablissementId, b.roles.map((x) => x.roleId));
         await tx.execute(sql`DELETE FROM core.compte_role WHERE compte_id = ${req.params.id}`);
         for (const ro of b.roles) {
           await tx.execute(sql`INSERT INTO core.compte_role (etablissement_id, compte_id, role_id, cycle_id, du, au)
                                VALUES (${ctx.etablissementId}, ${req.params.id}, ${ro.roleId}, ${ro.cycleId ?? null}, ${ro.du ?? null}, ${ro.au ?? null})`);
         }
+        await verifierComptes(tx, ctx.etablissementId, sql`c.id = ${req.params.id}`);
         await journaliser(tx, ctx, { action: 'Modification', objetType: 'Droits',
           objetLibelle: `Droits · ${b.nomAffiche ?? avant.nom_affiche}`, avant: avant.roles ?? '–', apres: libelles.join(', '),
           ligneId: req.params.id, table: 'core.compte' });
@@ -183,6 +223,7 @@ export async function routesAdministration(app: FastifyInstance) {
     if (b.du && b.au && b.au < b.du) throw new ErreurMetier('CORE_PERIODE', 422, 'La fin de la période doit suivre son début.', 'au');
     const inconnue = (b.permissions ?? []).find((p) => !estPermission(p));
     if (inconnue) throw new ErreurMetier('CORE_PERMISSION_INCONNUE', 422, `Permission inconnue : ${inconnue}.`);
+    if (b.permissions) refuserIncompatible(b.permissions, `Le rôle « ${b.libelle} »`);
     return app.bd.transaction(ctx.compteId, async (tx) => {
       const base = b.depuisRoleId ? await ligne<{ id: string; perimetre_type: string; libelle_fr: string }>(tx, sql`
         SELECT id, perimetre_type, libelle_fr FROM core.role WHERE id = ${b.depuisRoleId} AND etablissement_id = ${ctx.etablissementId}`)
@@ -195,6 +236,7 @@ export async function routesAdministration(app: FastifyInstance) {
         VALUES (${ctx.etablissementId}, ${code}, ${b.libelle}, ${b.libelleEn ?? b.libelle}, false, ${base.perimetre_type}, ${base.id}, 50, ${ctx.compteId}, ${b.du ?? null}, ${b.au ?? null})
         RETURNING id`);
       if (b.permissions) {
+        verifierPerimetre(base.perimetre_type, b.permissions);
         for (const p of new Set(b.permissions)) await tx.execute(sql`INSERT INTO core.role_permission (role_id, permission_code) VALUES (${nouveau!.id}, ${p})`);
       } else if (base.id) {
         await tx.execute(sql`INSERT INTO core.role_permission (role_id, permission_code)
@@ -216,9 +258,11 @@ export async function routesAdministration(app: FastifyInstance) {
     const inconnue = voulues.find((p) => !estPermission(p));
     if (inconnue) throw new ErreurMetier('CORE_PERMISSION_INCONNUE', 422, `Permission inconnue : ${inconnue}.`);
     return app.bd.transaction(ctx.compteId, async (tx) => {
-      const role = await ligne<{ code: string; libelle_fr: string }>(tx, sql`
-        SELECT code, libelle_fr FROM core.role WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
+      const role = await ligne<{ code: string; libelle_fr: string; perimetre_type: string }>(tx, sql`
+        SELECT code, libelle_fr, perimetre_type FROM core.role WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
       if (!role) throw introuvable('Rôle');
+      refuserIncompatible(voulues, `Le rôle « ${role.libelle_fr} »`);
+      verifierPerimetre(role.perimetre_type, voulues);
       // Le directeur administre les comptes et les rôles (D-46) : son rôle ne peut pas en perdre le moyen.
       if (role.code === 'directeur' && !(voulues.includes('core.role.gerer') && voulues.includes('core.compte.gerer'))) {
         throw new ErreurMetier('CORE_ADMINISTRATION_REQUISE', 422, 'Le rôle Directeur garde la gestion des comptes et des rôles.');
@@ -227,6 +271,8 @@ export async function routesAdministration(app: FastifyInstance) {
         .map((x) => x.permission_code);
       await tx.execute(sql`DELETE FROM core.role_permission WHERE role_id = ${req.params.id}`);
       for (const p of voulues) await tx.execute(sql`INSERT INTO core.role_permission (role_id, permission_code) VALUES (${req.params.id}, ${p})`);
+      // Chaque compte qui porte ce rôle, avec ses autres rôles et attributions, reste sans cumul interdit.
+      await verifierComptes(tx, ctx.etablissementId, sql`c.id IN (SELECT compte_id FROM core.compte_role WHERE role_id = ${req.params.id})`);
       const libelle = (codes: string[]) => codes.map((c) => PERMISSIONS.find((x) => x.code === c)?.libelleFr ?? c);
       const ajoutees = libelle(voulues.filter((p) => !avant.includes(p)));
       const retirees = libelle(avant.filter((p) => !voulues.includes(p)));
@@ -273,12 +319,17 @@ export async function routesAdministration(app: FastifyInstance) {
 
   r.post('/core/comptes/:id/permissions', {
     config: { permission: 'core.compte.gerer' },
-    schema: { tags: ['core'], params: Id, body: z.object({ permission: z.string(), motif: z.string().trim().max(200).nullish(), ...Periode }) },
+    // Une attribution particulière est toujours limitée dans le temps (D-52) : la date de fin est obligatoire.
+    schema: { tags: ['core'], params: Id, body: z.object({ permission: z.string(), motif: z.string().trim().max(200).nullish(),
+      du: z.iso.date().nullish(), au: z.iso.date({ error: 'Indiquez la date de fin de l’attribution.' }) }) },
   }, async (req) => {
     const ctx = exiger(req);
     const b = req.body;
     if (!estPermission(b.permission)) throw new ErreurMetier('CORE_PERMISSION_INCONNUE', 422, `Permission inconnue : ${b.permission}.`);
-    if (b.du && b.au && b.au < b.du) throw new ErreurMetier('CORE_PERIODE', 422, 'La fin de la période doit suivre son début.', 'au');
+    if (b.du && b.au < b.du) throw new ErreurMetier('CORE_PERIODE', 422, 'La fin de la période doit suivre son début.', 'au');
+    if (b.au < new Date(Date.now() + 3600_000).toISOString().slice(0, 10)) throw new ErreurMetier('CORE_PERIODE', 422, 'La date de fin est déjà passée.', 'au');
+    refuserSoiMeme(ctx, req.params.id);
+    verifierPerimetre('etablissement', [b.permission]);
     return app.bd.transaction(ctx.compteId, async (tx) => {
       const c = await ligne<{ nom_affiche: string; type: string }>(tx, sql`
         SELECT nom_affiche, type FROM core.compte WHERE id = ${req.params.id} AND etablissement_id = ${ctx.etablissementId}`);
@@ -288,9 +339,10 @@ export async function routesAdministration(app: FastifyInstance) {
         INSERT INTO core.compte_permission (etablissement_id, compte_id, permission_code, du, au, motif, cree_par)
         VALUES (${ctx.etablissementId}, ${req.params.id}, ${b.permission}, ${b.du ?? null}, ${b.au ?? null}, ${b.motif ?? null}, ${ctx.compteId})
         ON CONFLICT (compte_id, permission_code) DO UPDATE SET du = EXCLUDED.du, au = EXCLUDED.au, motif = EXCLUDED.motif RETURNING id`);
+      await verifierComptes(tx, ctx.etablissementId, sql`c.id = ${req.params.id}`);
       const lib = PERMISSIONS.find((p) => p.code === b.permission)?.libelleFr ?? b.permission;
       await journaliser(tx, ctx, { action: 'Modification', objetType: 'Droits', objetLibelle: `Attribution · ${c.nom_affiche}`,
-        avant: '–', apres: `${lib}${b.du ? ` du ${b.du.split('-').reverse().join('/')}` : ''}${b.au ? ` au ${b.au.split('-').reverse().join('/')}` : ', sans limite'}`,
+        avant: '–', apres: `${lib}${b.du ? ` du ${b.du.split('-').reverse().join('/')}` : ''} au ${b.au.split('-').reverse().join('/')}`,
         ligneId: req.params.id, table: 'core.compte' });
       return { id: x!.id };
     });

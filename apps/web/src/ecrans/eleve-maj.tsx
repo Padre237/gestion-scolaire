@@ -8,6 +8,8 @@ import { Bascules, Bouton, CaseACocher, Champ, Chargement, Doux, Erreur, Liste, 
 import { ChampsDuBloc, type ChampF, type Formulaire, type Valeurs } from './formulaire-inscription.tsx';
 
 export interface Droits { majEleve: boolean; majResponsables: boolean }
+/** La fenêtre de mise à jour (et son onglet Historique) lit le formulaire d'inscription : sans l'une de ces permissions, ses boutons ne s'affichent pas. */
+export const LECTURE_FORMULAIRE = ['scolarite.inscription.creer', 'core.modele.modifier', 'structure.consulter'];
 interface LigneListe { eleveId: string; nom: string; matricule: string; classe: string; payeur: string | null; payeurTelephone: string | null }
 
 const LIENS: [string, string][] = [['mere', 'Mère'], ['pere', 'Père'], ['tuteur', 'Tuteur']];

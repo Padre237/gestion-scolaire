@@ -474,9 +474,9 @@ export function EcranEtablissement() {
             <Doux>Cycles disponibles : maternelle, primaire et secondaire, dans les deux sous-systèmes.</Doux>
           </Panneau> },
       { titre: 'Formulaire d’inscription', sous: 'Questions posées à l’inscription', faite: true,
-        contenu: <PanneauFormulaire modifiable={moi.a('structure.etablissement.modifier')} /> },
+        contenu: <PanneauFormulaire modifiable={moi.a('core.modele.modifier')} /> },
       { titre: 'Documents', sous: 'Modèles d’impression, numérotation, en-têtes et mentions', faite: true,
-        contenu: <><PanneauGabarits modifiable={moi.a('structure.etablissement.modifier')} />
+        contenu: <><PanneauGabarits modifiable={moi.a('core.modele.modifier')} />
           <Panneau>
             <TitrePanneau titre="Numérotation" />
             <Tableau

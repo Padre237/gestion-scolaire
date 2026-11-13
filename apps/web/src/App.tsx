@@ -29,6 +29,9 @@ function Garde({ children }: { children: ReactNode }) {
   if (moi.famille) return p.startsWith('/parent') && p !== '/parent/connexion' ? <>{children}</> : <Navigate to="/parent/accueil" replace />;
   if (p === '/' || p === '/connexion' || p.endsWith('/connexion')) return <Navigate to={accueilDe(moi)} replace />;
   if (p === '/instituteur') return <Navigate to="/instituteur/notes" replace />;
+  // Espace instituteur : chaque écran exige sa permission, comme les onglets (D-52).
+  if (p.startsWith('/instituteur/notes') && !moi.unParmi(['pedagogie.note.saisir', 'pedagogie.note.lire'])) return <Navigate to={accueilDe(moi)} replace />;
+  if (p.startsWith('/instituteur/appel') && !moi.a('vie_scolaire.appel.faire')) return <Navigate to={accueilDe(moi)} replace />;
   if (p.startsWith('/parent')) return <Navigate to={accueilDe(moi)} replace />;
   if (!p.startsWith('/instituteur') && !routePermise(p, moi)) return <Navigate to={accueilDe(moi)} replace />;
   return <>{children}</>;

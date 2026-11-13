@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { api, ErreurApi, requete } from '../core/api.ts';
-import { Coque } from '../core/coque.tsx';
+import { Coque, routePermise } from '../core/coque.tsx';
 import { choisirFichier, imprimerDocument, ouvrirApres, ouvrirDocument, ouvrirDocumentPost, telecharger } from '../core/documents.ts';
 import {
   aujourdhuiIso, enLettres, fcfa, heure, jjmm, jjmmaaaa, libelleMois, montant, pluriel, versEntier, versIso,
@@ -257,7 +257,9 @@ function EcranCaisse() {
     const e = await choisirEleve('Encaisser un élève');
     if (e) naviguer(`/finances/encaissement/${e.inscriptionId}`);
   };
-  useRaccourciPrioritaire('k', () => { void encaisser(); }, moi.a('finances.versement.encaisser'));
+  // L'élève se choisit par la recherche des élèves : sans elle, rien à encaisser depuis cet écran.
+  const peutEncaisser = moi.a('finances.versement.encaisser') && moi.a('scolarite.eleve.consulter');
+  useRaccourciPrioritaire('k', () => { void encaisser(); }, peutEncaisser);
 
   const choisirCaisse = (c: string) => {
     setCaisse(c);
@@ -293,7 +295,7 @@ function EcranCaisse() {
   else if (!s) {
     const dejaOuverte = (d.session?.estMienne && !d.session.clotureeLe) || ouvertes.some((x) => x.caissier === moi.nom);
     // Le serveur ne renvoie « ouvrable » que s'il n'a aucune session à montrer (après une session close, la permission décide).
-    const ouvrable = (d.ouvrable as boolean | undefined) ?? moi.a('caisse.session.gerer');
+    const ouvrable = moi.a('caisse.session.gerer') && ((d.ouvrable as boolean | undefined) ?? true);
     contenu = (
       <Panneau reperes>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'space-between', alignItems: 'center' }}>
@@ -352,7 +354,7 @@ function EcranCaisse() {
   return (
     <Coque module="frais">
       <StyleFin />
-      {moi.a('finances.versement.encaisser') && (
+      {peutEncaisser && (
         <RangeePile fin centre>
           <Bouton icone="fraisCaisse" variante="principal" touches={['Ctrl', 'K']} onClick={encaisser}>Encaisser un élève</Bouton>
         </RangeePile>
@@ -701,7 +703,7 @@ function EcranRecu() {
           )}
           {moi.a('finances.recu.imprimer') && <Bouton icone="exporter" onClick={() => telecharger(`/finances/versements/${id}/recu?format=escp`)}>Imprimante de caisse (ESC/P)</Bouton>}
           {moi.a('scolarite.eleve.consulter') && r.eleveId && <Bouton icone="eleves" onClick={() => naviguer(`/scolarite/eleves/${r.eleveId}`)}>Fiche de l’élève</Bouton>}
-          {moi.a('finances.versement.encaisser') && <Bouton icone="fraisCaisse" onClick={() => naviguer('/finances/caisse')}>Caisse du jour</Bouton>}
+          {moi.a('finances.versement.encaisser') && routePermise('/finances/caisse', moi) && <Bouton icone="fraisCaisse" onClick={() => naviguer('/finances/caisse')}>Caisse du jour</Bouton>}
         </RangeePile>
       </div>
     </div>
@@ -747,6 +749,9 @@ function EcranImpayes() {
     if (r) { setCoches(new Set()); await recharger(); }
   };
   const assistant = () => agir(() => api.post('/assistant/taches', { type: 'IA-02', objet: 'Relances d’impayés' }), 'Demande en file : l’assistant préparera les relances.');
+  // Les cases ne servent qu'à l'avis de paiement et à la relance par SMS : sans l'une de ces permissions, ni cases ni colonne.
+  const selection = moi.a('finances.avis.emettre') || moi.a('communication.sms.envoyer');
+  const ficheEleve = routePermise('/scolarite/eleves', moi);
 
   const kpi = d?.kpi;
   const classes = ((d?.classes ?? []) as any[]).filter((c) => !niveau || c.niveauId === niveau);
@@ -792,18 +797,20 @@ function EcranImpayes() {
           <Panneau>
             <TitrePanneau titre="Impayés à la date du jour" sous="Seules les échéances dont la date limite est passée" />
             <Tableau
-              colonnes={[{ titre: '', mobile: 'cachee' }, { titre: 'Élève', mobile: 'entete' }, { titre: 'Classe' }, { titre: 'Échéances dépassées' }, { titre: 'En retard', droite: true }, { titre: 'Depuis' },
+              colonnes={[...(selection ? [{ titre: '', mobile: 'cachee' as const }] : []), { titre: 'Élève', mobile: 'entete' }, { titre: 'Classe' }, { titre: 'Échéances dépassées' }, { titre: 'En retard', droite: true }, { titre: 'Depuis' },
                 { titre: 'Responsable payeur' }, { titre: 'Dernière relance' }]}
               vide="Aucun impayé à cette date"
               cles={(d.lignes as any[]).map((l) => l.inscriptionId)}
               lignes={(d.lignes as any[]).map((l) => [
                 // Sur téléphone, la case de sélection rejoint le nom dans le titre de la carte ; la colonne vide est masquée.
-                <CaseLigne libelle={`Sélectionner ${l.eleve}`} valeur={coches.has(l.inscriptionId)} onChange={(v) => basculer(l.inscriptionId, v)} />,
+                ...(selection ? [<CaseLigne libelle={`Sélectionner ${l.eleve}`} valeur={coches.has(l.inscriptionId)} onChange={(v) => basculer(l.inscriptionId, v)} />] : []),
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
-                  <span className="cache-bureau" style={{ display: 'inline-flex' }}>
-                    <CaseLigne libelle={`Sélectionner ${l.eleve}`} valeur={coches.has(l.inscriptionId)} onChange={(v) => basculer(l.inscriptionId, v)} />
-                  </span>
-                  <Lien onClick={() => naviguer(`/scolarite/eleves/${l.eleveId}`)}>{l.eleve}</Lien>
+                  {selection && (
+                    <span className="cache-bureau" style={{ display: 'inline-flex' }}>
+                      <CaseLigne libelle={`Sélectionner ${l.eleve}`} valeur={coches.has(l.inscriptionId)} onChange={(v) => basculer(l.inscriptionId, v)} />
+                    </span>
+                  )}
+                  {ficheEleve ? <Lien onClick={() => naviguer(`/scolarite/eleves/${l.eleveId}`)}>{l.eleve}</Lien> : <span className="gras">{l.eleve}</span>}
                 </span>,
                 l.classe,
                 premieresMinuscules(`${l.echeances}`),
@@ -872,6 +879,8 @@ const PASTILLE_SORTIE: Record<string, [string, Ton]> = { demandee: ['À valider'
 function EcranDepenses() {
   const moi = useMoi();
   const { d, erreur, recharger } = useDonnees(() => api.get('/caisse/sorties'));
+  // La pièce justificative ne s'ouvre qu'avec l'une de ces permissions ; sans elles, seul le nom du fichier s'affiche.
+  const voirPiece = moi.unParmi(['caisse.sortie.decaisser', 'caisse.sortie.valider', 'caisse.consulter']);
   const decaisser = async (s: any) => {
     if (!(await confirmer(`Décaisser ${s.numero}`, `${s.objet} · ${fcfa(s.montant)}. Le montant sort des espèces de votre session de caisse.`, 'Décaisser'))) return;
     if (await agir(() => api.post(`/caisse/sorties/${s.id}/decaissement`), 'Sortie décaissée.')) await recharger();
@@ -907,7 +916,7 @@ function EcranDepenses() {
                     s.categorie,
                     <span className="gras">{montant(s.montant)}</span>,
                     <Pastille ton={ton}>{lib}</Pastille>,
-                    s.piece ? <Lien onClick={() => ouvrirDocument(`/caisse/sorties/${s.id}/piece`)}>{s.piece}</Lien>
+                    s.piece ? (voirPiece ? <Lien onClick={() => ouvrirDocument(`/caisse/sorties/${s.id}/piece`)}>{s.piece}</Lien> : <span>{s.piece}</span>)
                       : s.statut === 'validee' && moi.a('caisse.sortie.decaisser') ? <Lien onClick={() => decaisser(s)}>Décaisser</Lien>
                       : s.statut === 'decaissee' && moi.a('caisse.sortie.decaisser') ? <Lien onClick={() => joindre(s)}>Joindre</Lien>
                       : <span className="doux">–</span>,
@@ -1214,6 +1223,11 @@ function CarteDemande({ pastille, ton, titre, montantDemande, demandeur, le, mot
   );
 }
 
+/** Permission qui ouvre les boutons Valider et Refuser, par genre de demande (POST …/decision). */
+const PERMISSION_DECISION: Record<string, string> = {
+  reduction: 'finances.reduction.valider', derogation: 'scolarite.derogation.valider', annulation: 'finances.annulation.valider', sortie: 'caisse.sortie.valider',
+};
+
 function EcranValidations() {
   const moi = useMoi();
   const naviguer = useNavigate();
@@ -1239,7 +1253,7 @@ function EcranValidations() {
     for (const x of d.demandes as any[]) {
       const type = `${x.type}`;
       const mienne = x.demandeurId === moi.compteId;
-      const decide = peut[type] === true && (!mienne || type === 'annulation');
+      const decide = peut[type] === true && moi.a(PERMISSION_DECISION[type] ?? '') && (!mienne || type === 'annulation');
       if (decide) { aDecider++; enAttenteDeMoi.add(type); }
       const [pastille, ton]: [string, Ton] = type === 'reduction' ? ['Réduction', 'accent'] : type === 'annulation' ? ['Annulation', 'danger'] : ['Dérogation', 'neutre'];
       const note = type === 'reduction'
@@ -1254,7 +1268,7 @@ function EcranValidations() {
       );
     }
     for (const s of d.sorties as any[]) {
-      const decide = peut.sortie === true && s.demandeurId !== moi.compteId;
+      const decide = peut.sortie === true && moi.a(PERMISSION_DECISION['sortie']!) && s.demandeurId !== moi.compteId;
       if (decide) { aDecider++; enAttenteDeMoi.add('sortie'); }
       cartes.push(
         <CarteDemande key={s.id} pastille="Sortie de caisse" ton="attention" titre={`${s.numero} · ${s.objet}`} montantDemande={s.montant}
@@ -1371,8 +1385,8 @@ function EcranReleve() {
                     : l.depot ? <Cel2 gras haut={l.depot} bas={l.bordereau ?? ''} /> : <span className="doux">–</span>,
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
                     {l.etat === 'rapproche' ? <Pastille ton="succes">Rapproché</Pastille> : l.etat === 'ecart' ? <Pastille ton="danger">Écart</Pastille> : <Pastille ton="attention">Sans bordereau</Pastille>}
-                    {l.etat === 'sans_bordereau' && moi.a('finances.versement.encaisser') && <Lien onClick={() => enregistrer(l)}>Enregistrer le versement</Lien>}
-                    {l.etat === 'ecart' && l.eleveId && <Lien onClick={() => naviguer(`/scolarite/eleves/${l.eleveId}`)}>Examiner</Lien>}
+                    {l.etat === 'sans_bordereau' && moi.a('finances.versement.encaisser') && moi.a('scolarite.eleve.consulter') && <Lien onClick={() => enregistrer(l)}>Enregistrer le versement</Lien>}
+                    {l.etat === 'ecart' && l.eleveId && routePermise(`/scolarite/eleves/${l.eleveId}`, moi) && <Lien onClick={() => naviguer(`/scolarite/eleves/${l.eleveId}`)}>Examiner</Lien>}
                   </div>,
                 ])}
               />

@@ -16,18 +16,18 @@ const principalDe = (ctx: Contexte, classe: string) => ctx.comptes[classeDe(clas
 export async function fondation(ctx: Contexte, a: Annee) {
   const { sec, horloge } = ctx;
   const jour = plusJours(a.rentree, -21);
+  // La directrice, créée avec l'établissement, en règle l'identité et crée les autres comptes (D-46, D-52).
+  ctx.dir = await connecter(ctx.app, 'directrice', 'demo-directrice');
   await horloge.a(aLHeure(jour, '08:40'), async () => {
-    await sec.put('/structure/etablissement', { ...ECOLE, devise: 'Travail · Discipline · Réussite', villeBp: 'Yaoundé · BP 1234', telephone: '600 000 200',
+    await ctx.dir.put('/structure/etablissement', { ...ECOLE, devise: 'Travail · Discipline · Réussite', villeBp: 'Yaoundé · BP 1234', telephone: '600 000 200',
       signataire: 'La Directrice', banque: BANQUE, numeroCompte: '00012 345678 90', seuilReduction: 5000 });
     for (const ss of ['francophone', 'anglophone'] as const) for (const o of ['maternelle', 'primaire'] as const) await sec.post('/structure/cycles', { sousSysteme: ss, ordreEnseignement: o });
     // Logo de l'école (alvéoles dorées) : en tête des documents, sur les cartes, les bulletins et au centre des QR codes.
-    await sec.put('/structure/etablissement/images/logo', { base64: readFileSync(new URL('../ressources/logo-ruche-dor.png', import.meta.url)).toString('base64') });
+    await ctx.dir.put('/structure/etablissement/images/logo', { base64: readFileSync(new URL('../ressources/logo-ruche-dor.png', import.meta.url)).toString('base64') });
   });
   for (const n of (await sec.get<{ id: string; code: string }[]>('/structure/niveaux'))) ctx.niveaux[n.code] = n.id;
   await creerAnnee(ctx, a, aLHeure(jour, '08:50'), true);
 
-  // La directrice, créée avec l'établissement, crée les autres comptes (D-46).
-  ctx.dir = await connecter(ctx.app, 'directrice', 'demo-directrice');
   const roles = await ctx.dir.get<{ id: string; code: string }[]>('/core/roles');
   const role = (c: string) => roles.find((r) => r.code === c)!.id;
   const fiches = await sec.get<{ lignes: { id: string; nomAffiche: string }[] }>('/personnel?taille=50');
@@ -119,7 +119,8 @@ export async function grille(ctx: Contexte, a: Annee, quand: Date) {
   const montants = grilleDe(a.debut);
   await ctx.horloge.a(quand, async () => {
     for (const tarif of ['nouveau', 'ancien'] as const) {
-      await ctx.eco.put('/finances/grille', { anneeId: a.id, tarif, dates: datesGrille(a), lignes: Object.entries(montants).map(([code, m]) => ({
+      // La grille des frais est fixée par la direction (D-52).
+      await ctx.dir.put('/finances/grille', { anneeId: a.id, tarif, dates: datesGrille(a), lignes: Object.entries(montants).map(([code, m]) => ({
         niveauId: ctx.niveaux[code], montants: tarif === 'nouveau' ? m : [m[0]! - 2000, ...m.slice(1)] })) });
     }
   });

@@ -114,7 +114,7 @@ export async function routesFormulaire(app: FastifyInstance) {
   const r = app.withTypeProvider<ZodTypeProvider>();
 
   r.get('/scolarite/formulaire', {
-    config: { unePermissionParmi: ['scolarite.inscription.creer', 'structure.etablissement.modifier', 'structure.consulter'] }, schema: { tags: ['scolarite'] },
+    config: { unePermissionParmi: ['scolarite.inscription.creer', 'core.modele.modifier', 'structure.consulter'] }, schema: { tags: ['scolarite'] },
   }, async (req) => {
     const ctx = exiger(req);
     const { champs, regle } = await champsFormulaire((q) => app.bd.lire(q), ctx.etablissementId);
@@ -122,7 +122,7 @@ export async function routesFormulaire(app: FastifyInstance) {
   });
 
   r.put('/scolarite/formulaire', {
-    config: { permission: 'structure.etablissement.modifier' }, schema: { tags: ['scolarite'], body: z.object({ champs: z.array(Champ).max(80) }) },
+    config: { permission: 'core.modele.modifier' }, schema: { tags: ['scolarite'], body: z.object({ champs: z.array(Champ).max(80) }) },
   }, async (req) => {
     const ctx = exiger(req);
     const champs = req.body.champs;

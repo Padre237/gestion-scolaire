@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, requete } from '../core/api.ts';
-import { Coque } from '../core/coque.tsx';
+import { Coque, routePermise } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
 import { ouvrirDocument, telecharger } from '../core/documents.ts';
 import { aujourdhuiIso, fcfa, jjmmaaaa, montant, note2, pluriel } from '../core/format.ts';
@@ -267,7 +267,7 @@ export function EcranAssistant() {
                     <span className="gras">{p.libelle}</span>
                     <Doux>{texteDe(p.contenu) ?? `Proposée le ${dateHeure(p.creeLe)}`}</Doux>
                   </div>
-                  {RELIRE[p.type] && <div className="pleine-mobile"><Bouton pleine title={`Relire : ${p.libelle}`} onClick={() => naviguer(RELIRE[p.type]!)}>Relire</Bouton></div>}
+                  {RELIRE[p.type] && routePermise(RELIRE[p.type]!, moi) && <div className="pleine-mobile"><Bouton pleine title={`Relire : ${p.libelle}`} onClick={() => naviguer(RELIRE[p.type]!)}>Relire</Bouton></div>}
                 </LigneListe>
               ))}
               {d.propositions.length === 0 && <Doux>Aucune proposition en attente.</Doux>}

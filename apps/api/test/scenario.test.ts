@@ -37,9 +37,10 @@ describe('Socle : connexion, sessions, droits (CU-01, ENF-05, conception § 8)',
   });
 });
 
-describe('Étape 1 · la secrétaire paramètre l\'établissement, le directeur crée les comptes (CU-02, CU-03, E-07, D-46)', () => {
-  it('paramètre l\'identité et le seuil de réduction', async () => {
-    const r = await sec.put('/structure/etablissement', { nomFr: 'École de démonstration', nomEn: 'Demonstration School', seuilReduction: 5000,
+describe('Étape 1 · le directeur règle l\'identité et crée les comptes, la secrétaire paramètre l\'année (CU-02, CU-03, D-46, D-52)', () => {
+  it('paramètre l\'identité et le seuil de réduction (directeur seul, D-52)', async () => {
+    expect((await sec.put('/structure/etablissement', { nomFr: 'X', nomEn: 'X' })).status).toBe(403);
+    const r = await adm.put('/structure/etablissement', { nomFr: 'École de démonstration', nomEn: 'Demonstration School', seuilReduction: 5000,
       telephone: '600 000 200', villeBp: 'Yaoundé · BP 1234', banque: 'Banque de démonstration', numeroCompte: '00012 345678 90' });
     expect(r.status).toBe(200);
   });
@@ -84,8 +85,11 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement, le directeur 
       const c = await adm.post('/core/comptes', { identifiant, nomAffiche: nom, personnelId: f.corps.id, roles: [{ roleId: role(r) }], motDePasse: `mdp-${identifiant}` });
       expect(c.status).toBe(200);
     }
-    // Un compte cumule plusieurs rôles (ADR-12) : directeur et secrétaire.
-    const cumul = await adm.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', roles: [{ roleId: role('directeur') }, { roleId: role('secretaire') }], motDePasse: 'mdp-ngo.b' });
+    // Directeur et secrétaire ne se cumulent pas : demander et valider une dérogation (D-52).
+    const interdit = await adm.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', roles: [{ roleId: role('directeur') }, { roleId: role('secretaire') }], motDePasse: 'mdp-ngo.b' });
+    expect(interdit.status).toBe(422);
+    // Un compte cumule plusieurs rôles compatibles (ADR-12) : secrétaire et préfet des études.
+    const cumul = await adm.post('/core/comptes', { identifiant: 'ngo.b', nomAffiche: 'Mme NGO Berthe', roles: [{ roleId: role('secretaire') }, { roleId: role('prefet') }], motDePasse: 'mdp-ngo.b' });
     expect(cumul.status).toBe(200);
     dir = await connecter(env.app, 'directrice', 'mdp-directrice');
     eco = await connecter(env.app, 'econome', 'mdp-econome');
@@ -93,7 +97,7 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement, le directeur 
     ip = await connecter(env.app, 'onana.b', 'mdp-onana.b');
     im = await connecter(env.app, 'essama.l', 'mdp-essama.l');
     mixte = await connecter(env.app, 'ngo.b', 'mdp-ngo.b');
-    expect((await mixte.get('/auth/moi')).corps.libelleRoles).toBe('Directeur, Secrétaire');
+    expect((await mixte.get('/auth/moi')).corps.libelleRoles).toMatch(/Secrétaire.*Préfet|Préfet.*Secrétaire/);
   });
   it('le parent n\'est jamais créé à la main (RG-35)', async () => {
     const roles = (await adm.get('/core/roles')).corps as { id: string; code: string }[];
@@ -108,7 +112,7 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement, le directeur 
     expect((await sec.get('/core/comptes')).status).toBe(403);
     expect((await ip.get('/core/journal')).status).toBe(403);
     expect((await im.get('/finances/impayes')).status).toBe(403);
-    expect((await dir.put('/structure/etablissement', { nomFr: 'X', nomEn: 'X' })).status).toBe(403);
+    expect((await eco.put('/structure/etablissement', { nomFr: 'X', nomEn: 'X' })).status).toBe(403);
   });
   it('le directeur crée un rôle à partir d\'un autre et en règle les permissions (SOC-09)', async () => {
     const roles = (await adm.get('/core/roles')).corps as { id: string; code: string; permissions: string[] }[];
@@ -122,7 +126,7 @@ describe('Étape 1 · la secrétaire paramètre l\'établissement, le directeur 
 });
 
 describe('Paramétrage des frais et de la pédagogie (CU-10, CU-18)', () => {
-  it('l\'économe fixe la grille des frais ; la secrétaire ne peut pas (403)', async () => {
+  it('le directeur fixe la grille des frais ; ni la secrétaire ni l\'économe ne peuvent (403, D-52)', async () => {
     const annee = (await eco.get('/finances/grille')).corps.anneeId;
     ids['annee'] = annee;
     const corps = { anneeId: annee, tarif: 'nouveau', dates: ['2026-09-07', '2026-09-30', '2026-11-30', '2027-01-31'], lignes: [
@@ -130,7 +134,8 @@ describe('Paramétrage des frais et de la pédagogie (CU-10, CU-18)', () => {
       { niveauId: ids['niveau:CM2'], montants: [12000, 30000, 25000, 18000] },
       { niveauId: ids['niveau:SIL'], montants: [10000, 20000, 18000, 12000] }] };
     expect((await sec.put('/finances/grille', corps)).status).toBe(403);
-    expect((await eco.put('/finances/grille', corps)).status).toBe(200);
+    expect((await eco.put('/finances/grille', corps)).status).toBe(403);
+    expect((await dir.put('/finances/grille', corps)).status).toBe(200);
     const g = await eco.get('/finances/grille');
     expect(g.corps.niveaux.find((n: { code: string }) => n.code === 'CM2').total).toBe(85000);
   });
@@ -319,11 +324,12 @@ describe('Étape 3 · l\'économe encaisse (CU-12, RG-12 à RG-17, RG-21)', () =
     expect(apres.reduction).toBe(10000);
     expect((await eco.post('/finances/reductions', { ligneEcheanceId: t1, montant: 30000, motif: 'Trop' })).status).toBe(422);
   });
-  it('RG-16 : l\'économe valide l\'annulation de son propre versement ; le directeur en est notifié', async () => {
+  it('RG-16 : l\'économe demande l\'annulation de son versement, le directeur seul la valide (D-52)', async () => {
     const v = await eco.post('/finances/versements', { inscriptionId: ids['insc:loic'], montant: 14000, mode: 'especes' }, { 'idempotency-key': 'cle-test-006' });
     const a = await eco.post(`/finances/versements/${v.corps.id}/annulation`, { motif: 'Versement saisi sur le mauvais élève' });
     expect(a.status).toBe(200);
-    expect((await eco.post(`/finances/demandes/${a.corps.demandeId}/decision`, { decision: 'validee' })).status).toBe(200);
+    expect((await eco.post(`/finances/demandes/${a.corps.demandeId}/decision`, { decision: 'validee' })).status).toBe(403);
+    expect((await dir.post(`/finances/demandes/${a.corps.demandeId}/decision`, { decision: 'validee' })).status).toBe(200);
     const val = await dir.get('/finances/validations');
     expect(val.corps.annulations[0].motif).toBe('Versement saisi sur le mauvais élève');
     expect((await eco.get(`/finances/inscriptions/${ids['insc:loic']}/echeancier`)).corps.totaux.verse).toBe(0);
@@ -499,11 +505,16 @@ describe('Vie scolaire, annonces, SMS (RG-28, RG-38, RG-39, RG-41)', () => {
     expect((await ip.put(`/vie-scolaire/appel/${appel.corps.fiche.id}`, { presences })).status).toBe(200);
     const absent = appel.corps.fiche.eleves[0].inscriptionId;
     expect((await im.post('/vie-scolaire/absences/justification', { inscriptionId: absent, jour: auj(), motif: 'Malade' })).status).toBe(403);
-    expect((await sec.post('/vie-scolaire/absences/justification', { inscriptionId: absent, jour: auj(), motif: 'Certificat médical' })).status).toBe(200);
+    // La justification revient au seul préfet des études (D-52).
+    expect((await sec.post('/vie-scolaire/absences/justification', { inscriptionId: absent, jour: auj(), motif: 'Certificat médical' })).status).toBe(403);
+    expect((await pre.post('/vie-scolaire/absences/justification', { inscriptionId: absent, jour: auj(), motif: 'Certificat médical' })).status).toBe(200);
   });
-  it('l\'instituteur de matière note une observation et décide d\'une sanction pour ses faits', async () => {
-    const r = await im.post('/vie-scolaire/observations', { inscriptionId: ids['insc:Ivan'], type: 'comportement', description: 'Bagarre pendant le relais', sanction: 'Retenue de 2 h' });
+  it('l\'instituteur de matière note le fait ; le directeur seul décide la sanction (D-52)', async () => {
+    expect((await im.post('/vie-scolaire/observations', { inscriptionId: ids['insc:Ivan'], type: 'comportement', description: 'Bagarre pendant le relais', sanction: 'Retenue de 2 h' })).status).toBe(403);
+    const r = await im.post<{ id: string }>('/vie-scolaire/observations', { inscriptionId: ids['insc:Ivan'], type: 'comportement', description: 'Bagarre pendant le relais' });
     expect(r.status).toBe(200);
+    expect((await ip.post(`/vie-scolaire/observations/${r.corps.id}/sanction`, { sanction: 'Retenue de 2 h' })).status).toBe(403);
+    expect((await dir.post(`/vie-scolaire/observations/${r.corps.id}/sanction`, { sanction: 'Retenue de 2 h' })).status).toBe(200);
     expect((await im.post('/vie-scolaire/observations', { inscriptionId: ids['insc:steve'], type: 'tenue', description: 'Tenue incomplète' })).status).toBe(403);
   });
 });
@@ -611,10 +622,10 @@ describe('Données et clôture : import, sauvegardes, accès en lecture, clôtur
     expect(somme(6)).toBe(somme(7));
     expect((await sec.get('/finances/comptes/document?format=ecritures')).status).toBe(403);
   });
-  it('403 : sauvegarde, restauration et accès en lecture restent à la secrétaire', async () => {
+  it('403 : la sauvegarde reste à la secrétaire, la restauration passe au directeur (D-52)', async () => {
     expect((await eco.get('/core/sauvegardes')).status).toBe(403);
     expect((await pre.post('/core/sauvegardes', {})).status).toBe(403);
-    expect((await dir.post('/core/sauvegardes/restauration', { nom: 'gs-20261111-180000-quotidienne.sauvegarde' })).status).toBe(403);
+    expect((await sec.post('/core/sauvegardes/restauration', { nom: 'gs-20261111-180000-quotidienne.sauvegarde' })).status).toBe(403);
     // Plus d'accès direct à la base depuis l'application (D-47).
     expect((await dir.get('/core/base')).status).toBe(404);
     expect((await sec.post('/core/base/lecture', {})).status).toBe(404);
@@ -623,7 +634,8 @@ describe('Données et clôture : import, sauvegardes, accès en lecture, clôtur
   it('403 : la clôture d\'année n\'est lancée que par un compte autorisé ; elle se prépare par des vérifications', async () => {
     expect((await new Client(env.app).get('/scolarite/cloture')).status).toBe(401);
     expect((await eco.get('/scolarite/cloture')).status).toBe(403);
-    for (const c of [dir, pre, eco, ip]) expect((await c.post('/scolarite/cloture', { passages: [] })).status).toBe(403);
+    // La clôture de l'année est réservée au directeur (D-52).
+    for (const c of [sec, pre, eco, ip]) expect((await c.post('/scolarite/cloture', { passages: [] })).status).toBe(403);
     const r = await sec.get('/scolarite/cloture');
     expect(r.status).toBe(200);
     expect(r.corps.verifications.length).toBeGreaterThan(0);

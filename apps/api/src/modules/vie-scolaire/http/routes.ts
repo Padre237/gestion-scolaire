@@ -249,4 +249,24 @@ export async function routesVieScolaire(app: FastifyInstance) {
       return { id: o!.id };
     });
   });
+
+  /** Sanction décidée par le directeur sur un fait noté par un instituteur (D-52) : qui note le fait ne décide pas la sanction. */
+  r.post('/vie-scolaire/observations/:id/sanction', {
+    config: { permission: 'vie_scolaire.sanction.decider' },
+    schema: { tags: ['vie-scolaire'], params: z.object({ id: Uuid }), body: z.object({ sanction: z.string().trim().min(3).max(120) }) },
+  }, async (req) => {
+    const ctx = exiger(req);
+    return app.bd.transaction(ctx.compteId, async (tx) => {
+      const o = await ligne<{ type: keyof typeof TYPES_OBSERVATION; sanction: string | null; eleve_id: string; nom: string }>(tx, sql`
+        SELECT o.type, o.sanction, i.eleve_id, i.nom || ' ' || i.prenoms AS nom
+          FROM vie_scolaire.observation o JOIN reporting.v_inscription i ON i.id = o.inscription_id
+         WHERE o.id = ${req.params.id} AND o.etablissement_id = ${ctx.etablissementId}`);
+      if (!o) throw introuvable('Observation');
+      if (o.type === 'felicitations') throw new ErreurMetier('VIE_SANCTION_FELICITATIONS', 422, 'Des félicitations ne reçoivent pas de sanction.');
+      await tx.execute(sql`UPDATE vie_scolaire.observation SET sanction = ${req.body.sanction} WHERE id = ${req.params.id}`);
+      await journaliser(tx, ctx, { action: 'Modification', objetType: 'Discipline', objetLibelle: `${TYPES_OBSERVATION[o.type]} · ${o.nom}`,
+        avant: o.sanction ? `Sanction : ${o.sanction}` : '–', apres: `Sanction : ${req.body.sanction}`, eleveId: o.eleve_id, ligneId: req.params.id, table: 'vie_scolaire.observation' });
+      return { ok: true };
+    });
+  });
 }

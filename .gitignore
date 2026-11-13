@@ -15,6 +15,7 @@ sauvegardes/
 
 # Contrôle de fidélité : captures régénérées
 controle/captures/
+tools/controle/parcours/
 
 # Comptes et mots de passe de la démonstration : fichier local seulement
 COMPTES-DEMO.md

@@ -25,7 +25,7 @@ export async function routesGabarits(app: FastifyInstance) {
   });
 
   r.put('/structure/gabarits', {
-    config: { permission: 'structure.etablissement.modifier' },
+    config: { permission: 'core.modele.modifier' },
     schema: { tags: ['structure'], body: z.object({ fiche: Gabarit, carte: Gabarit, bulletin: Gabarit,
       adresseVerification: z.string().trim().max(200).regex(/^(https?:\/\/[^\s]+)?$/, 'Adresse commençant par http:// ou https://').default('') }) },
   }, async (req) => {

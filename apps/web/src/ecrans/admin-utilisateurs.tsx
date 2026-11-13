@@ -170,7 +170,8 @@ function FenetreAttributions({ compte, catalogue, fermer }: { compte: Compte; ca
   const ajouter = async () => {
     const d = dateSaisie(du), a = dateSaisie(au);
     if (!code) return setErreur('Choisissez l’action à donner.');
-    if (d === undefined || a === undefined) return setErreur('Dates au format JJ/MM/AAAA, ou laissées vides (sans limite).');
+    if (d === undefined || a === undefined) return setErreur('Dates au format JJ/MM/AAAA.');
+    if (!a) return setErreur('Indiquez la date de fin : une attribution particulière est toujours limitée dans le temps.');
     setErreur(null);
     if (await agir(() => api.post(`/core/comptes/${compte.id}/permissions`, { permission: code, du: d, au: a, motif: motif.trim() || null }), 'Attribution enregistrée')) {
       setCode(null); setDu(''); setAu(''); setMotif(''); await liste.recharger();
@@ -181,7 +182,7 @@ function FenetreAttributions({ compte, catalogue, fermer }: { compte: Compte; ca
   };
   return (
     <>
-      <Doux>Actions données à {compte.nomAffiche} en plus de ses rôles ({compte.roles.join(', ') || 'aucun'}), pour une période définie ou sans limite.</Doux>
+      <Doux>Actions données à {compte.nomAffiche} en plus de ses rôles ({compte.roles.join(', ') || 'aucun'}), toujours pour une période définie.</Doux>
       {liste.erreur ? <Erreur message={liste.erreur} recharger={liste.recharger} /> : !liste.d ? <Chargement /> : (
         <Tableau colonnes={[{ titre: 'Action', mobile: 'entete' }, { titre: 'Période' }, { titre: 'Motif' }, { titre: '', droite: true }]}
           vide="Aucune attribution particulière."
@@ -192,7 +193,7 @@ function FenetreAttributions({ compte, catalogue, fermer }: { compte: Compte; ca
       <Liste libelle="Action" value={code} onChange={setCode} options={[[null, 'Choisir une action…'], ...catalogue.map((p): [string, string] => [p.code, `${p.groupe} · ${p.libelle}`])]} />
       <div className="grille pile-mobile" style={{ ['--min' as string]: '150px', gap: 10 }}>
         <Champ libelle="Du (facultatif)" placeholder="JJ/MM/AAAA" value={du} onChange={setDu} />
-        <Champ libelle="Au (vide : sans limite)" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} />
+        <Champ libelle="Au" placeholder="JJ/MM/AAAA" value={au} onChange={setAu} />
         <Champ libelle="Motif (facultatif)" value={motif} onChange={setMotif} placeholder="Remplacement, mission…" />
       </div>
       {erreur && <div role="alert"><Note ton="danger">{erreur}</Note></div>}
@@ -303,7 +304,7 @@ function PanneauPermissions({ roles, catalogue, roleId, choisirRole, recharger }
         <Bouton icone="ajouter" onClick={creerRole}>Créer un rôle</Bouton>
         {!role.systeme && <Bouton onClick={modifierPeriode}>Période du rôle</Bouton>}
       </div>}
-      <Doux>{enLettres(systeme, true)} rôles prêts à l’emploi. Le directeur crée des rôles sur mesure et donne des droits à une personne, pour une période définie ou sans limite.</Doux>
+      <Doux>{enLettres(systeme, true)} rôles prêts à l’emploi. Le directeur crée des rôles sur mesure et donne des droits à une personne pour une période définie ; deux actions incompatibles ne vont jamais au même rôle ni au même compte.</Doux>
     </Panneau>
   );
 }
@@ -377,8 +378,8 @@ export function EcranUtilisateurs() {
             {c.derniereActivite && <Doux>{jourHeure(c.derniereActivite)}</Doux>}
           </div>,
           <div className="pile-mobile" style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-            {moi.a('core.compte.gerer') && c.type !== 'famille' && <BoutonAction icone="colonnes" court="Modifier le compte" libelle={`Modifier le compte de ${c.nomAffiche}`} onClick={() => modifier(c)} />}
-            {moi.a('core.compte.gerer') && c.type !== 'famille' && catalogue.d && <BoutonAction icone="ajouter" court="Attributions particulières" libelle={`Attributions particulières de ${c.nomAffiche}`} onClick={() => attributions(c)} />}
+            {moi.a('core.compte.gerer') && c.type !== 'famille' && c.id !== moi.compteId && <BoutonAction icone="colonnes" court="Modifier le compte" libelle={`Modifier le compte de ${c.nomAffiche}`} onClick={() => modifier(c)} />}
+            {moi.a('core.compte.gerer') && c.type !== 'famille' && c.id !== moi.compteId && catalogue.d && <BoutonAction icone="ajouter" court="Attributions particulières" libelle={`Attributions particulières de ${c.nomAffiche}`} onClick={() => attributions(c)} />}
             {moi.a('core.compte.reinitialiser') && c.actif && <BoutonAction icone="bouclier" court="Réinitialiser le mot de passe" libelle={`Réinitialiser le mot de passe de ${c.nomAffiche}`} onClick={() => reinitialiser(c)} />}
             {moi.a('core.compte.desactiver') && c.id !== moi.compteId && (c.actif
               ? <BoutonAction icone="fermer" danger court="Désactiver" libelle={`Désactiver le compte de ${c.nomAffiche}`} onClick={() => basculer(c)} />

@@ -375,7 +375,7 @@ async function main() {
     }
     await creerAnnee(ctx, A2, new Date(), false);
     await grille(ctx, A2, new Date());
-    const r = await ctx.sec.post<{ reinscrits: number; reportes: number }>('/scolarite/cloture', { passages: CLASSES.map((c) => ({ classeId: A1.classes[c.nom]!, accueilClasseIds: classesSuivantes(c.nom).map((n) => A2.classes[n]!) })) });
+    const r = await ctx.dir.post<{ reinscrits: number; reportes: number }>('/scolarite/cloture', { passages: CLASSES.map((c) => ({ classeId: A1.classes[c.nom]!, accueilClasseIds: classesSuivantes(c.nom).map((n) => A2.classes[n]!) })) });
     console.log(`  clôture : ${r.reinscrits} réinscrits, ${r.reportes} arriérés reportés`);
     await dater(m, `${A1.debut + 1}-05-12`, `${A1.debut + 1}-07-08`);
     await q(`UPDATE scolarite.inscription SET inscrit_le = $2::timestamptz::date, cree_le = $2::timestamptz WHERE annee_id = $1`, [A2.id, ts(`${A1.debut + 1}-07-08`, '09:00')]);

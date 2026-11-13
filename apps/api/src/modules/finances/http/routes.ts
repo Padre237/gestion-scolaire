@@ -410,8 +410,8 @@ export async function routesFinances(app: FastifyInstance) {
       if (d.statut !== 'demandee') throw new ErreurMetier('FIN_DEJA_DECIDEE', 422, 'Cette demande a déjà été traitée.');
       const permission = { reduction: 'finances.reduction.valider', derogation: 'scolarite.derogation.valider', annulation: 'finances.annulation.valider' }[d.type]!;
       if (!ctx.a(permission)) throw interdit(permission);
-      // Séparation des tâches pour réductions et dérogations ; RG-16 permet à l'économe de valider sa propre annulation (E-17).
-      if (d.type !== 'annulation' && d.demandeur === ctx.compteId) {
+      // Séparation des tâches pour toute demande, annulation comprise (D-52) : on ne valide jamais sa propre demande.
+      if (d.demandeur === ctx.compteId) {
         throw new ErreurMetier('CORE_SEPARATION_DES_TACHES', 403, 'Vous ne pouvez pas valider votre propre demande.');
       }
       const i = await inscription(tx, d.inscription_id, ctx.etablissementId);
@@ -436,9 +436,11 @@ export async function routesFinances(app: FastifyInstance) {
       } else {
         const v = await ligne<{ numero_recu: string; mode: string; montant: number }>(tx, sql`SELECT numero_recu, mode, montant FROM finances.versement WHERE id = ${d.versement_id} FOR UPDATE`);
         if (decision === 'validee') {
-          // RG-16 : libère les imputations ; pour des espèces, sortie compensatoire dans la session du jour.
+          // RG-16 : libère les imputations ; pour des espèces, sortie compensatoire dans la session ouverte de l'économe qui a demandé
+          // l'annulation : c'est lui qui rend l'argent au guichet (D-52, le directeur valide sans tenir de caisse).
           if (v!.mode === 'especes') {
-            const s = await exigerSession(tx, ctx.compteId);
+            const s = await sessionOuverte(tx, d.demandeur);
+            if (!s) throw new ErreurMetier('CAI_SESSION_FERMEE', 422, 'La caisse de l’économe qui a demandé l’annulation doit être ouverte : les espèces y sont rendues.');
             await ajouterMouvement(tx, ctx.etablissementId, { sessionId: s.id, sens: 'sortie', nature: 'annulation', mode: 'especes', montant: Number(v!.montant),
               versementId: d.versement_id, par: ctx.compteId, libelle: `Annulation ${v!.numero_recu} · ${eleve}` });
           }

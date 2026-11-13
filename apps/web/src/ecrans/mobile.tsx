@@ -334,16 +334,17 @@ body:has(.m-app) .messages-flottants { bottom: calc(84px + env(safe-area-inset-b
 `;
 const StyleMobile = () => <style>{CSS}</style>;
 
-interface Onglet { route: string; libelle: string; icone: NomIcone }
+/** Onglet de l'espace : affiché seulement avec l'une des permissions qu'exige la lecture de son écran. */
+interface Onglet { route: string; libelle: string; icone: NomIcone; permissions: string[] }
 const ONGLETS_INSTITUTEUR: Onglet[] = [
-  { route: '/instituteur/notes', libelle: 'Notes', icone: 'notes' },
-  { route: '/instituteur/appel', libelle: 'Appel', icone: 'vieScolaire' },
+  { route: '/instituteur/notes', libelle: 'Notes', icone: 'notes', permissions: ['pedagogie.note.saisir', 'pedagogie.note.lire'] },
+  { route: '/instituteur/appel', libelle: 'Appel', icone: 'vieScolaire', permissions: ['vie_scolaire.appel.faire'] },
 ];
 const ONGLETS_PARENT: Onglet[] = [
-  { route: '/parent/accueil', libelle: 'Accueil', icone: 'appParent' },
-  { route: '/parent/notes', libelle: 'Notes', icone: 'notes' },
-  { route: '/parent/agenda', libelle: 'Agenda', icone: 'emploiDuTemps' },
-  { route: '/parent/paiements', libelle: 'Paiements', icone: 'fraisCaisse' },
+  { route: '/parent/accueil', libelle: 'Accueil', icone: 'appParent', permissions: ['portail.famille.consulter'] },
+  { route: '/parent/notes', libelle: 'Notes', icone: 'notes', permissions: ['portail.famille.consulter'] },
+  { route: '/parent/agenda', libelle: 'Agenda', icone: 'emploiDuTemps', permissions: ['portail.famille.consulter'] },
+  { route: '/parent/paiements', libelle: 'Paiements', icone: 'fraisCaisse', permissions: ['portail.famille.consulter'] },
 ];
 
 /** Clavier virtuel (iPhone surtout) : la zone visible rétrécit sans que la page le sache ; on réserve la place en bas. */
@@ -405,11 +406,15 @@ function BoutonMode() {
 }
 
 /** Accès à la messagerie du parent, avec le nombre de conversations non lues. */
-const BoutonMessages = ({ nonLus = 0 }: { nonLus?: number }) => (
-  <Link to="/parent/messages" className="m-icone" aria-label={nonLus ? `Messages, ${pluriel(nonLus, 'non lu')}` : 'Messages'}>
-    <Icone nom="messages" taille={20} />{nonLus > 0 && <span className="m-compteur" aria-hidden="true">{nonLus > 9 ? '9+' : nonLus}</span>}
-  </Link>
-);
+function BoutonMessages({ nonLus = 0 }: { nonLus?: number }) {
+  const moi = useMoi();
+  if (!moi.a('portail.famille.consulter')) return null;
+  return (
+    <Link to="/parent/messages" className="m-icone" aria-label={nonLus ? `Messages, ${pluriel(nonLus, 'non lu')}` : 'Messages'}>
+      <Icone nom="messages" taille={20} />{nonLus > 0 && <span className="m-compteur" aria-hidden="true">{nonLus > 9 ? '9+' : nonLus}</span>}
+    </Link>
+  );
+}
 
 /** Cadre des écrans mobiles : bandeau (logo et actions, ou retour), bande d'état, contenu défilant, barre d'action, onglets (ou rail). */
 function Mobile({ titre, sous, retour, actions, entete, trait, grand, bande, pied, onglets, actif, sansOnglets, children }: {
@@ -423,6 +428,7 @@ function Mobile({ titre, sous, retour, actions, entete, trait, grand, bande, pie
   useClavier(ref);
   useCouleurBarre();
   const nomAppli = onglets === ONGLETS_PARENT ? 'Espace parents' : 'Espace instituteur';
+  const permis = onglets.filter((o) => moi.unParmi(o.permissions));
   const icone = <Icone nom="wifi" taille={22} />;
   return (
     <div className={`m-app ${sansOnglets ? 'm-sans-onglets' : ''}`}>
@@ -430,7 +436,7 @@ function Mobile({ titre, sous, retour, actions, entete, trait, grand, bande, pie
       <div className="m-colonne" ref={ref}>
         <nav className="m-onglets" aria-label="Navigation principale">
           <div className="m-rail-logo"><LogoRail /><span className="m-petit m-deux-lignes">{nomAppli} · {moi.etablissement}</span></div>
-          {onglets.map((o) => (
+          {permis.map((o) => (
             <Link key={o.route} to={o.route} className={o.route === actif ? 'actif' : ''} aria-current={o.route === actif ? 'page' : undefined}>
               <Icone nom={o.icone} taille={20} /><span>{o.libelle}</span>
             </Link>
@@ -942,7 +948,8 @@ function GrilleNotes({ classe, matiere, sequence, retour }: { classe: ClasseSais
       titre={`${d?.classe ?? classe.nom} · ${d?.matiere ?? matiere.libelle}`}
       sous={`${sequence.libelle}${sequence.type === 'composition' ? '' : ' · devoir'} sur ${bareme}`}
       bande={<BandeSynchro synchro={synchro} quoi="notes" />}
-      pied={<Bouton variante="principal" pleine icone="coche" charge={charge} disabled={!d?.modifiable} onClick={enregistrer}>Enregistrer sur le téléphone</Bouton>}>
+      pied={moi.a('pedagogie.note.saisir')
+        ? <Bouton variante="principal" pleine icone="coche" charge={charge} disabled={!d?.modifiable} onClick={enregistrer}>Enregistrer sur le téléphone</Bouton> : undefined}>
       {erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !d ? <Chargement /> : (
         <>
           {!d.modifiable && d.raison && <Note ton="attention">{d.raison === 'Saisie fermée' ? 'Saisie fermée : un déverrouillage du préfet est nécessaire pour modifier ces notes.' : d.raison}</Note>}
@@ -1033,7 +1040,8 @@ function EcranAppelInstituteur() {
       titre={fiche ? `${fiche.classe} · appel` : 'Appel'}
       sous={fiche ? `${capitale(jourDate(fiche.jour))} · ${fiche.debut} – ${fiche.fin} · ${fiche.libelle}` : undefined}
       bande={<BandeSynchro synchro={synchro} quoi="appel" />}
-      pied={fiche ? <Bouton variante="principal" pleine icone="coche" charge={charge} disabled={!fiche.modifiable} onClick={enregistrer}>Enregistrer l’appel</Bouton> : undefined}>
+      pied={fiche && moi.a('vie_scolaire.appel.faire')
+        ? <Bouton variante="principal" pleine icone="coche" charge={charge} disabled={!fiche.modifiable} onClick={enregistrer}>Enregistrer l’appel</Bouton> : undefined}>
       {erreur ? <ErreurMobile message={erreur} recharger={recharger} /> : !d ? <Chargement /> : !fiche ? (
         <Vide icone="emploiDuTemps">Aucun appel à faire aujourd’hui : pas de cours prévu à votre emploi du temps.</Vide>
       ) : (
@@ -1813,13 +1821,14 @@ function jourFil(iso: string): string {
 }
 
 function EcranMessagesParent() {
+  const moi = useMoi();
   const [params, setParams] = useSearchParams();
   const { enfants, choisi, choisir, erreur: erreurEnfants, recharger: rechargerEnfants } = useEnfant();
   const eleveId = choisi?.eleveId ?? null;
   const code = CODES_DESTINATAIRES.includes(params.get('destinataire') ?? '') ? params.get('destinataire')! : 'instituteur_principal';
   const choisirDestinataire = (c: string) => { const q = new URLSearchParams(params); q.set('destinataire', c); setParams(q, { replace: true }); };
   const { d: destinataires } = useDonnees<Destinataire[] | null>(
-    () => (eleveId ? api.get(`/portail/destinataires${requete({ eleveId })}`) : Promise.resolve(null)), [eleveId]);
+    () => (eleveId && moi.a('communication.messagerie.ecrire') ? api.get(`/portail/destinataires${requete({ eleveId })}`) : Promise.resolve(null)), [eleveId]);
   // Vue d'ensemble : conversations de la famille (non lues signalées sur les puces), puis le fil choisi.
   const { d: vue, erreur, recharger } = useDonnees<MessagesParent>(() => api.get('/portail/messages'));
   const conversations = useMemo(() => (vue?.conversations ?? []).filter((c) => c.eleveId === eleveId && c.destinataire === code), [vue, eleveId, code]);
@@ -1863,7 +1872,7 @@ function EcranMessagesParent() {
           ))}
         </div>
       )}
-      pied={(
+      pied={moiParent.a('communication.messagerie.ecrire') && (
         <form className="m-ecrire" onSubmit={(e) => { e.preventDefault(); void envoyer(); }}>
           <label htmlFor="m-message" className="m-sr">Votre message</label>
           <input id="m-message" type="text" enterKeyHint="send" autoComplete="off" placeholder={`Écrire ${role === 'Économe' ? 'à l’économe' : role === 'Secrétaire' ? 'au secrétariat' : `au ${role.toLowerCase()}`}…`}
@@ -1969,7 +1978,7 @@ function EcranVieScolaireParent() {
                       </div>
                       <span className="m-petit">{jjmm(isoNet(ev.date))} · {ev.texte}</span>
                     </div>
-                    {ev.justifiable && ev.inscriptionId && ev.jour && (
+                    {ev.justifiable && ev.inscriptionId && ev.jour && moi.a('vie_scolaire.absence.demander') && (
                       <button type="button" className="m-lien" aria-label={`Justifier l’absence de ${ev.prenom} du ${jjmm(ev.jour)}`} onClick={() => justifier(ev)}>Justifier</button>
                     )}
                   </div>

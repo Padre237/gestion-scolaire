@@ -453,8 +453,10 @@ function SaisieNotes({ moi }: { moi: Moi }) {
   };
   useEffect(() => { void initialiser(true); }, []);
 
+  // Le serveur dit si la grille est modifiable (titulaire, saisie ouverte) ; la permission de saisir reste exigée.
+  const ecrit = d?.modifiable === true && moi.a('pedagogie.note.saisir');
   const enregistrer = async () => {
-    if (!d || d.modifiable !== true || charge) return;
+    if (!d || !ecrit || charge) return;
     if (!notesValides(lignes, nb(d.bareme))) return;
     setCharge(true);
     const r = await agir(() => api.put('/pedagogie/saisie', { classeId: classe, matiereId: matiere, sequenceId: sequence, notes: corpsNotes(lignes) }), 'Notes enregistrées.');
@@ -566,10 +568,10 @@ function SaisieNotes({ moi }: { moi: Moi }) {
                 <TitrePanneau titre={`${d.classe} · ${d.matiere} · ${`${seq?.libelle ?? ''}`.toLowerCase()}`}
                   sous={evaluation ? `Devoir du ${jjmmaaaa(evaluation.faitLe)}, noté sur ${evaluation.bareme}` : `Noté sur ${d.bareme} ; la date du devoir s’enregistre avec la première note`} />
                 {d.modifiable !== true && d.raison && <Note>{d.raison}</Note>}
-                <GrilleSaisie lignes={lignes} setLignes={setLignes} modifiable={d.modifiable === true} libelleNote={`Note sur ${d.bareme}`} />
-                <div className={`rangee entre centre ${d.modifiable === true ? 'pied-colle' : ''}`}>
+                <GrilleSaisie lignes={lignes} setLignes={setLignes} modifiable={ecrit} libelleNote={`Note sur ${d.bareme}`} />
+                <div className={`rangee entre centre ${ecrit ? 'pied-colle' : ''}`}>
                   <Doux>{vides === 0 ? 'Toutes les notes sont saisies.' : vides === 1 ? 'La ligne vide reste à saisir.' : `Les ${enLettres(vides)} lignes vides restent à saisir.`}</Doux>
-                  {d.modifiable === true && <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
+                  {ecrit && <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
                 </div>
               </Panneau>
             ) },
@@ -693,8 +695,9 @@ function VueMatiere() {
   };
   useEffect(() => { void charger(); }, []);
 
+  const ecrit = d?.modifiable === true && moi.a('pedagogie.note.saisir');
   const enregistrer = async () => {
-    if (!d || d.modifiable !== true || !classe || charge) return;
+    if (!d || !ecrit || !classe || charge) return;
     if (!notesValides(lignes, nb(d.bareme))) return;
     setCharge(true);
     const r = await agir(() => api.put('/pedagogie/saisie', { classeId: classe.classeId, matiereId: classe.matiereId, sequenceId: mes!.sequence.id,
@@ -744,11 +747,11 @@ function VueMatiere() {
               <TitrePanneau titre={`${classe.classe} · ${classe.matiere} · ${seqLibelle}`}
                 sous={manquants.length === 0 ? 'Toutes les notes sont saisies' : manquants.length === 1 ? `1 note manquante : ${manquants[0]}` : `${manquants.length} notes manquantes`} />
               {d.modifiable !== true && d.raison && <Note>{d.raison}</Note>}
-              <GrilleSaisie lignes={lignes} setLignes={setLignes} modifiable={d.modifiable === true} appreciation libelleNote={`${classe.matiere} sur ${d.bareme}`}
+              <GrilleSaisie lignes={lignes} setLignes={setLignes} modifiable={ecrit} appreciation libelleNote={`${classe.matiere} sur ${d.bareme}`}
                 ariaNote={`Note ${deMatiere(`${classe.matiere}`)}`} />
-              <div className={`rangee entre centre ${d.modifiable === true ? 'pied-colle' : ''}`}>
+              <div className={`rangee entre centre ${ecrit ? 'pied-colle' : ''}`}>
                 <Doux>Vous ne voyez et ne saisissez que {laMatiere(`${classe.matiere}`)}. Le principal{principal ? `, ${principal},` : ''} rassemble les matières de la classe.</Doux>
-                {d.modifiable === true && <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
+                {ecrit && <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} charge={charge} onClick={() => void enregistrer()}>Enregistrer</Bouton>}
               </div>
             </Panneau>
           ) : classe && mes.sequence ? <Chargement /> : classe ? <Panneau><Doux>Aucune évaluation en cours.</Doux></Panneau> : null },
@@ -1023,8 +1026,9 @@ function EcranBulletins() {
                 ))}
                 {restants.length === 0 && <Doux>Tous les bulletins sont visibles.</Doux>}
               </div>
-              <PiedFenetre fermer={() => fermer()} annuler="Fermer" action="Voir les impayés" disabled={!voirImpayes}
-                onAction={() => { fermer(); naviguer('/finances/impayes'); }} />
+              {voirImpayes
+                ? <PiedFenetre fermer={() => fermer()} annuler="Fermer" action="Voir les impayés" onAction={() => { fermer(); naviguer('/finances/impayes'); }} />
+                : <div className="pied"><Bouton onClick={() => fermer()}>Fermer</Bouton></div>}
             </>
           )}
         </>
@@ -1068,7 +1072,9 @@ function EcranBulletins() {
         </>}
         actions={<>
           {moi.a('pedagogie.bulletin.calculer') && <Bouton icone="recalculer" onClick={() => void recalculer()}>Recalculer</Bouton>}
-          <Bouton icone="imprimer" disabled={!classe} onClick={() => imprimerDocument(`/pedagogie/bulletins/document${requete(corps())}`)}>Imprimer la classe en PDF</Bouton>
+          {moi.unParmi(['pedagogie.bulletin.calculer', 'pedagogie.bulletin.publier', 'pedagogie.bulletin.apprecier', 'pedagogie.bulletin.lever_blocage']) && (
+            <Bouton icone="imprimer" disabled={!classe} onClick={() => imprimerDocument(`/pedagogie/bulletins/document${requete(corps())}`)}>Imprimer la classe en PDF</Bouton>
+          )}
           {moi.a('pedagogie.bulletin.publier') && <Bouton variante="principal" icone="bouclier" disabled={!d} onClick={() => void publier()}>{libellePublication(nb(d?.nbBulletins))}</Bouton>}
         </>}
       />
@@ -1289,7 +1295,9 @@ function EcranConseil() {
           <Liste libelle="Période" value={periode} largeur={160} options={(choix?.periodes ?? []).map((p) => [p.id as string, `${p.libelleFr}`])} onChange={setPeriode} />
         </>}
         actions={<>
-          <Bouton icone="imprimer" disabled={!classe || !periode} onClick={() => imprimerDocument(`/pedagogie/conseil/document?classeId=${classe}&periodeId=${periode}`)}>Procès-verbal</Bouton>
+          {(modifiable || decideur) && (
+            <Bouton icone="imprimer" disabled={!classe || !periode} onClick={() => imprimerDocument(`/pedagogie/conseil/document?classeId=${classe}&periodeId=${periode}`)}>Procès-verbal</Bouton>
+          )}
           {(modifiable || decideur) && (
             <Bouton variante="principal" touches={telephone ? undefined : ['Ctrl', 'S']} onClick={() => void enregistrer()}>{modifiable ? 'Enregistrer les distinctions' : 'Enregistrer les décisions'}</Bouton>
           )}
@@ -1366,10 +1374,11 @@ function EcranConseil() {
             <Panneau>
               <TitrePanneau titre="Décisions de fin d’année" />
               <p>Au conseil du 3e trimestre, la dernière colonne s’ouvre : admis, redouble ou exclu. Ces décisions alimentent le passage en classe supérieure.</p>
-              <div>
-                <Bouton variante="lien" icone="chevron" disabled={!moi.a('structure.annee.cloturer')}
-                  onClick={() => naviguer('/parametres/cloture')}>Voir la clôture d'année</Bouton>
-              </div>
+              {moi.a('structure.annee.cloturer') && (
+                <div>
+                  <Bouton variante="lien" icone="chevron" onClick={() => naviguer('/parametres/cloture')}>Voir la clôture d'année</Bouton>
+                </div>
+              )}
             </Panneau>
           </> },
         ]} />

@@ -146,76 +146,83 @@ export interface DefinitionRole {
 const LECTURE_COMMUNE = ['scolarite.eleve.consulter', 'pedagogie.edt.consulter'];
 
 export const ROLES_SYSTEME: readonly DefinitionRole[] = [
+  // Configuration stricte (D-52) : chacun ne fait que son métier ; qui demande ne valide pas ; les exceptions remontent au directeur.
   {
+    // Le directeur contrôle et tranche les exceptions ; il ne saisit rien (ni encaissement, ni inscription, ni note).
     code: 'directeur', libelleFr: 'Directeur', libelleEn: 'Head teacher', perimetre: 'etablissement',
     permissions: [
-      ...LECTURE_COMMUNE, 'structure.consulter', 'core.compte.consulter', 'core.compte.gerer', 'core.compte.reinitialiser', 'core.compte.desactiver',
-      'core.role.gerer', 'core.audit.consulter', 'core.audit.exporter',
-      'pilotage.tableau.consulter', 'pilotage.statistiques.consulter', 'assistant.question.poser', 'assistant.reglage.gerer',
-      'scolarite.eleve.exporter', 'scolarite.derogation.valider',
-      'finances.grille.consulter', 'finances.reduction.valider', 'finances.recu.consulter', 'finances.impaye.consulter',
-      'finances.comptes.consulter', 'caisse.consulter', 'caisse.session.forcer', 'caisse.sortie.valider',
-      'pedagogie.programme.consulter', 'pedagogie.note.lire', 'pedagogie.bulletin.lever_blocage', 'pedagogie.conseil.decider',
-      'vie_scolaire.absence.justifier', 'vie_scolaire.observation.creer', 'vie_scolaire.sanction.decider',
-      'vie_scolaire.dossier.consulter', 'communication.messagerie.repondre', 'personnel.fiche.consulter',
+      ...LECTURE_COMMUNE, 'structure.consulter', 'pilotage.tableau.consulter', 'pilotage.statistiques.consulter',
+      'finances.grille.consulter', 'finances.recu.consulter', 'finances.impaye.consulter', 'finances.comptes.consulter', 'caisse.consulter',
+      'pedagogie.programme.consulter', 'pedagogie.note.lire', 'vie_scolaire.dossier.consulter', 'personnel.fiche.consulter',
+      'core.compte.consulter', 'core.audit.consulter', 'core.audit.exporter',
+      // Validations et exceptions.
+      'finances.reduction.valider', 'finances.annulation.valider', 'caisse.sortie.valider', 'caisse.session.forcer', 'scolarite.derogation.valider',
+      'pedagogie.bulletin.lever_blocage', 'pedagogie.periode.deverrouiller', 'pedagogie.conseil.decider', 'vie_scolaire.sanction.decider',
+      // Administration.
+      'core.compte.gerer', 'core.compte.reinitialiser', 'core.compte.desactiver', 'core.role.gerer',
+      'structure.etablissement.modifier', 'structure.annee.cloturer', 'core.sauvegarde.restaurer', 'finances.grille.modifier',
+      'communication.sms.parametrer', 'assistant.question.poser', 'assistant.reglage.gerer',
     ],
   },
   {
+    // Scolarité et administration courante ; mots de passe des seules familles.
     code: 'secretaire', libelleFr: 'Secrétaire', libelleEn: 'Secretary', perimetre: 'etablissement',
     permissions: [
-      ...LECTURE_COMMUNE, 'structure.consulter', 'structure.etablissement.modifier', 'structure.annee.gerer',
-      'structure.periode.modifier', 'structure.classe.gerer', 'structure.annee.cloturer', 'core.modele.modifier',
-      'core.compte.reinitialiser',
-      'core.audit.consulter', 'core.audit.exporter', 'core.sauvegarde.lancer', 'core.sauvegarde.restaurer',
+      ...LECTURE_COMMUNE, 'structure.consulter', 'structure.annee.gerer', 'structure.periode.modifier', 'structure.classe.gerer',
+      'core.modele.modifier', 'core.compte.reinitialiser', 'core.sauvegarde.lancer',
       'scolarite.import.executer', 'assistant.proposition.traduction', 'assistant.proposition.import',
       'scolarite.eleve.exporter', 'scolarite.inscription.creer', 'scolarite.responsable.gerer',
       'scolarite.inscription.changer_classe', 'scolarite.inscription.radier', 'scolarite.document.imprimer',
       'scolarite.derogation.demander', 'finances.grille.consulter', 'caisse.sortie.demander',
-      'vie_scolaire.absence.justifier', 'vie_scolaire.dossier.consulter', 'communication.annonce.publier',
-      'communication.sms.envoyer', 'communication.sms.parametrer', 'communication.messagerie.repondre',
+      'vie_scolaire.dossier.consulter', 'communication.annonce.publier',
+      'communication.sms.envoyer', 'communication.messagerie.repondre',
       'personnel.fiche.gerer', 'personnel.fiche.consulter',
     ],
   },
   {
+    // La caisse, sans jamais valider ses propres demandes (annulation, réduction au-delà du seuil, sortie).
     code: 'econome', libelleFr: 'Économe', libelleEn: 'Bursar', perimetre: 'etablissement',
     permissions: [
       ...LECTURE_COMMUNE, 'finances.versement.encaisser', 'finances.recu.imprimer', 'caisse.session.gerer',
-      'finances.annulation.valider', 'finances.reduction.accorder', 'finances.grille.consulter', 'finances.grille.modifier',
+      'finances.reduction.accorder', 'finances.grille.consulter',
       'finances.reduction.demander', 'finances.recu.consulter', 'finances.versement.annuler', 'finances.avis.emettre',
       'finances.impaye.consulter', 'finances.comptes.consulter', 'finances.releve.gerer', 'caisse.consulter',
       'caisse.entree.enregistrer', 'caisse.banque.verser', 'caisse.sortie.demander', 'caisse.sortie.decaisser',
-      'caisse.categorie.gerer', 'assistant.proposition.traduction', 'assistant.proposition.relance',
-      'assistant.proposition.bordereau', 'communication.annonce.publier', 'communication.sms.envoyer',
-      'communication.messagerie.repondre',
+      'caisse.categorie.gerer', 'assistant.proposition.relance', 'assistant.proposition.bordereau',
+      'communication.sms.envoyer', 'communication.messagerie.repondre',
     ],
   },
   {
+    // Pédagogie de l'école et justification des absences ; le déverrouillage de la saisie reste une exception du directeur.
     code: 'prefet', libelleFr: 'Préfet des études', libelleEn: 'Director of studies', perimetre: 'etablissement',
     permissions: [
       ...LECTURE_COMMUNE, 'structure.consulter', 'personnel.fiche.consulter', 'assistant.proposition.traduction',
       'assistant.proposition.synthese', 'pedagogie.programme.consulter', 'pedagogie.programme.modifier',
-      'pedagogie.affectation.gerer', 'pedagogie.periode.ouvrir', 'pedagogie.periode.deverrouiller', 'pedagogie.note.lire',
+      'pedagogie.affectation.gerer', 'pedagogie.periode.ouvrir', 'pedagogie.note.lire',
       'pedagogie.fusion.valider', 'pedagogie.bulletin.calculer', 'pedagogie.bulletin.publier', 'pedagogie.conseil.gerer',
-      'pedagogie.edt.grille', 'pedagogie.edt.valider', 'vie_scolaire.dossier.consulter', 'communication.annonce.publier',
+      'pedagogie.edt.grille', 'pedagogie.edt.valider', 'vie_scolaire.dossier.consulter', 'vie_scolaire.absence.justifier',
+      'communication.annonce.publier',
     ],
   },
   {
+    // Sa classe seulement : appel, notes, fusion, appréciations ; ni sanction ni justification.
     code: 'instituteur_principal', libelleFr: 'Instituteur principal', libelleEn: 'Class teacher', perimetre: 'affectations',
     permissions: [
       ...LECTURE_COMMUNE, 'pedagogie.programme.consulter', 'pedagogie.evaluation.creer', 'pedagogie.note.saisir',
       'pedagogie.note.lire', 'pedagogie.note.signaler', 'pedagogie.fusion.transmettre', 'pedagogie.bulletin.apprecier',
-      'pedagogie.edt.placer', 'pedagogie.cahier.ecrire', 'vie_scolaire.appel.faire', 'vie_scolaire.absence.justifier',
-      'vie_scolaire.observation.creer', 'vie_scolaire.sanction.decider', 'vie_scolaire.dossier.consulter',
+      'pedagogie.edt.placer', 'pedagogie.cahier.ecrire', 'vie_scolaire.appel.faire',
+      'vie_scolaire.observation.creer', 'vie_scolaire.dossier.consulter',
       'communication.annonce.publier', 'communication.messagerie.repondre', 'assistant.proposition.traduction',
       'assistant.proposition.appreciation',
     ],
   },
   {
+    // Ses matières seulement.
     code: 'instituteur_matiere', libelleFr: 'Instituteur de matière', libelleEn: 'Subject teacher', perimetre: 'affectations',
     permissions: [
       ...LECTURE_COMMUNE, 'pedagogie.evaluation.creer', 'pedagogie.note.saisir', 'pedagogie.note.lire',
       'pedagogie.cahier.ecrire', 'vie_scolaire.appel.faire', 'vie_scolaire.observation.creer',
-      'vie_scolaire.sanction.decider', 'vie_scolaire.dossier.consulter',
+      'vie_scolaire.dossier.consulter',
     ],
   },
   {
@@ -224,9 +231,39 @@ export const ROLES_SYSTEME: readonly DefinitionRole[] = [
   },
 ];
 
+/**
+ * Séparation des tâches (D-52) : deux permissions qui ne vont jamais au même rôle ni au même compte, directeur compris.
+ * Le serveur refuse toute modification de rôle, d'attribution ou de droits particuliers qui les réunirait.
+ */
+export const INCOMPATIBILITES: readonly (readonly [string, string, string])[] = [
+  ['finances.reduction.demander', 'finances.reduction.valider', 'on ne valide pas sa propre demande de réduction'],
+  ['finances.reduction.accorder', 'finances.reduction.valider', 'le seuil de réduction n’aurait plus de second regard'],
+  ['finances.versement.annuler', 'finances.annulation.valider', 'on ne valide pas sa propre demande d’annulation'],
+  ['finances.versement.encaisser', 'finances.annulation.valider', 'qui encaisse ne valide pas l’annulation d’un versement'],
+  ['finances.versement.encaisser', 'finances.grille.modifier', 'qui encaisse ne fixe pas les tarifs'],
+  ['caisse.sortie.demander', 'caisse.sortie.valider', 'on ne valide pas sa propre demande de sortie'],
+  ['caisse.sortie.decaisser', 'caisse.sortie.valider', 'qui décaisse ne valide pas la sortie'],
+  ['caisse.session.gerer', 'caisse.session.forcer', 'on ne force pas la clôture de sa propre caisse'],
+  ['scolarite.derogation.demander', 'scolarite.derogation.valider', 'on ne valide pas sa propre demande de dérogation'],
+  ['pedagogie.fusion.transmettre', 'pedagogie.fusion.valider', 'on ne valide pas sa propre fusion de notes'],
+  ['pedagogie.note.saisir', 'pedagogie.periode.deverrouiller', 'qui saisit les notes ne rouvre pas la saisie'],
+  ['core.role.gerer', 'finances.versement.encaisser', 'qui distribue les droits ne tient pas la caisse'],
+  ['core.role.gerer', 'caisse.sortie.decaisser', 'qui distribue les droits ne décaisse pas'],
+];
+
+/** Première incompatibilité réunie par un ensemble de permissions, ou null. */
+export function incompatibilite(codes: Iterable<string>): { a: string; b: string; raison: string } | null {
+  const ens = new Set(codes);
+  const x = INCOMPATIBILITES.find(([a, b]) => ens.has(a) && ens.has(b));
+  return x ? { a: x[0], b: x[1], raison: x[2] } : null;
+}
+
 // Contrôle à l'import du module : chaque rôle ne cite que des permissions du catalogue.
 for (const r of ROLES_SYSTEME) {
   for (const code of r.permissions) {
     if (!CODES.has(code)) throw new Error(`Permission inconnue dans le rôle ${r.code} : ${code}`);
   }
+  const x = incompatibilite(r.permissions);
+  if (x) throw new Error(`Rôle ${r.code} : ${x.a} et ${x.b} sont incompatibles`);
 }
+for (const [a, b] of INCOMPATIBILITES) if (!CODES.has(a) || !CODES.has(b)) throw new Error(`Incompatibilité sur une permission inconnue : ${a} / ${b}`);

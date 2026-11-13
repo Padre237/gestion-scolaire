@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { RouteEcran } from '../App.tsx';
 import { api, requete } from '../core/api.ts';
-import { Coque } from '../core/coque.tsx';
+import { Coque, routePermise } from '../core/coque.tsx';
 import { useMoi } from '../core/session.tsx';
 import { aujourdhuiIso, heures, jjmm, jjmmaaaa, jourDate, heure, pluriel, versIso } from '../core/format.ts';
 import {
@@ -217,7 +217,8 @@ export function EcranEmploiDuTemps() {
   const creneaux: any[] = d?.creneaux ?? [];
   const cours: any[] = d?.cours ?? [];
   const statut: string = d?.etat?.statut ?? 'brouillon';
-  const peutPlacer = d?.peutPlacer === true && vue === 'classe' && statut !== 'soumis';
+  const placement = moi.a('pedagogie.edt.placer') && d?.peutPlacer === true;
+  const peutPlacer = placement && vue === 'classe' && statut !== 'soumis';
   const equipe = d?.equipe;
   const sousTitre = vue === 'classe' && equipe
     ? [equipe.principal ? `Principal : ${equipe.principal}` : null, ...(equipe.exceptions ?? []).map((e: any) => `${matiereMinuscule(e.matiere)} : ${e.nom}`)].filter(Boolean).join(' · ')
@@ -335,7 +336,7 @@ export function EcranEmploiDuTemps() {
                   </Bandeau>
                 ))}
                 <div className="rangee fin centre pile-mobile">
-                  {d.peutPlacer && statut !== 'soumis' && cours.length > 0 && (
+                  {placement && statut !== 'soumis' && cours.length > 0 && (
                     <Bouton icone="envoyer" variante="principal" onClick={async () => {
                       const r = await agir(() => api.post(`/pedagogie/edt/${classe}/soumission`), 'Emploi du temps soumis au préfet.');
                       if (r) await recharger();
@@ -401,7 +402,7 @@ export function EcranAppel() {
   const classe: string | null = choixClasse ?? d?.classeId ?? null;
   const allerAu = (v: string) => { setChoixFiche(null); setJourIso(v); };
   const f = d?.fiche;
-  const modifiable = f?.modifiable === true;
+  const modifiable = f?.modifiable === true && moi.a('vie_scolaire.appel.faire');
   const enregistrer = async () => {
     if (!f || !modifiable) return;
     setCharge(true);
@@ -561,6 +562,25 @@ function Justifier({ fermer, a }: { fermer: (v?: boolean) => void; a: any }) {
   );
 }
 
+const SANCTIONS: [string, string][] = [['Retenue de 2 h', 'Retenue de 2 h'], ['Avertissement écrit aux parents', 'Avertissement écrit aux parents'], ['Exclusion d’un jour', 'Exclusion d’un jour']];
+
+function DeciderSanction({ fermer, o }: { fermer: (v?: boolean) => void; o: { id: string; description: string } }) {
+  const [laSanction, setLaSanction] = useState<string | null>(null);
+  const [charge, setCharge] = useState(false);
+  return (
+    <>
+      <Doux>{o.description}</Doux>
+      <Liste libelle="Sanction" value={laSanction} onChange={setLaSanction} options={[[null, 'Choisir…'], ...SANCTIONS]} />
+      <PiedFenetre fermer={() => fermer()} action="Décider la sanction" disabled={!laSanction} charge={charge} onAction={async () => {
+        setCharge(true);
+        const r = await agir(() => api.post(`/vie-scolaire/observations/${o.id}/sanction`, { sanction: laSanction }), 'Sanction enregistrée.');
+        setCharge(false);
+        if (r) fermer(true);
+      }} />
+    </>
+  );
+}
+
 function NouvelleObservation({ fermer, types, sanction }: { fermer: (v?: boolean) => void; types: Record<string, string>; sanction: boolean }) {
   const [q, setQ] = useState('');
   const [resultats, setResultats] = useState<any[]>([]);
@@ -593,7 +613,7 @@ function NouvelleObservation({ fermer, types, sanction }: { fermer: (v?: boolean
       <Champ libelle="Ce qui s’est passé" value={description} onChange={setDescription} lignes={2} />
       {sanction && (
         <Liste libelle="Sanction" value={laSanction} onChange={setLaSanction}
-          options={[[null, 'Aucune'], ['Retenue de 2 h', 'Retenue de 2 h'], ['Avertissement écrit aux parents', 'Avertissement écrit aux parents'], ['Exclusion d’un jour', 'Exclusion d’un jour']]} />
+          options={[[null, 'Aucune'], ...SANCTIONS]} />
       )}
       <PiedFenetre fermer={() => fermer()} action="Enregistrer l’observation" disabled={!eleve || description.trim().length < 3} charge={charge} onAction={async () => {
         setCharge(true);
@@ -612,8 +632,16 @@ export function EcranDiscipline() {
   const { d, erreur, recharger } = useDonnees(() => api.get('/vie-scolaire/absences'));
   // Sur écran tactile, les liens texte gardent leur aspect mais atteignent 44 px de haut.
   const lienTactile = tactile ? { display: 'inline-flex', alignItems: 'center', minHeight: 44 } as const : {};
+  const ficheEleve = routePermise('/scolarite/eleves', moi);
+  const peutJustifier = d?.peutJustifier === true && moi.a('vie_scolaire.absence.justifier');
+  // « Nouvelle observation » : l'élève se choisit par la recherche des élèves, qui exige sa propre permission.
   const justifier = async (a: any) => {
     const ok = await ouvrirFormulaire<boolean>(`Justifier · ${a.eleve}`, ({ fermer }) => <Justifier fermer={fermer} a={a} />, 460);
+    if (ok) await recharger();
+  };
+  // Sanction décidée par le directeur sur un fait relevé par un instituteur (D-52).
+  const sanctionner = async (o: any) => {
+    const ok = await ouvrirFormulaire<boolean>(`Sanction · ${o.eleve}`, ({ fermer }) => <DeciderSanction fermer={fermer} o={o} />, 460);
     if (ok) await recharger();
   };
   const observer = async () => {
@@ -634,18 +662,20 @@ export function EcranDiscipline() {
                   vide="Aucune absence cette semaine"
                   lignes={((d.absences ?? []) as any[]).map((a) => [
                     <div style={{ display: 'flex', flexDirection: 'column' }}>
-                      <button type="button" className="lien-texte" style={{ textAlign: 'left', fontWeight: 600, ...lienTactile }} aria-label={`Ouvrir la fiche de ${a.eleve}`}
-                        onClick={() => naviguer(`/scolarite/eleves/${a.eleveId}`)}>{a.eleve}</button>
+                      {ficheEleve
+                        ? <button type="button" className="lien-texte" style={{ textAlign: 'left', fontWeight: 600, ...lienTactile }} aria-label={`Ouvrir la fiche de ${a.eleve}`}
+                            onClick={() => naviguer(`/scolarite/eleves/${a.eleveId}`)}>{a.eleve}</button>
+                        : <span className="gras">{a.eleve}</span>}
                       <Doux>{a.classe}</Doux>
                     </div>,
                     <span className="doux">{jjmmaaaa(a.jour)} {a.moment}</span>,
                     heures(a.minutes),
                     a.motif ? <span>{a.motif}</span> : <span className="doux">–</span>,
                     a.justifiee ? <Pastille ton="succes" icone="coche">Justifiée</Pastille> : <Pastille ton="attention">Non justifiée</Pastille>,
-                    a.justifiee || !d.peutJustifier ? <span className="doux">–</span>
+                    a.justifiee || !peutJustifier ? <span className="doux">–</span>
                       : <button type="button" className="lien-texte" style={{ fontWeight: 600, ...lienTactile }} aria-label={`Justifier l’absence de ${a.eleve} du ${jjmmaaaa(a.jour)}`} onClick={() => justifier(a)}>Justifier</button>,
                   ])} />
-                <Doux>Une absence se justifie par le principal, le directeur ou la secrétaire ; le parent peut le demander depuis son application.</Doux>
+                <Doux>Une absence se justifie par le préfet des études ; le parent peut le demander depuis son application.</Doux>
               </Panneau>
               <Panneau>
                 <TitrePanneau titre={`Cumul du ${d.periode ?? 'trimestre'}`} sous="Les trois plus élevés" />
@@ -661,7 +691,8 @@ export function EcranDiscipline() {
           { flex: 2, min: 340, enfants: (
             <Panneau ecart={0}>
               <TitrePanneau titre="Observations et sanctions" sous="Historique conservé par élève ; le principal lit celles de sa classe"
-                action={moi.a('vie_scolaire.observation.creer') ? <Bouton icone="ajouter" variante="principal" onClick={observer}>Nouvelle observation</Bouton> : undefined} />
+                action={moi.a('vie_scolaire.observation.creer') && moi.a('scolarite.eleve.consulter')
+                  ? <Bouton icone="ajouter" variante="principal" onClick={observer}>Nouvelle observation</Bouton> : undefined} />
               <div style={{ marginTop: 6 }}>
                 {((d.observations ?? []) as any[]).map((o) => (
                   <LigneListe key={o.id}>
@@ -672,12 +703,16 @@ export function EcranDiscipline() {
                       <span>{o.description}</span>
                       {o.sanction && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}><span className="gras doux">Sanction</span><span className="gras">{o.sanction}</span></div>}
                       <Doux>{jjmmaaaa(o.survenuLe)} · relevé par {o.auteur}</Doux>
+                      {!o.sanction && o.type !== 'felicitations' && moi.a('vie_scolaire.sanction.decider') && (
+                        <span><button type="button" className="lien-texte" style={{ fontWeight: 600, ...lienTactile }} aria-label={`Décider une sanction pour ${o.eleve}`}
+                          onClick={() => sanctionner(o)}>Décider une sanction</button></span>
+                      )}
                     </div>
                   </LigneListe>
                 ))}
                 {(d.observations ?? []).length === 0 && <LigneListe><Doux>Aucune observation pour l’instant.</Doux></LigneListe>}
               </div>
-              <Doux style={{ marginTop: 10 }}>Types : retard, comportement, travail non fait, tenue, félicitations. Une sanction est décidée par l’instituteur qui a relevé les faits, le principal ou le directeur.</Doux>
+              <Doux style={{ marginTop: 10 }}>Types : retard, comportement, travail non fait, tenue, félicitations. L’instituteur relève les faits ; la sanction est décidée par le directeur.</Doux>
             </Panneau>
           ) },
         ]} />
@@ -917,8 +952,10 @@ export function EcranSms() {
                           <>
                             <span style={{ flex: '1 1 160px', fontWeight: 500 }}>{n.libelle}</span>
                             <Doux>{n.canal}</Doux>
-                            <Bouton petit={false} icone={n.active === true ? 'coche' : undefined} disabled={!parametrer} onClick={() => void changer(n.active !== true)}
-                              title={`${n.libelle} : ${n.active === true ? 'activée' : 'désactivée'}`}>{n.active === true ? 'Activée' : 'Désactivée'}</Bouton>
+                            {parametrer
+                              ? <Bouton petit={false} icone={n.active === true ? 'coche' : undefined} onClick={() => void changer(n.active !== true)}
+                                  title={`${n.libelle} : ${n.active === true ? 'activée' : 'désactivée'}`}>{n.active === true ? 'Activée' : 'Désactivée'}</Bouton>
+                              : <Pastille ton={n.active === true ? 'succes' : 'neutre'} icone={n.active === true ? 'coche' : undefined}>{n.active === true ? 'Activée' : 'Désactivée'}</Pastille>}
                           </>
                         ) : (
                           <>

@@ -79,7 +79,7 @@ La conception confie le paramétrage à la secrétaire, et le directeur valide s
 
 - **Compte** : la secrétaire, créée par `demo:vide`.
 - **Gestes** :
-  1. **Paramètres › Établissement**, section Identité :
+  1. **Paramètres › Établissement**, section Identité (avec le compte de la **directrice** : l'identité de l'école lui est réservée, D-52) :
      - devise, ville et boîte postale, téléphone (600 000 200), signataire des documents ;
      - « Réductions sans validation jusqu'à (FCFA) » : **10 000** ;
      - enregistrez (Ctrl S).
@@ -102,7 +102,7 @@ La conception confie le paramétrage à la secrétaire, et le directeur valide s
   - les comptes et leurs rôles dans Paramètres › Utilisateurs et rôles ;
   - chaque création au Journal d'audit.
 
-**Préparation des frais** (économe, avant l'étape 2) : Frais et caisse › Grille des frais. Saisissez les dates limites (07/09/2026, 30/09/2026, 30/11/2026, 31/01/2027), puis l'inscription et les trois tranches de chaque niveau. Exemple pour le CM2 : 12 000, 30 000, 25 000, 18 000. Enregistrez, puis faites de même sous « Anciens élèves ». Sans grille, une inscription ne crée pas d'échéancier.
+**Préparation des frais** (directrice, avant l'étape 2 ; la grille des frais est une décision de direction, D-52) : Frais et caisse › Grille des frais. Saisissez les dates limites (07/09/2026, 30/09/2026, 30/11/2026, 31/01/2027), puis l'inscription et les trois tranches de chaque niveau. Exemple pour le CM2 : 12 000, 30 000, 25 000, 18 000. Enregistrez, puis faites de même sous « Anciens élèves ». Sans grille, une inscription ne crée pas d'échéancier.
 
 ### Étape 2 · Secrétaire : classes, inscriptions, annonce
 

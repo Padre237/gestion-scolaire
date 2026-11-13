@@ -38,6 +38,8 @@ const Carte = z.object({
 });
 type CarteT = z.infer<typeof Carte>;
 
+/** « 125 000 FCFA » (espace fine, comme l'application web). */
+const fcfa = (n: number) => `${String(Math.round(Number(n))).replace(/\B(?=(\d{3})+(?!\d))/g, '\u202f')} FCFA`;
 const permis = (ctx: Contexte, i: Indicateur) => i.permissions.some((p) => ctx.portee(p) === 'etablissement');
 const PAR_DEFAUT: Omit<CarteT, 'id'>[] = [
   { indicateur: 'effectifs', par: 'classe', forme: 'barres', section: 'toutes', classeId: null, duree: '30j', periodeId: null },
@@ -92,6 +94,46 @@ export async function routesCartes(app: FastifyInstance) {
     return { ok: true };
   });
 
+  /** Chiffres clés en tête du tableau de bord : chacun n'apparaît qu'avec la permission de son indicateur. */
+  r.get('/pilotage/chiffres', { config: LECTURE, schema: { tags: ['pilotage'] } }, async (req) => {
+    const ctx = exiger(req);
+    const etab = ctx.etablissementId;
+    const annee = await anneeOuverte(app.bd, etab);
+    if (!annee) return { chiffres: [] };
+    const chiffres: { code: string; libelle: string; valeur: number; unite: string; detail: string }[] = [];
+    const actives = sql`i.annee_id = ${annee.id} AND i.etablissement_id = ${etab} AND i.statut IN ('attente', 'validee')`;
+    const jour = sql`(now() AT TIME ZONE 'Africa/Douala')::date`;
+    if (permis(ctx, INDICATEURS.effectifs!)) {
+      const e = (await app.bd.lireUn<{ n: number; f: number }>(sql`
+        SELECT count(*)::int AS n, count(*) FILTER (WHERE e.sexe = 'F')::int AS f
+          FROM scolarite.inscription i JOIN scolarite.eleve e ON e.id = i.eleve_id WHERE ${actives}`))!;
+      chiffres.push({ code: 'eleves', libelle: 'Élèves inscrits', valeur: e.n, unite: 'élèves', detail: `${e.f} filles · ${e.n - e.f} garçons` });
+    }
+    if (permis(ctx, INDICATEURS.encaissements!)) {
+      const v = (await app.bd.lireUn<{ mois: number; jour: number }>(sql`
+        SELECT COALESCE(sum(v.montant) FILTER (WHERE date_trunc('month', (v.encaisse_le AT TIME ZONE 'Africa/Douala')::date) = date_trunc('month', ${jour})), 0)::bigint AS mois,
+               COALESCE(sum(v.montant) FILTER (WHERE (v.encaisse_le AT TIME ZONE 'Africa/Douala')::date = ${jour}), 0)::bigint AS jour
+          FROM finances.versement v WHERE v.etablissement_id = ${etab} AND v.statut = 'valide'
+           AND v.encaisse_le >= date_trunc('month', ${jour}) - interval '1 day'`))!;
+      chiffres.push({ code: 'encaisse', libelle: 'Encaissé ce mois', valeur: Number(v.mois), unite: 'FCFA', detail: `aujourd’hui : ${fcfa(v.jour)}` });
+    }
+    if (permis(ctx, INDICATEURS.recouvrement!)) {
+      const s = (await app.bd.lireUn<{ taux: number | null; reste: number }>(sql`
+        SELECT round(100.0 * sum(s.verse) / nullif(sum(s.a_payer), 0))::int AS taux, COALESCE(sum(s.reste), 0)::bigint AS reste
+          FROM scolarite.inscription i JOIN reporting.v_solde s ON s.inscription_id = i.id WHERE ${actives}`))!;
+      chiffres.push({ code: 'recouvrement', libelle: 'Taux de recouvrement', valeur: s.taux ?? 0, unite: '%', detail: `reste dû : ${fcfa(s.reste)}` });
+    }
+    if (permis(ctx, INDICATEURS.absences!)) {
+      const a = (await app.bd.lireUn<{ absents: number; faites: number; classes: number }>(sql`
+        SELECT (SELECT count(DISTINCT a.inscription_id)::int FROM vie_scolaire.absence a WHERE a.etablissement_id = ${etab} AND a.jour = ${jour}) AS absents,
+               (SELECT count(DISTINCT f.classe_id)::int FROM vie_scolaire.fiche_appel f WHERE f.etablissement_id = ${etab} AND f.jour = ${jour} AND f.statut = 'faite') AS faites,
+               (SELECT count(*)::int FROM structure.classe c WHERE c.annee_id = ${annee.id}) AS classes`))!;
+      chiffres.push({ code: 'absents', libelle: 'Absents aujourd’hui', valeur: a.absents, unite: 'élèves',
+        detail: a.faites ? `appel fait dans ${a.faites} classe${a.faites > 1 ? 's' : ''} sur ${a.classes}` : 'aucun appel fait aujourd’hui' });
+    }
+    return { chiffres };
+  });
+
   /** Données d'une carte : une série de points { libellé, valeur } dans l'unité de l'indicateur. */
   r.get('/pilotage/cartes/donnees', { config: LECTURE, schema: { tags: ['pilotage'], querystring: Carte.omit({ id: true, forme: true }) } }, async (req) => {
     const ctx = exiger(req);
@@ -141,11 +183,12 @@ export async function routesCartes(app: FastifyInstance) {
         const joint = sql`FROM finances.versement v JOIN scolarite.inscription i ON i.id = v.inscription_id JOIN structure.classe c ON c.id = i.classe_id
                           JOIN structure.niveau n ON n.id = c.niveau_id JOIN structure.cycle cy ON cy.id = n.cycle_id`;
         if (q.par === 'jour' || q.par === 'mois') {
-          // Tous les jours de la fenêtre, même sans encaissement (la courbe ne saute pas de jour).
+          // Tous les jours d'ouverture de la caisse (dimanche exclu), même sans encaissement ; le jour en cours dès son premier encaissement.
           lignes = await app.bd.lire(sql`
             WITH v AS (SELECT ${jourV} AS jv, sum(v.montant)::bigint AS m ${joint} WHERE ${filtre} GROUP BY 1)
             SELECT ${g.cle} AS cle, ${g.libelle} AS libelle, COALESCE(sum(v.m), 0)::bigint AS valeur
               FROM generate_series(${depuis}, (now() AT TIME ZONE 'Africa/Douala')::date, interval '1 day') AS d LEFT JOIN v ON v.jv = d::date
+             WHERE extract(isodow FROM d) <> 7 AND (d::date < (now() AT TIME ZONE 'Africa/Douala')::date OR v.m IS NOT NULL)
              GROUP BY 1, 2 ORDER BY ${g.ordre}`);
         } else {
           lignes = await app.bd.lire(sql`SELECT ${g.cle} AS cle, ${g.libelle} AS libelle, sum(v.montant)::bigint AS valeur ${joint} WHERE ${filtre} GROUP BY 1, 2 ORDER BY ${g.ordre}`);
@@ -157,11 +200,14 @@ export async function routesCartes(app: FastifyInstance) {
         const joint = sql`FROM vie_scolaire.absence a JOIN scolarite.inscription i ON i.id = a.inscription_id JOIN scolarite.eleve e ON e.id = i.eleve_id
                           JOIN structure.classe c ON c.id = i.classe_id JOIN structure.niveau n ON n.id = c.niveau_id JOIN structure.cycle cy ON cy.id = n.cycle_id`;
         if (q.par === 'jour' || q.par === 'mois') {
+          // Jours de classe seulement (un appel fait ou une absence notée) : pas de faux zéro les jours sans école ni pour la journée en cours.
           lignes = await app.bd.lire(sql`
             WITH a AS (SELECT a.jour AS ja, count(*)::int AS n ${joint} WHERE ${filtre} GROUP BY 1)
             SELECT ${g.cle} AS cle, ${g.libelle} AS libelle, COALESCE(sum(a.n), 0)::int AS valeur
               FROM generate_series(${depuis}, (now() AT TIME ZONE 'Africa/Douala')::date, interval '1 day') AS d LEFT JOIN a ON a.ja = d::date
-             WHERE extract(isodow FROM d) <> 7 GROUP BY 1, 2 ORDER BY ${g.ordre}`);
+             WHERE a.n IS NOT NULL OR (d::date < (now() AT TIME ZONE 'Africa/Douala')::date
+                   AND EXISTS (SELECT 1 FROM vie_scolaire.fiche_appel f WHERE f.etablissement_id = ${etab} AND f.jour = d::date AND f.statut = 'faite'))
+             GROUP BY 1, 2 ORDER BY ${g.ordre}`);
         } else {
           lignes = await app.bd.lire(sql`SELECT ${g.cle} AS cle, ${g.libelle} AS libelle, count(*)::int AS valeur ${joint} WHERE ${filtre} GROUP BY 1, 2 ORDER BY ${g.ordre}`);
         }

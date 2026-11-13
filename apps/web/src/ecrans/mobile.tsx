@@ -124,7 +124,11 @@ const CSS = `
   text-decoration: none; font-size: 11px; font-weight: 600; color: var(--doux); }
 .m-onglets a:hover { color: var(--texte); }
 .m-onglets a.actif { color: var(--accent); }
-.m-onglets a.actif::before { content: ''; position: absolute; top: 0; left: 30%; right: 30%; height: 3px; border-radius: 0 0 3px 3px; background: var(--accent); }
+.m-onglets a .icone { box-sizing: content-box; padding: 4px 18px; border-radius: 999px; transition: background 0.15s; }
+.m-onglets a.actif .icone { background: var(--m-accent-fond); }
+.m-progres { display: block; width: 100%; max-width: 220px; height: 4px; margin-top: 6px; border-radius: 2px; background: var(--neutre-fond); overflow: hidden; }
+.m-progres > span { display: block; height: 100%; min-width: 2px; border-radius: 2px; background: var(--accent); }
+.m-progres.complet > span { background: var(--succes); }
 .m-rail-logo { display: none; }
 .m-sans-onglets .m-onglets { display: none; }
 
@@ -316,7 +320,7 @@ body:has(.m-app) .messages-flottants { bottom: calc(84px + env(safe-area-inset-b
   .m-onglets a:hover:not(.actif) { background: var(--neutre-fond); }
   .m-onglets a.actif { background: var(--m-accent-fond); color: var(--accent); }
   .m-onglets a.actif .icone { color: var(--accent); }
-  .m-onglets a.actif::before { display: none; }
+  .m-onglets a .icone, .m-onglets a.actif .icone { padding: 0; background: none; }
   .m-rail-logo { display: flex; flex-direction: column; gap: 6px; padding: 0 6px 18px; min-width: 0; }
   .m-rail-logo img { display: block; width: 104px; height: 33.6px; }
   .m-entete .m-logo-entete { display: none; }
@@ -809,6 +813,11 @@ function ChoixClasse({ classes, sequence, choisir }: { classes: ClasseSaisie[]; 
                     <div className="m-pile">
                       <span className="gras">{m.libelle}</span>
                       <span className="m-petit">{autre ? `Saisie par ${m.saisiePar}` : a ? `${pluriel(a.notes, 'note')} sur ${a.total}` : ' '}</span>
+                      {!autre && a && a.total > 0 && (
+                        <span className={`m-progres${a.notes >= a.total ? ' complet' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={a.total} aria-valuenow={a.notes} aria-label={`${m.libelle} : ${a.notes} notes sur ${a.total}`}>
+                          <span style={{ width: `${Math.min(100, (a.notes / a.total) * 100)}%` }} />
+                        </span>
+                      )}
                     </div>
                     {!autre && a && a.total > 0 && a.notes >= a.total && <span className="m-badge succes"><Icone nom="cercleCoche" taille={13} />Complet</span>}
                     <Chevron />

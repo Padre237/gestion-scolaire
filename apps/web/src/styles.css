@@ -67,7 +67,7 @@ main.principal:focus { outline: none; }
 .etablissement-carte .petit { color: var(--lateral-doux); }
 .lateral-pied { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--lateral-survol); }
 .lateral-personne { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
-.lateral-personne .gras { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lateral-personne .gras { font-size: 13px; overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .lateral-personne .petit { color: var(--lateral-doux); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lateral-pied .avatar { background: #1D4ED8; color: #FFFFFF; border-color: transparent; }
 .lateral-sortie { flex: none; width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--lateral-doux); cursor: pointer; }
@@ -431,6 +431,21 @@ body.tiroir-ouvert { overflow: hidden; }
 /* ---------------------------------------------------------------- tableau de bord personnalisable (D-41) */
 .cartes-grille { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 460px), 1fr)); gap: 16px; }
 .carte-tableau { min-height: 320px; }
+.carte-tableau .titre-panneau > div { flex-direction: column; align-items: flex-start; gap: 2px; }
+.carte-tableau .graphe-vide { flex: 1; min-height: 120px; padding: 0 16px; }
+.carte-tableau:has(> .graphe-vide) { min-height: 0; }
+.graphe-plein { flex: 1 1 auto; min-height: 200px; }
+.graphe-plein > svg { position: absolute; inset: 0; }
+.chiffres-cles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+.chiffre-cle { display: flex; flex-direction: column; gap: 4px; padding: 16px 18px; background: var(--panneau); border: 1px solid var(--bord); border-radius: 12px; box-shadow: var(--ombre); min-width: 0; }
+.chiffre-libelle { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--doux); }
+.chiffre-valeur { font-family: 'Inter Display', Inter, system-ui, sans-serif; font-size: 28px; font-weight: 700; line-height: 1.15; color: var(--texte); }
+.chiffre-valeur small { font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 600; color: var(--doux); }
+@media (max-width: 600px) {
+  .chiffres-cles { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .chiffre-cle { padding: 12px 14px; }
+  .chiffre-valeur { font-size: 22px; }
+}
 .bouton.petit-icone { width: 36px; height: 36px; border-color: transparent; background: transparent; color: var(--doux); }
 .bouton.petit-icone:hover:not(:disabled) { background: var(--neutre-fond); color: var(--texte); }
 :root { --serie-1: #2a5fdc; --serie-2: #1baf7a; --serie-3: #eda100; --serie-4: #e87ba4; --serie-autres: #94A3B8; }
@@ -456,7 +471,7 @@ body.tiroir-ouvert { overflow: hidden; }
 .barre-h-piste { height: 10px; border-radius: 4px; background: var(--neutre-fond); overflow: hidden; }
 .barre-h-piste span { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
 .barre-h-valeur { font-weight: 600; text-align: right; min-width: 64px; }
-.courbe { display: block; width: 100%; height: auto; overflow: visible; }
+.courbe { display: block; overflow: visible; }
 .courbe-trait { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
 .courbe-aire { fill: var(--accent-fond); }
 .courbe-viseur { stroke: var(--bord-fort); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }

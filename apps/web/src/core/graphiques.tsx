@@ -1,7 +1,7 @@
 // Graphiques du tableau de bord personnalisable (D-41) : barres, courbe, anneau et tableau, en SVG et HTML écrits à la main.
 // Une série seule prend le bleu savoir (charte) ; l'anneau prend quatre teintes validées (jour et nuit) puis « Autres » en gris.
 // Survol : info-bulle sur chaque barre, point ou part ; la forme « Tableau » sert de vue tabulaire.
-import { useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import { decimal, montant } from './format.ts';
 
 export interface Point { cle: string; libelle: string; valeur: number | null }
@@ -29,14 +29,15 @@ function Bulle({ x, y, children }: { x: number; y: number; children: ReactNode }
   return <div className="graphe-bulle" role="status" style={{ left: x, top: y }}>{children}</div>;
 }
 
-const vide = (points: Point[]) => points.length === 0 || points.every((p) => !p.valeur);
+export const vide = (points: Point[]) => points.length === 0 || points.every((p) => !p.valeur);
 export const Vide = ({ texte = 'Aucune donnée pour ces filtres.' }: { texte?: string }) => <div className="graphe-vide doux">{texte}</div>;
 
 /** Barres : verticales jusqu'à 14 points, horizontales au-delà (libellés lisibles, défilement dans la carte). */
 export function Barres({ points, unite }: { points: Point[]; unite: string }) {
   const [survol, setSurvol] = useState<number | null>(null);
   if (vide(points)) return <Vide />;
-  const max = Math.max(...points.map((p) => p.valeur ?? 0));
+  // Un taux se lit sur 100, une moyenne sur 20 : la barre pleine garde son sens.
+  const max = unite === '%' ? Math.max(100, ...points.map((p) => p.valeur ?? 0)) : unite === '/20' ? 20 : Math.max(...points.map((p) => p.valeur ?? 0));
   if (points.length > 14) {
     return (
       <div className="barres-h" role="list">
@@ -71,21 +72,35 @@ export function Barres({ points, unite }: { points: Point[]; unite: string }) {
   );
 }
 
-/** Courbe : trait de 2 px, aire légère, repère et info-bulle au survol (évolution dans le temps). */
+/** Taille réelle d'un conteneur (le dessin se fait en pixels : textes lisibles à toute largeur, graphique qui remplit sa carte). */
+function useTaille() {
+  const [t, setT] = useState({ l: 0, h: 0 });
+  const obs = useRef<ResizeObserver | null>(null);
+  const ref = useCallback((el: HTMLDivElement | null) => {
+    obs.current?.disconnect();
+    if (!el) return;
+    obs.current = new ResizeObserver(([e]) => setT({ l: Math.round(e!.contentRect.width), h: Math.round(e!.contentRect.height) }));
+    obs.current.observe(el);
+  }, []);
+  return [ref, t] as const;
+}
+
+/** Courbe : trait de 2 px, aire légère, repère et info-bulle au survol (évolution dans le temps). Elle occupe toute la hauteur de sa carte. */
 export function Courbe({ points, unite }: { points: Point[]; unite: string }) {
   const [survol, setSurvol] = useState<number | null>(null);
+  const [ref, t] = useTaille();
   if (vide(points)) return <Vide />;
-  const L = 600, H = 200, g = 44, b = 22;
+  const L = Math.max(t.l, 200), H = Math.max(t.h, 160), g = 44, b = 22;
   const [pas, haut] = echelle(Math.max(...points.map((p) => p.valeur ?? 0)));
   const x = (i: number) => g + (points.length === 1 ? (L - g) / 2 : (i / (points.length - 1)) * (L - g - 8));
   const y = (v: number | null) => 8 + (1 - (v ?? 0) / haut) * (H - b - 8);
   const ligne = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.valeur).toFixed(1)}`).join(' ');
   const aire = `${ligne} L${x(points.length - 1).toFixed(1)},${H - b} L${x(0).toFixed(1)},${H - b} Z`;
-  const tous = Math.ceil(points.length / 7);
+  const tous = Math.ceil(points.length / Math.max(2, Math.floor((L - g) / 64)));
   const s = survol === null ? null : points[survol]!;
   return (
-    <div className="graphe" onMouseLeave={() => setSurvol(null)}>
-      <svg viewBox={`0 0 ${L} ${H}`} className="courbe" role="img" aria-label={`Courbe : ${points.map((p) => `${p.libelle} ${enUnite(p.valeur, unite)}`).join(', ')}`}
+    <div className="graphe graphe-plein" ref={ref} onMouseLeave={() => setSurvol(null)}>
+      {t.l > 0 && <svg viewBox={`0 0 ${L} ${H}`} width={L} height={H} className="courbe" role="img" aria-label={`Courbe : ${points.map((p) => `${p.libelle} ${enUnite(p.valeur, unite)}`).join(', ')}`}
         onMouseMove={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           const px = ((e.clientX - r.left) / r.width) * L;
@@ -106,8 +121,8 @@ export function Courbe({ points, unite }: { points: Point[]; unite: string }) {
           <line x1={x(survol)} x2={x(survol)} y1={8} y2={H - b} className="courbe-viseur" />
           <circle cx={x(survol)} cy={y(s.valeur)} r={5} className="courbe-point" />
         </>}
-      </svg>
-      {s && survol !== null && <Bulle x={(x(survol) / L) * 100} y={0}><b>{s.libelle}</b> · {enUnite(s.valeur, unite)}</Bulle>}
+      </svg>}
+      {s && survol !== null && <Bulle x={x(survol)} y={y(s.valeur) - 8}><b>{s.libelle}</b> · {enUnite(s.valeur, unite)}</Bulle>}
     </div>
   );
 }

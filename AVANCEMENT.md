@@ -36,3 +36,4 @@ Fichier de travail : il dit ce qui est fait et ce qui reste, pour reprendre sans
 - [x] Lot 8 · Assistant relié à OpenRouter (réglage par le directeur), questions nettoyées, chiffres agrégés seulement (D-48).
 - [x] Lot 9 · application hybride : poste de l'école et version en ligne synchronisés dans les deux sens, dernière modification gagnante, conflits gardés ; essai local `pnpm synchro:essai` (D-49, E-46).
 - [x] Application complètement installable sur téléphone (PWA) : icônes, bouton d'installation, aide iPhone, mise à jour annoncée, saisie hors réseau des messages des parents (D-50).
+- [x] Ajustements de design : chiffres clés en tête du tableau de bord, courbes sur les seuls jours de classe, cartes sans vide, recouvrement trié, progression de la saisie des notes (D-51).

@@ -5,7 +5,8 @@ import { useState } from 'react';
 import type { RouteEcran } from '../App.tsx';
 import { api } from '../core/api.ts';
 import { Coque } from '../core/coque.tsx';
-import { Anneau, Barres, Courbe, TableauPoints, type Point } from '../core/graphiques.tsx';
+import { montant } from '../core/format.ts';
+import { Anneau, Barres, Courbe, TableauPoints, Vide, vide, type Point } from '../core/graphiques.tsx';
 import { agir, Bascules, Bouton, Chargement, confirmer, Doux, Erreur, Icone, Liste, ouvrirFormulaire, Panneau, PiedFenetre, TitrePanneau, useDonnees } from '../core/ui.tsx';
 
 type Forme = 'barres' | 'courbe' | 'anneau' | 'tableau';
@@ -47,6 +48,31 @@ function FenetreCarte({ carte, cfg, fermer }: { carte: Carte; cfg: Config; ferme
   );
 }
 
+/** Carte sans donnée : une phrase qui dit quand elle se remplira. */
+const VIDES: Record<string, string> = {
+  moyennes: 'Les moyennes apparaîtront ici dès la publication des premiers bulletins.',
+  absences: 'Aucune absence notée sur cette période.',
+  encaissements: 'Aucun encaissement sur cette période.',
+};
+
+interface Chiffre { code: string; libelle: string; valeur: number; unite: string; detail: string }
+/** Chiffres clés en tête : ce que la direction lit d'un coup d'œil, avant les graphiques. */
+function ChiffresCles() {
+  const d = useDonnees(() => api.get<{ chiffres: Chiffre[] }>('/pilotage/chiffres'));
+  if (!d.d?.chiffres.length) return null;
+  return (
+    <div className="chiffres-cles">
+      {d.d.chiffres.map((c) => (
+        <div key={c.code} className="chiffre-cle">
+          <span className="chiffre-libelle">{c.libelle}</span>
+          <span className="chiffre-valeur">{montant(c.valeur)}{c.unite === '%' ? ' %' : c.unite === 'FCFA' ? <small> FCFA</small> : null}</span>
+          <span className="doux petit">{c.detail}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function CarteTableau({ carte, cfg, modifier, retirer }: { carte: Carte; cfg: Config; modifier: () => void; retirer: () => void }) {
   const ind = cfg.catalogue.find((i) => i.code === carte.indicateur);
   const par = ind?.par.find((p) => p.code === carte.par);
@@ -54,13 +80,18 @@ function CarteTableau({ carte, cfg, modifier, retirer }: { carte: Carte; cfg: Co
   if (carte.classeId) q.set('classeId', carte.classeId);
   if (carte.periodeId) q.set('periodeId', carte.periodeId);
   const d = useDonnees(() => api.get<{ unite: string; sous: string; points: Point[] }>(`/pilotage/cartes/donnees?${q}`), [q.toString()]);
-  const filtres = [carte.section !== 'toutes' ? SECTIONS.find(([v]) => v === carte.section)![1] : null, carte.classeId ? cfg.classes.find((k) => k.id === carte.classeId)?.nom : null, d.d?.sous]
+  const filtres = [carte.section !== 'toutes' ? SECTIONS.find(([v]) => v === carte.section)![1] : null, carte.classeId ? cfg.classes.find((k) => k.id === carte.classeId)?.nom : null, d.d?.sous,
+    carte.indicateur === 'recouvrement' && carte.forme === 'barres' ? 'du plus faible au plus fort' : null]
     .filter(Boolean).join(' · ');
+  // Taux de recouvrement en barres : du plus faible au plus fort, les classes en retard d'abord.
+  const trie = carte.indicateur === 'recouvrement' && carte.forme === 'barres';
+  const points = d.d ? (trie ? [...d.d.points].sort((a, b) => (a.valeur ?? 0) - (b.valeur ?? 0)) : d.d.points) : [];
   const corps = !d.d ? (d.erreur ? <Doux>{d.erreur}</Doux> : <Chargement />)
-    : carte.forme === 'barres' ? <Barres points={d.d.points} unite={d.d.unite} />
-      : carte.forme === 'courbe' ? <Courbe points={d.d.points} unite={d.d.unite} />
-        : carte.forme === 'anneau' ? <Anneau points={d.d.points} unite={d.d.unite} />
-          : <TableauPoints points={d.d.points} unite={d.d.unite} entete={par?.libelle ?? ''} />;
+    : vide(points) ? <Vide texte={VIDES[carte.indicateur]} />
+      : carte.forme === 'barres' ? <Barres points={points} unite={d.d.unite} />
+        : carte.forme === 'courbe' ? <Courbe points={points} unite={d.d.unite} />
+          : carte.forme === 'anneau' ? <Anneau points={points} unite={d.d.unite} />
+            : <TableauPoints points={points} unite={d.d.unite} entete={par?.libelle ?? ''} />;
   return (
     <Panneau className="carte-tableau">
       <TitrePanneau titre={`${ind?.libelle ?? ''}${par ? ` par ${par.libelle.toLowerCase()}` : ''}`} sous={filtres || undefined} action={
@@ -100,6 +131,7 @@ export function EcranTableauDeBord() {
     if (!cfg.catalogue.length) return <Panneau><Doux>Aucune donnée du tableau de bord n’est ouverte à votre compte.</Doux></Panneau>;
     return (
       <>
+        <ChiffresCles />
         <div className="rangee" style={{ alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <Doux>{cfg.cartes.length} carte{cfg.cartes.length > 1 ? 's' : ''} sur {MAX} · chaque carte se règle avec son bouton <Icone nom="parametres" taille={14} /></Doux>
           <span style={{ flex: 1 }} />

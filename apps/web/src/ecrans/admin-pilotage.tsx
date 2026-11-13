@@ -8,7 +8,7 @@ import { useMoi } from '../core/session.tsx';
 import { ouvrirDocument, telecharger } from '../core/documents.ts';
 import { aujourdhuiIso, fcfa, jjmmaaaa, montant, note2, pluriel } from '../core/format.ts';
 import {
-  agir, Bandeau, Bouton, Champ, Chargement, Colonnes, Doux, Erreur, Filtres, Jauge, LigneListe, Liste, Panneau, Pastille, Tableau, TitrePanneau,
+  agir, Bandeau, Bouton, CaseACocher, Champ, Chargement, Colonnes, Doux, Erreur, Filtres, Jauge, LigneListe, Liste, Panneau, Pastille, signaler, Tableau, TitrePanneau,
   useDonnees, type Ton,
 } from '../core/ui.tsx';
 import { dateHeure } from './admin-commun.tsx';
@@ -129,7 +129,39 @@ export function EcranStatistiques() {
 
 // ---------------------------------------------------------------- assistant
 
-interface Question { id: string; question: string; statut: string; creeLe: string; reponse: unknown }
+interface Question { id: string; question: string; remplacements: number | null; statut: string; creeLe: string; reponse: unknown }
+interface ReglageIA { adresse: string; modele: string; actif: boolean; cleEnregistree: boolean; finCle: string | null }
+
+/** Réglage du fournisseur (directeur) : adresse compatible OpenRouter, modèle, clé ; la clé enregistrée ne s'affiche jamais. */
+function PanneauReglageIA({ apres }: { apres: () => void }) {
+  const st = useDonnees(() => api.get<ReglageIA>('/assistant/reglage'));
+  const [v, setV] = useState<{ adresse: string; modele: string; actif: boolean } | null>(null);
+  const [cle, setCle] = useState('');
+  const [charge, setCharge] = useState(false);
+  const d = st.d;
+  if (st.erreur && !d) return <Erreur message={st.erreur} recharger={st.recharger} />;
+  if (!d) return <Panneau><Chargement /></Panneau>;
+  const x = v ?? { adresse: d.adresse, modele: d.modele, actif: d.actif };
+  const enregistrer = async () => {
+    setCharge(true);
+    const ok = await agir(() => api.put('/assistant/reglage', { ...x, ...(cle.trim() ? { cle: cle.trim() } : {}) }), 'Réglage de l’assistant enregistré');
+    setCharge(false);
+    if (ok) { setV(null); setCle(''); await st.recharger(); apres(); }
+  };
+  return (
+    <Panneau>
+      <TitrePanneau titre="Fournisseur de l’assistant" sous={d.actif && d.cleEnregistree ? 'Relié' : 'Non relié'} />
+      <Champ libelle="Adresse du service" value={x.adresse} onChange={(a) => setV({ ...x, adresse: a })} placeholder="https://openrouter.ai/api/v1" />
+      <Champ libelle="Modèle" value={x.modele} onChange={(m) => setV({ ...x, modele: m })} placeholder="anthropic/claude-sonnet-5.5" />
+      <Champ libelle="Clé du fournisseur" type="password" value={cle} onChange={setCle}
+        placeholder={d.cleEnregistree ? `Clé enregistrée (…${d.finCle}) : laisser vide pour la garder` : 'Clé fournie par OpenRouter'} />
+      <CaseACocher libelle="Assistant activé" valeur={x.actif} onChange={(a) => setV({ ...x, actif: a })} />
+      <div><Bouton variante="principal" charge={charge} onClick={enregistrer}>Enregistrer</Bouton></div>
+      <Doux>Le nom exact du modèle se lit sur openrouter.ai/models. Seuls partent la question, nettoyée de tout nom, téléphone et adresse,
+        et des chiffres par classe (effectifs, recouvrement, absences, moyennes). La clé reste sur le serveur de l’école.</Doux>
+    </Panneau>
+  );
+}
 interface Proposition { id: string; type: string; libelle: string; contenu: unknown; creeLe: string }
 interface EtatAssistant { fournisseur: 'actif' | 'desactive'; questions: Question[]; propositions: Proposition[]; usage: { enFile: number; coutMois: number; plafond: number | null } }
 
@@ -164,10 +196,17 @@ export function EcranAssistant() {
     const q = question.trim();
     if (q.length < 5 || q.length > 500 || charge) return;
     setCharge(true);
-    const r = await agir(() => api.post<{ id: string; statut: string }>('/assistant/questions', { question: q }),
-      a.d?.fournisseur === 'actif' ? 'Question envoyée' : 'Question enregistrée : elle reste en file');
+    const r = await agir(() => api.post<{ id: string; statut: string; remplacements: number; erreur?: string }>('/assistant/questions', { question: q }));
     setCharge(false);
-    if (r) { setQuestion(''); void a.recharger(); }
+    if (r) {
+      const retire = r.remplacements ? ` ; ${pluriel(r.remplacements, 'information personnelle retirée', 'informations personnelles retirées')} avant l’envoi` : '';
+      signaler(r.statut === 'proposee' ? `Réponse reçue${retire}` : `Question en file${r.erreur ? ` (${r.erreur})` : ''}${retire}`, r.statut !== 'proposee' && !!r.erreur);
+      setQuestion(''); void a.recharger();
+    }
+  };
+  const envoyerFile = async () => {
+    const r = await agir(() => api.post<{ traitees: number; restantes: number; erreur?: string }>('/assistant/file'));
+    if (r) { signaler(r.traitees ? `${pluriel(r.traitees, 'question envoyée', 'questions envoyées')}` : `Aucune question envoyée${r.erreur ? ` : ${r.erreur}` : ''}`, !r.traitees); void a.recharger(); }
   };
   const d = a.d;
   const contenu = (() => {
@@ -183,7 +222,7 @@ export function EcranAssistant() {
             <Champ libelle="Votre question" lignes={3} value={question} onChange={setQuestion} placeholder="Par exemple : quels niveaux ont le plus de frais restant à payer ?"
               erreur={question.trim().length > 500 ? `500 caractères au plus (${question.trim().length} saisis).` : null} />
             <div className="pile-mobile" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
-              <Doux style={{ flex: '1 1 260px' }}>Réponses tirées des vues de reporting. Seule la question part chez le fournisseur ; elle est journalisée.</Doux>
+              <Doux style={{ flex: '1 1 260px' }}>Réponses tirées des chiffres de l’école. Ne partent que la question, sans nom, téléphone ni adresse, et des chiffres par classe ; tout est journalisé.</Doux>
               <Bouton variante="principal" icone="envoyer" charge={charge} disabled={question.trim().length < 5 || question.trim().length > 500} onClick={demander}>Demander</Bouton>
             </div>
             <div>
@@ -194,6 +233,7 @@ export function EcranAssistant() {
                   <LigneListe key={q.id}>
                     <div style={{ flex: '1 1 200px', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
                       <span className="gras" style={{ overflowWrap: 'anywhere' }}>{q.question}</span>
+                      {(q.remplacements ?? 0) > 0 && <Doux>Envoyée ainsi : {pluriel(q.remplacements!, 'information personnelle remplacée', 'informations personnelles remplacées')} ([personne], [numéro], [adresse]).</Doux>}
                       <Doux>Posée le {dateHeure(q.creeLe)}</Doux>
                       {reponse && (
                         <div className="bloc-assistant">
@@ -240,8 +280,10 @@ export function EcranAssistant() {
               <LigneListe><span style={{ flex: '1 1 140px' }}>Plafond mensuel</span><span className="gras">{d.usage.plafond === null ? 'Non fixé' : fcfa(d.usage.plafond)}</span></LigneListe>
               <LigneListe><span style={{ flex: '1 1 140px' }}>Demandes en file</span><span className="gras">{d.usage.enFile ? pluriel(d.usage.enFile, 'demande') : 'Aucune'}</span></LigneListe>
             </div>
-            <Doux>Noms et téléphones remplacés par des pseudonymes avant chaque envoi ; chaque appel est journalisé.</Doux>
+            {d.usage.enFile > 0 && relie && <div><Bouton icone="envoyer" onClick={envoyerFile}>Envoyer les questions en file</Bouton></div>}
+            <Doux>Noms, téléphones et adresses retirés avant chaque envoi ; chaque question est journalisée.</Doux>
           </Panneau>
+          {moi.a('assistant.reglage.gerer') && <PanneauReglageIA apres={() => { void a.recharger(); }} />}
           <Panneau>
             <TitrePanneau titre="Hors du champ de l’assistant" />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{HORS_CHAMP.map((x) => <Pastille key={x}>{x}</Pastille>)}</div>

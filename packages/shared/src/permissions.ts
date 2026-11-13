@@ -98,6 +98,7 @@ export const PERMISSIONS: readonly DefinitionPermission[] = [
   p('pilotage.statistiques.consulter', 'Pilotage', 'Consulter le pilotage', 'View statistics'),
 
   p('assistant.question.poser', 'Assistant', 'Interroger l\'assistant', 'Ask the assistant'),
+  p('assistant.reglage.gerer', 'Assistant', 'Régler l\'assistant (fournisseur, modèle, clé)', 'Configure the assistant'),
   p('assistant.proposition.traduction', 'Assistant', 'Valider une traduction proposée', 'Approve a proposed translation'),
   p('assistant.proposition.relance', 'Assistant', 'Valider des relances proposées', 'Approve proposed reminders'),
   p('assistant.proposition.bordereau', 'Assistant', 'Valider un bordereau lu par l\'assistant', 'Approve a slip read by the assistant'),
@@ -150,7 +151,7 @@ export const ROLES_SYSTEME: readonly DefinitionRole[] = [
     permissions: [
       ...LECTURE_COMMUNE, 'structure.consulter', 'core.compte.consulter', 'core.compte.gerer', 'core.compte.reinitialiser', 'core.compte.desactiver',
       'core.role.gerer', 'core.audit.consulter', 'core.audit.exporter',
-      'pilotage.tableau.consulter', 'pilotage.statistiques.consulter', 'assistant.question.poser',
+      'pilotage.tableau.consulter', 'pilotage.statistiques.consulter', 'assistant.question.poser', 'assistant.reglage.gerer',
       'scolarite.eleve.exporter', 'scolarite.derogation.valider',
       'finances.grille.consulter', 'finances.reduction.valider', 'finances.recu.consulter', 'finances.impaye.consulter',
       'finances.comptes.consulter', 'caisse.consulter', 'caisse.session.forcer', 'caisse.sortie.valider',

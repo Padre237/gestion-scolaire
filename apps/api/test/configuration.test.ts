@@ -1,5 +1,7 @@
 // Lot 1 (D-40) : sections préinstallées, année préremplie (classes et programme), nom des classes attribué par l'application.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { sql } from '../src/core/bd.ts';
 import { connecter, preparer, type Client } from './aide.ts';
 
@@ -136,5 +138,58 @@ describe('Utilisateurs et rôles : le directeur seul, droits sur mesure, périod
     expect((await sec.post(`/core/comptes/${c.corps.id}/permissions`, { permission: 'pilotage.tableau.consulter' })).status).toBe(403);
     // Réinitialisation par la secrétaire : refusée sur un compte du personnel.
     expect((await sec.post(`/core/comptes/${c.corps.id}/reinitialisation`)).status).toBe(403);
+  });
+});
+
+describe('Assistant relié à un fournisseur (D-48)', () => {
+  it('aucune donnée personnelle ne part ; file sans fournisseur ; clé jamais renvoyée ni journalisée', async () => {
+    // Faux fournisseur compatible OpenRouter : il garde ce qu'il reçoit.
+    const recues: string[] = [];
+    const serveur = createServer((req, res) => {
+      let corps = '';
+      req.on('data', (d) => { corps += d; });
+      req.on('end', () => {
+        recues.push(`${req.headers.authorization}\n${corps}`);
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ choices: [{ message: { content: 'Réponse de l’assistant.' } }], usage: { total_tokens: 42 } }));
+      });
+    });
+    await new Promise<void>((ok) => serveur.listen(0, '127.0.0.1', ok));
+    const port = (serveur.address() as AddressInfo).port;
+    try {
+      const adm = await connecter(env.app, 'directeur', 'secret-dir-1');
+      expect((await sec.post('/personnel', { nomAffiche: 'M. KAMDEM Arnaud', fonction: 'autre', statut: 'permanent' })).status).toBe(200);
+      // Sans fournisseur : la question reste en file.
+      const q0 = await adm.post<{ statut: string }>('/assistant/questions', { question: 'Combien d’élèves sont inscrits cette année ?' });
+      expect(q0.corps.statut).toBe('en_file');
+      // Réglage : directeur seul ; la clé ne revient pas à l'écran.
+      const reglage = { adresse: `http://127.0.0.1:${port}`, modele: 'modele-essai', cle: 'cle-secrete-1234', actif: true };
+      expect((await sec.put('/assistant/reglage', reglage)).status).toBe(403);
+      expect((await adm.put('/assistant/reglage', reglage)).status).toBe(200);
+      const lu = (await adm.get('/assistant/reglage')).corps;
+      expect(lu).toMatchObject({ actif: true, cleEnregistree: true, finCle: '1234' });
+      expect(JSON.stringify(lu)).not.toContain('cle-secrete');
+      // Question avec un nom, un téléphone et une adresse : tout est retiré avant l'envoi.
+      const q1 = await adm.post<{ statut: string; remplacements: number }>('/assistant/questions',
+        { question: 'Quel est le reste dû de KAMDEM ? Il a appelé du 677 12 34 56, écrire à kamdem@exemple.cm' });
+      expect(q1.corps.statut).toBe('proposee');
+      expect(q1.corps.remplacements).toBeGreaterThanOrEqual(3);
+      const envoye = recues.at(-1)!;
+      expect(envoye).toContain('Bearer cle-secrete-1234');
+      expect(envoye).toContain('Totaux');
+      for (const interdit of ['KAMDEM', 'Kamdem', '677 12', '6771234', 'exemple.cm']) expect(envoye).not.toContain(interdit);
+      // La file repart : la première question reçoit sa réponse.
+      const f = await adm.post<{ traitees: number }>('/assistant/file');
+      expect(f.corps.traitees).toBe(1);
+      const etat = (await adm.get<{ fournisseur: string; questions: { statut: string; reponse: { texte: string } | null }[] }>('/assistant')).corps;
+      expect(etat.fournisseur).toBe('actif');
+      expect(etat.questions.every((q) => q.statut === 'proposee' && q.reponse?.texte === 'Réponse de l’assistant.')).toBe(true);
+      // La clé n'est écrite dans aucune ligne du journal d'audit.
+      const fuites = await env.bd.lire(sql`SELECT 1 FROM core.journal_audit
+        WHERE coalesce(avant::text, '') || coalesce(apres::text, '') || coalesce(avant_libelle, '') || coalesce(apres_libelle, '') LIKE '%cle-secrete%'`);
+      expect(fuites).toHaveLength(0);
+    } finally {
+      serveur.close();
+    }
   });
 });
